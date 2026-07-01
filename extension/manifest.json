@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "solstone browser observer (prototype)",
+  "version": "0.0.7",
+  "description": "experiences the web apps you choose along with you — taking in their visible text, never pixels — and relays it into your local solstone journal. opt-in, per site.",
+  "minimum_chrome_version": "120",
+  "permissions": ["storage", "unlimitedStorage", "alarms", "scripting", "activeTab"],
+  "host_permissions": ["http://localhost:5015/*", "http://127.0.0.1:5015/*"],
+  "optional_host_permissions": ["*://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "solstone browser observer",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

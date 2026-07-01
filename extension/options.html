@@ -1,0 +1,154 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Copyright (c) 2026 sol pbc -->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>solstone browser observer — settings</title>
+    <style>
+      @font-face { font-family: "Comfortaa"; src: url("fonts/comfortaa.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+      @font-face { font-family: "InterBody"; src: url("fonts/inter.woff2") format("woff2"); font-weight: 400 600; font-display: swap; }
+      :root {
+        --ground: #faf3e4;
+        --surface: #fefcf8;
+        --ink: #1a1a1a;
+        --soft: #5b5246;
+        --muted: #6e6453;
+        --line: #ece3d0;
+        --line2: #e2d7bf;
+        --orange: #e8923a;
+        --orange-ink: #b06a1a;
+        --orange-wash: #fbefdd;
+        --ok: #166534;
+        --ok-wash: #e7f1e9;
+        --bad: #9f2d2d;
+        --bad-wash: #f8e9e6;
+      }
+      body {
+        font: 14px/1.5 "InterBody", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: var(--ground);
+        color: var(--ink);
+        margin: 0;
+        padding: 28px;
+      }
+      .wrap { max-width: 620px; margin: 0 auto; }
+      h1 {
+        font-family: "Comfortaa", system-ui, sans-serif;
+        font-weight: 700;
+        font-size: 19px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        letter-spacing: -0.3px;
+      }
+      h1 .desc { font-family: "InterBody", sans-serif; font-weight: 400; font-size: 13px; color: var(--muted); }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 16px 18px;
+        margin: 16px 0;
+      }
+      h2 { font-size: 14px; margin: 0 0 8px; }
+      .muted { color: var(--muted); font-size: 12px; }
+      label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; }
+      input {
+        font: inherit;
+        width: 100%;
+        box-sizing: border-box;
+        padding: 9px 10px;
+        border: 1px solid var(--line2);
+        border-radius: 9px;
+        background: #fff;
+        color: var(--ink);
+      }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      button {
+        font: inherit;
+        border: 1px solid var(--line2);
+        background: #fff;
+        color: var(--ink);
+        border-radius: 9px;
+        padding: 9px 14px;
+        cursor: pointer;
+        margin-top: 12px;
+      }
+      button.primary { background: var(--orange); border-color: var(--orange); color: #fff; font-weight: 600; }
+      .site {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 9px 0;
+        border-top: 1px solid var(--line);
+      }
+      .site:first-child { border-top: none; }
+      .site button { margin: 0; padding: 4px 11px; font-size: 12px; }
+      .pill { font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); }
+      .pill.ok { color: var(--ok); background: var(--ok-wash); border-color: transparent; }
+      .pill.bad { color: var(--bad); background: var(--bad-wash); border-color: transparent; }
+      .addrow { display: flex; gap: 8px; align-items: flex-end; }
+      .addrow > div { flex: 1; }
+      .addrow button { margin: 0; }
+      .status { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 16px; }
+      code { background: var(--orange-wash); color: var(--orange-ink); padding: 1px 6px; border-radius: 5px; }
+      a { color: var(--orange-ink); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>
+        <img src="brand/sol-ring.svg" width="24" height="24" alt="" />
+        solstone <span class="desc">browser observer — settings</span>
+      </h1>
+      <p class="muted">
+        this prototype experiences only the web apps you add below — taking in their visible text, never screenshots — and
+        relays it into your local solstone journal as its own <code>browser</code> stream. nothing is observed until you add
+        a site, and every observed tab shows a sol-mark “observing” marker.
+      </p>
+
+      <div class="card">
+        <h2>journal connection</h2>
+        <div class="grid">
+          <div>
+            <label>this computer’s short name (labels the stream)</label>
+            <input id="hostname" placeholder="suze" />
+          </div>
+          <div>
+            <label>journal url (local)</label>
+            <input id="journalUrl" placeholder="http://localhost:5015" />
+          </div>
+        </div>
+        <label>segment length (seconds — how often a snapshot+deltas batch is sent; 60 for a snappy demo)</label>
+        <input id="segmentSec" type="number" min="30" step="30" placeholder="300" />
+        <div>
+          <button id="saveBtn" class="primary">save</button>
+          <button id="registerBtn">register / test connection</button>
+          <button id="flushBtn">send buffered now</button>
+        </div>
+        <div class="status" id="connStatus"></div>
+      </div>
+
+      <div class="card">
+        <h2>observed sites</h2>
+        <p class="muted">adding a site asks chrome for permission to read just that site. you can revoke any time here, or in
+          chrome’s own per-site controls.</p>
+        <div class="addrow">
+          <div>
+            <label>add a site by host</label>
+            <input id="newHost" placeholder="mail.google.com" />
+          </div>
+          <button id="addBtn" class="primary">add</button>
+        </div>
+        <div class="status" id="addStatus"></div>
+        <div id="siteList" style="margin-top: 12px"></div>
+      </div>
+
+      <p class="muted">
+        prototype · solstone-browser <span id="ver"></span> · semantic-only, opt-in, local-relay · stream
+        <code id="streamLabel">—</code>
+      </p>
+    </div>
+    <script src="lib/hosts.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

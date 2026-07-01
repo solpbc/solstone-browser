@@ -1,0 +1,114 @@
+# Install — solstone browser observer (prototype)
+
+**This is a discovery prototype, not a finished product.** It's a Chrome
+extension that experiences a few web apps you choose — reading their visible
+text, never screenshots — and relays what it reads into your solstone journal as
+its own `browser` stream.
+
+## Prerequisites (already true on suze)
+
+- Chrome (desktop).
+- Your solstone journal running locally on `http://localhost:5015` (it is).
+  The extension registers itself as a `<hostname>.browser` observer over that
+  local link — same way the tmux and screen observers register. It only works on
+  the machine the journal runs on (the journal accepts registrations from
+  localhost only).
+
+## Install (one paragraph)
+
+Open `chrome://extensions`, turn on **Developer mode** (top-right), click **Load
+unpacked**, and choose the `extension/` folder inside this directory
+(`~/projects/solstone-browser/extension`). That's it — the ☼ sol mark appears in
+your toolbar. Nothing is observed yet: the extension does nothing until you add a
+site. Open the options page (right-click the icon → **Options**, or the
+“settings ›” link in the popup) and confirm **this computer's short name** reads
+`suze` and the journal URL reads `http://localhost:5015`. For a snappy demo, set
+**segment length** to `60` seconds (default is 300, matching the other
+observers).
+
+> **Reloading after an update?** If you already had `0.0.1` loaded, click the
+> **↻ reload** icon on the extension's card in `chrome://extensions` to pick up
+> `0.0.2`, then **reload any tabs** you want observed.
+
+## What to look for
+
+1. **Add a site — any site.** Open the site you want (Gmail `mail.google.com`,
+   Slack `app.slack.com`, or *any* other site — there's a generic reader for
+   everything beyond the two tuned adapters), click the ☼ toolbar icon, and click
+   **observe this site**. Chrome asks permission to read just that site — allow
+   it. You can also add a host by name in **Options** (works for `localhost`, an
+   IP, or `host:port` too). **Then reload that tab** — the “☼ observing” pill
+   should appear (the content script attaches on the next load).
+2. **The on-page marker.** Each observed tab shows a small **“☼ observing”** pill
+   in the bottom-right corner — the visible trust indicator. The toolbar icon
+   shows an orange ● badge while observing. The Options page shows each site as
+   **● observing now**, **added — open or reload a tab**, or **⚠ <error>** if
+   something went wrong (errors are now surfaced, not swallowed).
+3. **Pause.** Click the icon → **pause all**. The pill flips to “paused,” the
+   badge to ❙❙, and nothing is read until you resume. This is the one-tap kill
+   switch.
+4. **Watch it reach your journal.** Leave an observed tab open for one segment
+   length (60s if you set that), or click **send buffered now** in the options
+   page to flush immediately. The journal's observer dashboard should also now
+   show `suze.browser` as **connected** (a heartbeat fires every minute). Then
+   check the stream landed:
+
+   ```bash
+   ls ~/journal/chronicle/$(date +%Y%m%d)/suze.browser/
+   # -> a HHMMSS_LEN segment folder containing browser_mail-google-com.jsonl etc.
+   cat ~/journal/chronicle/$(date +%Y%m%d)/suze.browser/*/browser_*.jsonl | head
+   ```
+
+   Each file opens with a `segment_start` snapshot of what was on the page, then
+   accumulates `delta` lines (new message added, unread count updated, …) as the
+   page changes. It's a **distinct `suze.browser` stream**, a sibling of
+   `iphone.mobile` / `suze` — never merged into another stream.
+
+## Removing / revoking
+
+- Remove a site in the options page (or click the icon → it reflects state). You
+  can also use Chrome's own per-site control at `chrome://extensions` (the
+  extension honors a browser-side revoke immediately).
+- The whole thing is opt-in and local: no site is touched until you add it, and
+  the content never leaves this machine — it goes only to your local journal.
+
+## New in 0.0.3
+
+- **Official sol branding** — the real sol ring mark, Comfortaa/Inter type, the
+  cream/orange palette, and on-voice copy throughout (popup, options, the on-page
+  “observing” pill).
+- **Icon-as-status** — the toolbar icon is now a live status light using the
+  official sol ring-state marks: **observing** (sun), **paused** (sun behind a
+  cloud), **error/disconnected** (sun + ✕).
+- **Lifecycle resilience** — flushes a final read before a tab is hidden/frozen
+  and re-reads on resume / back-forward-cache restore, so nothing is lost when
+  Chrome freezes a background tab.
+
+## Fixed in 0.0.2
+
+- **Port-bearing sites no longer silently fail.** Adding `localhost:5015` (or any
+  `host:port`) used to build an invalid Chrome match pattern and quietly do
+  nothing. Now the content script registers on the port-less hostname and
+  self-gates to the exact `host:port` you added, so any site works.
+- **Errors surface in the UI** (popup + Options) instead of being swallowed.
+- **Heartbeat** so the journal observer dashboard reads "connected" honestly,
+  not only right after an upload.
+- **Any site** is observable — any normal website (the generic reader covers
+  everything beyond Gmail/Slack) **and** `localhost` / IPs / `host:port` dev
+  servers. (Chrome's match-pattern docs confirm a port-less pattern matches *all*
+  ports, so the journal dashboard `localhost:5015` works too — observing it just
+  isn't very useful; point it at a real site.)
+
+## Known prototype edges (see the learnings writeup)
+
+- Chrome desktop only (the cross-browser/iOS packaging is the eventual shape, out
+  of scope here).
+- Gmail + Slack have thin adapters; any other site uses a solid generic reader.
+- Browser segments land on disk and are queryable, but the journal doesn't yet
+  *render* a `browser` stream in the timeline the way it renders screen/audio —
+  that's a journal-side follow-up the spike surfaced, not a bug in the extension.
+- No offline retry queue yet: if the journal is down at the moment a segment
+  rotates, that segment is dropped (fine for localhost; noted for the real build).
+- The live content-script → worker path can't be verified headlessly (headless
+  Chrome doesn't inject content scripts), so it's verified by you in real Chrome —
+  the “☼ observing” pill appearing on a tab is the proof it's working.

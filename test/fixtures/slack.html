@@ -1,0 +1,27 @@
+<!doctype html>
+<!-- A trimmed Slack-shaped DOM: primary view body with message containers
+     (stable data-item-key), a sidebar (should be skipped), and a hidden
+     message (should not be observed). -->
+<html>
+  <head><meta charset="utf-8" /><title>#general (Acme) - Slack</title></head>
+  <body>
+    <div class="p-workspace__sidebar" data-qa="channel_sidebar">
+      <div># general</div>
+      <div># random</div>
+    </div>
+    <div class="p-workspace__primary_view_body" role="main">
+      <div data-qa="message_container" data-item-key="1719600000.001" role="listitem">
+        <span class="sender">Priya Nadkarni</span>
+        <div class="msg">can we push the demo to 3pm? I have a conflict at 2</div>
+      </div>
+      <div data-qa="message_container" data-item-key="1719600120.002" role="listitem">
+        <span class="sender">Marcus Webb</span>
+        <div class="msg">3pm works for me — I'll move the calendar invite</div>
+      </div>
+      <div data-qa="message_container" data-item-key="hidden-1" role="listitem" style="visibility:hidden">
+        <span class="sender">Hidden</span>
+        <div class="msg">SECRET-HIDDEN-SLACK should not be observed</div>
+      </div>
+    </div>
+  </body>
+</html>

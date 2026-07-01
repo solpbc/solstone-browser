@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 //
-// indicator.js — the on-page "observing" trust marker: the official sol ring
+// indicator.js — the optional on-page "observing" marker: the official sol ring
 // mark + a label, in a closed shadow root (so page CSS can't restyle or hide
-// it), reflecting the paused state. The owner-visible indicator the iOS source
-// framework defines, on every observed tab.
+// it), reflecting the paused state when the owner enables the marker.
 //
 // Classic content script -> publishes `globalThis.SolstoneIndicator`.
 

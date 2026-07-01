@@ -90,6 +90,8 @@ async function refresh() {
   $("streamLabel").textContent = state.stream || (state.hostname ? `${state.hostname}.browser` : "—");
   const errMsgs = Object.values(errs);
   $("err").textContent = (state.health && state.health.lastError) || errMsgs[0] || "";
+  const us = await chrome.action.getUserSettings().catch(() => ({}));
+  $("pinHint").hidden = us.isOnToolbar !== false;
 }
 
 $("addBtn").addEventListener("click", async () => {

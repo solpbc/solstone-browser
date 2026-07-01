@@ -4,6 +4,16 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 `make set-version` keeps `manifest.json` / `package.json` / `background.js` in
 lockstep, and `make dist` refuses to build if they drift.
 
+## 0.0.9 — 2026-07-01
+
+- **On-page marker is opt-in.** The floating sol-mark marker is now off by
+  default and can be enabled from Options for owners who want an in-page cue.
+- **Four-state toolbar status light.** The toolbar icon now carries the always-on
+  observation signal through a pure `lib/status.js` helper: observing, connecting,
+  can't reach your journal, paused, and attention.
+- **Pin suggestion.** The popup suggests pinning solstone when Chrome has tucked
+  the icon away, so the status light stays visible.
+
 ## 0.0.8 — 2026-07-01
 
 First tagged release. Observer behavior is unchanged from 0.0.7.

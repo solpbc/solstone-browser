@@ -14,12 +14,12 @@
 // as its own observer and uploads finished segments directly. MV3 ephemerality
 // is handled by persisting all state to chrome.storage and waking on alarms.
 
-importScripts("lib/blocks.js", "lib/hosts.js", "lib/segment.js", "journal.js");
+importScripts("lib/blocks.js", "lib/hosts.js", "lib/segment.js", "lib/status.js", "journal.js");
 
 const Seg = globalThis.SolstoneSegment;
 const H = globalThis.SolstoneHosts;
 const J = globalThis.SolstoneJournal;
-const VERSION = "0.0.8";
+const VERSION = "0.0.9";
 const BOOT_MS = Date.now();
 
 const CONTENT_SCRIPT_FILES = ["lib/blocks.js", "lib/hosts.js", "adapters.js", "skim.js", "indicator.js", "content.js"];
@@ -34,6 +34,7 @@ const DEFAULT_CFG = {
   protocolVersion: null,
   segmentSec: 300,
   paused: false,
+  showPageIndicator: false,
   allowlist: [],
   siteErrors: {}, // host -> last registration/observe error string
   health: { lastError: null, lastUploadAt: null, segmentsUploaded: 0, lastStatus: null },
@@ -510,6 +511,20 @@ async function setPausedAll(paused) {
   await updateBadge();
 }
 
+async function setIndicatorAll(show) {
+  const cfg = await getCfg();
+  for (const host of cfg.allowlist) {
+    try {
+      const tabs = await chrome.tabs.query({ url: `*://${host}/*` });
+      for (const tab of tabs) {
+        if (tab.id != null) chrome.tabs.sendMessage(tab.id, { kind: "setIndicator", show, allowlist: cfg.allowlist }, () => void chrome.runtime.lastError);
+      }
+    } catch (_e) {
+      /* ignore */
+    }
+  }
+}
+
 // Icon-as-status: swap the official sol ring-state marks (observing / paused /
 // error) so the toolbar icon is a live status light, per the research synthesis.
 const ICON_SET = (prefix) => ({
@@ -520,24 +535,7 @@ const ICON_SET = (prefix) => ({
 
 async function updateBadge() {
   const cfg = await getCfg();
-  const err = cfg.health && cfg.health.lastError;
-  const siteErr = Object.keys(cfg.siteErrors || {}).length;
-  let prefix, title, badge = "";
-  if (cfg.paused) {
-    prefix = "icon-paused-";
-    title = "solstone — paused";
-  } else if (cfg.allowlist.length && (err || siteErr)) {
-    prefix = "icon-error-";
-    title = "solstone — " + (err || Object.values(cfg.siteErrors)[0] || "needs attention");
-    badge = "!";
-  } else if (cfg.allowlist.length) {
-    const n = cfg.allowlist.length;
-    prefix = "icon";
-    title = `solstone — observing ${n} site${n > 1 ? "s" : ""}`;
-  } else {
-    prefix = "icon";
-    title = "solstone browser observer — add a site to begin";
-  }
+  const { prefix, title, badge } = globalThis.SolstoneStatus.iconState(cfg);
   try {
     await chrome.action.setIcon({ path: ICON_SET(prefix) });
     await chrome.action.setTitle({ title });
@@ -568,6 +566,7 @@ async function handleCommand(msg, sendResponse) {
           registered: !!cfg.key,
           segmentSec: cfg.segmentSec,
           paused: cfg.paused,
+          showPageIndicator: cfg.showPageIndicator,
           allowlist: cfg.allowlist,
           siteErrors: cfg.siteErrors,
           activeSites,
@@ -594,6 +593,7 @@ async function handleCommand(msg, sendResponse) {
       case "setConfig": {
         const cfg = await getCfg();
         let reset = false;
+        let indicatorChanged = false;
         if (typeof msg.hostname === "string" && msg.hostname !== cfg.hostname) {
           cfg.hostname = msg.hostname.trim();
           reset = true; // hostname changes the stream identity -> re-register
@@ -603,11 +603,16 @@ async function handleCommand(msg, sendResponse) {
           reset = true;
         }
         if (typeof msg.segmentSec === "number" && msg.segmentSec >= 30) cfg.segmentSec = Math.floor(msg.segmentSec);
+        if (typeof msg.showPageIndicator === "boolean" && msg.showPageIndicator !== cfg.showPageIndicator) {
+          cfg.showPageIndicator = msg.showPageIndicator;
+          indicatorChanged = true;
+        }
         if (reset) {
           cfg.key = "";
           cfg.stream = "";
         }
         await setCfg(cfg);
+        if (indicatorChanged) await setIndicatorAll(cfg.showPageIndicator);
         sendResponse({ ok: true });
         break;
       }

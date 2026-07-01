@@ -18,8 +18,9 @@ its own `browser` stream.
 
 Open `chrome://extensions`, turn on **Developer mode** (top-right), click **Load
 unpacked**, and choose the `extension/` folder inside this repo. That's it — the ☼ sol mark appears in
-your toolbar. Nothing is observed yet: the extension does nothing until you add a
-site. Open the options page (right-click the icon → **Options**, or the
+your toolbar. Pin solstone so the status light stays visible. Nothing is observed
+yet: the extension does nothing until you add a site. Open the options page
+(right-click the icon → **Options**, or the
 “settings ›” link in the popup) and confirm **this computer's short name** is set
 to your machine's name (it labels the stream — e.g. `laptop`) and the journal URL
 reads `http://localhost:5015`. For a snappy demo, set
@@ -37,16 +38,16 @@ observers).
    everything beyond the two tuned adapters), click the ☼ toolbar icon, and click
    **observe this site**. Chrome asks permission to read just that site — allow
    it. You can also add a host by name in **Options** (works for `localhost`, an
-   IP, or `host:port` too). **Then reload that tab** — the “☼ observing” pill
-   should appear (the content script attaches on the next load).
-2. **The on-page marker.** Each observed tab shows a small **“☼ observing”** pill
-   in the bottom-right corner — the visible trust indicator. The toolbar icon
-   shows an orange ● badge while observing. The Options page shows each site as
+   IP, or `host:port` too). **Then reload that tab** so the content script
+   attaches on the next load.
+2. **The status light.** The toolbar icon is the visible observation signal: it
+   shows observing, connecting, can't reach your journal, paused, or attention at
+   a glance. Pin solstone to keep that signal visible. If you want an in-page cue
+   too, enable the optional on-page marker in **Options**. The Options page shows each site as
    **● observing now**, **added — open or reload a tab**, or **⚠ <error>** if
    something went wrong (errors are now surfaced, not swallowed).
-3. **Pause.** Click the icon → **pause all**. The pill flips to “paused,” the
-   badge to ❙❙, and nothing is read until you resume. This is the one-tap kill
-   switch.
+3. **Pause.** Click the icon → **pause all**. The toolbar icon switches to
+   paused, and nothing is read until you resume. This is the one-tap kill switch.
 4. **Watch it reach your journal.** Leave an observed tab open for one segment
    length (60s if you set that), or click **send buffered now** in the options
    page to flush immediately. The journal's observer dashboard should also now
@@ -77,7 +78,7 @@ observers).
 
 - **Official sol branding** — the real sol ring mark, Comfortaa/Inter type, the
   cream/orange palette, and on-voice copy throughout (popup, options, the on-page
-  “observing” pill).
+  marker).
 - **Icon-as-status** — the toolbar icon is now a live status light using the
   official sol ring-state marks: **observing** (sun), **paused** (sun behind a
   cloud), **error/disconnected** (sun + ✕).
@@ -113,6 +114,6 @@ observers).
 - The live content-script → worker → relay path is now covered two ways: an
   automated headless harness (`npm run e2e`, using Playwright's real new-headless
   build, which *does* inject our dynamically-registered content scripts), and the
-  guided walkthrough you run in real Chrome (`test/GUIDED.md`) — the “☼ observing”
-  pill appearing on a tab is your proof it's working, and only real Chrome
+  guided walkthrough you run in real Chrome (`test/GUIDED.md`) — the toolbar
+  status light and popup state are your proof it's working, and only real Chrome
   exercises the per-site opt-in permission grant.

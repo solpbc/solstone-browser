@@ -103,7 +103,7 @@
       <p class="muted">
         this prototype experiences only the web apps you add below — taking in their visible text, never screenshots — and
         relays it into your local solstone journal as its own <code>browser</code> stream. nothing is observed until you add
-        a site, and every observed tab shows a sol-mark “observing” marker.
+        a site. the toolbar icon is the always-on observation signal; the on-page marker is optional.
       </p>
 
       <div class="card">
@@ -141,6 +141,15 @@
         </div>
         <div class="status" id="addStatus"></div>
         <div id="siteList" style="margin-top: 12px"></div>
+      </div>
+
+      <div class="card">
+        <h2>on-page marker</h2>
+        <label style="display:flex;align-items:center;gap:8px;margin:6px 0;color:var(--ink)">
+          <input type="checkbox" id="showPageIndicator" style="width:auto" />
+          also show a floating sol-mark “observing” marker on observed pages
+        </label>
+        <p class="muted">off by default. your always-on signal is the toolbar icon, which reads observing / paused / attention at a glance. turn this on to add an on-page marker too.</p>
       </div>
 
       <p class="muted">

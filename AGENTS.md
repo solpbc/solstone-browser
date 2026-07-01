@@ -22,11 +22,11 @@ and the iOS Safari path are the eventual architecture, deliberately out of scope
 Two halves, one substrate (the WebExtensions API):
 
 - **Content script** (`content.js` + `skim.js` + `adapters.js` + `indicator.js`)
-  runs in each granted-origin tab. It picks an adapter, shows the on-page
-  indicator, runs a **visibility-aware semantic skim** of the app root, and
-  relays the current block list to the worker on load and whenever the page
-  settles after a mutation (debounced, change-gated). It is a thin producer — no
-  segmenting, no diffing, no network.
+  runs in each granted-origin tab. It picks an adapter, optionally shows the
+  on-page marker when the owner enables it, runs a **visibility-aware semantic
+  skim** of the app root, and relays the current block list to the worker on load
+  and whenever the page settles after a mutation (debounced, change-gated). It is
+  a thin producer — no segmenting, no diffing, no network.
 - **Service worker** (`background.js` + `journal.js` + `lib/*`) is the
   event-driven persistent half. It holds the journal registration, buffers each
   tab's skims into a segment in `chrome.storage`, diffs successive skims into a
@@ -120,8 +120,9 @@ is `importScripts`-ed by the worker, and is side-effect-imported by node tests.
 - **Opt-in, least authorization.** Install with zero site access
   (`optional_host_permissions`); request each site on an explicit user gesture;
   honor a browser-side revoke (`permissions.onRemoved`).
-- **Visible + pausable.** Every observed tab shows the indicator; pause-all is one
-  tap. No silent observation.
+- **Visible + pausable.** The toolbar icon is the always-visible four-state
+  observation signal; the on-page marker is opt-in and off by default. Pause-all
+  is one tap. No silent observation.
 - **Privacy in the data.** Keep visible text + structure; never raw HTML, never
   full hrefs, never hidden content.
 - **Pure logic stays testable.** Diffing, serialization, and id/type derivation

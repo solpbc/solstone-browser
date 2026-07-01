@@ -2,10 +2,10 @@
 // Copyright (c) 2026 sol pbc
 //
 // content.js — the per-tab observer. Runs in every granted-origin frame. It
-// picks the adapter, shows the on-page indicator, skims the visible content,
-// and relays the current block list to the service worker on load and whenever
-// the page settles after a change. All segmenting / diffing / upload lives in
-// the worker; this stays a thin, change-gated producer.
+// picks the adapter, optionally shows the on-page marker, skims the visible
+// content, and relays the current block list to the service worker on load and
+// whenever the page settles after a change. All segmenting / diffing / upload
+// lives in the worker; this stays a thin, change-gated producer.
 //
 // Loaded after blocks.js, adapters.js, skim.js, indicator.js (see the
 // registered content-script `js` order in background.js).
@@ -26,6 +26,7 @@
   const CTX = "c" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
   let paused = false;
+  let showIndicator = false;
   let observer = null;
   let debounceTimer = null;
   let rootEl = null;
@@ -72,7 +73,7 @@
     if (observer) observer.disconnect();
     observer = new MutationObserver(scheduleSkim);
     observer.observe(rootEl, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["aria-label", "aria-level", "role"] });
-    Indicator.show(false);
+    if (showIndicator) Indicator.show(false);
     doSkim("initial");
   }
 
@@ -86,7 +87,7 @@
     paused = p;
     if (paused) {
       stopObserving();
-      Indicator.show(true);
+      if (showIndicator) Indicator.show(true);
     } else {
       startObserving();
     }
@@ -107,8 +108,9 @@
           return; // this exact host:port isn't observed — no indicator, no skim
         }
         paused = !!cfg.paused;
+        showIndicator = !!cfg.showPageIndicator;
         send({ kind: "hello", meta: meta() });
-        Indicator.show(paused);
+        if (showIndicator) Indicator.show(paused);
         waitForRoot();
       });
     } catch (_e) {
@@ -126,7 +128,7 @@
       if (ready) {
         clearInterval(iv);
         if (!paused) startObserving();
-        else Indicator.show(true);
+        else if (showIndicator) Indicator.show(true);
       } else if (tries > 40) {
         clearInterval(iv); // ~20s; give up quietly, leave indicator
       }
@@ -141,6 +143,12 @@
     else if (msg.kind === "stop") {
       stopObserving();
       Indicator.remove();
+    } else if (msg.kind === "setIndicator") {
+      const Hosts = globalThis.SolstoneHosts;
+      if (Hosts && !Hosts.hostAllowed(location.host, msg.allowlist || [])) return false;
+      showIndicator = !!msg.show;
+      if (showIndicator) Indicator.show(paused);
+      else Indicator.remove();
     } else if (msg.kind === "ping") sendResponse({ ok: true, host, adapter: adapter.name });
     return false;
   });

@@ -24,6 +24,7 @@ async function refresh() {
   $("hostname").value = state.hostname || "";
   $("journalUrl").value = state.journalUrl || "";
   $("segmentSec").value = state.segmentSec || 300;
+  $("showPageIndicator").checked = !!state.showPageIndicator;
   $("ver").textContent = state.version ? "v" + state.version : "";
   $("streamLabel").textContent = state.stream || (state.hostname ? state.hostname + ".browser" : "—");
 
@@ -83,6 +84,10 @@ $("flushBtn").addEventListener("click", async () => {
   await cmd({ cmd: "flushNow" });
   $("connStatus").textContent = "flushed buffered content to the journal.";
   await refresh();
+});
+
+$("showPageIndicator").addEventListener("change", async () => {
+  await cmd({ cmd: "setConfig", showPageIndicator: $("showPageIndicator").checked });
 });
 
 $("addBtn").addEventListener("click", async () => {

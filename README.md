@@ -25,7 +25,7 @@ directly to the local journal. See [`INSTALL.md`](INSTALL.md) to run it.
   (innerText oracle, ARIA roles,            snapshot at segment start +
    per-app adapters, MutationObserver        accumulate deltas in storage
    change-gating, debounced)                        │  every segment (5 min)
-  on-page "☼ observing" pill                        ▼
+  optional on-page marker                          ▼
                                             multipart upload → local journal
                                             POST /app/observer/ingest
                                                    │
@@ -43,8 +43,9 @@ directly to the local journal. See [`INSTALL.md`](INSTALL.md) to run it.
   uploads finished segments straight to the journal's localhost ingest API — no
   separate native host needed for the Chrome-desktop case. MV3 service-worker
   ephemerality is handled with `chrome.storage` + `chrome.alarms`.
-- **Trust controls.** A visible “observing” indicator on every observed tab, a
-  one-tap pause-all, and Chrome's own per-site enforcement on top.
+- **Trust controls.** The toolbar icon is a four-state status light for
+  observing, connecting, can't-reach, paused, and attention states. Pin solstone
+  to keep it visible; the on-page marker is an opt-in Options setting.
 
 ## The journal output (`browser.jsonl`)
 
@@ -68,10 +69,10 @@ extension/            the unpacked-loadable MV3 extension
   manifest.json
   background.js       service worker: registration, segment buffer, rotation, upload, per-site lifecycle
   journal.js          HTTP client for /app/observer/{register,ingest}
-  content.js          per-tab orchestrator: skim on load + on settled change, indicator, relay
+  content.js          per-tab orchestrator: skim on load + on settled change, optional marker, relay
   skim.js             the visibility-aware semantic DOM walker
   adapters.js         Gmail + Slack adapters + generic fallback (data, not code)
-  indicator.js        on-page "☼ observing" pill (closed shadow root)
+  indicator.js        optional on-page "☼ observing" marker (closed shadow root)
   popup.html/.js      toolbar popup: status, observe-this-site, pause-all
   options.html/.js    settings + allowlist manager
   lib/blocks.js       pure block helpers (role→type, id, normalize) — shared, tested

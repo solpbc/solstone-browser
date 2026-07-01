@@ -90,7 +90,17 @@ test/
 npm test          # pure-logic unit tests (diff/delta/jsonl, role typing) — no browser
 npm run smoke     # real headless Chrome: skim the Gmail/Slack/article fixtures
 npm run relay-check   # run ON the journal machine: register + upload + verify a segment landed
+npm run e2e       # agentic integration: content script -> service worker -> relay, under
+                  #   Playwright new-headless (one-time: `npx playwright install chromium`)
 ```
+
+Two ways to exercise the live path (content script → worker → relay):
+
+- **Agentic** — `npm run e2e` (a.k.a. `make e2e`) drives it under headless
+  automation against a stub journal, including the dynamic-`registerContentScripts`
+  injection. See [AGENTS.md](AGENTS.md) § agentic e2e.
+- **Guided** — [test/GUIDED.md](test/GUIDED.md) is the human-in-the-loop
+  walkthrough you run in real Chrome (the one that proves the real per-site opt-in).
 
 ## License
 

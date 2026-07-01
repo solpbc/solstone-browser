@@ -110,6 +110,9 @@ observers).
   that's a journal-side follow-up the spike surfaced, not a bug in the extension.
 - No offline retry queue yet: if the journal is down at the moment a segment
   rotates, that segment is dropped (fine for localhost; noted for the real build).
-- The live content-script → worker path can't be verified headlessly (headless
-  Chrome doesn't inject content scripts), so it's verified by you in real Chrome —
-  the “☼ observing” pill appearing on a tab is the proof it's working.
+- The live content-script → worker → relay path is now covered two ways: an
+  automated headless harness (`npm run e2e`, using Playwright's real new-headless
+  build, which *does* inject our dynamically-registered content scripts), and the
+  guided walkthrough you run in real Chrome (`test/GUIDED.md`) — the “☼ observing”
+  pill appearing on a tab is your proof it's working, and only real Chrome
+  exercises the per-site opt-in permission grant.

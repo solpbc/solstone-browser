@@ -1,14 +1,17 @@
 # solstone-browser Makefile
 # Chrome (MV3) semantic browser observer for solstone.
 #
-# Zero runtime/build dependencies: the extension is plain MV3 (loaded unpacked)
-# and the tests run on node's built-in test runner. `make install` therefore has
-# nothing to fetch. The unit suite (`make test`) is the CI-able gate; the CDP
-# skim smoke and the journal relay round-trip need a real Chrome and a live local
-# journal respectively (see INSTALL.md / AGENTS.md), so they are not runnable
-# headlessly and sit behind their own targets.
+# The shipped extension has zero runtime/build dependencies: it is plain MV3
+# (loaded unpacked) and the unit suite runs on node's built-in test runner, so
+# `make install` fetches nothing for the extension itself. The unit suite
+# (`make test`) is the CI-able gate. The CDP skim smoke and the journal relay
+# round-trip need a real Chrome and a live local journal respectively. The
+# `e2e` target is the agentic integration harness — it drives the live
+# content-script -> service-worker -> relay path under Playwright new-headless
+# (dev-only dependency; the shipped extension stays dependency-free). See
+# INSTALL.md / test/GUIDED.md / AGENTS.md.
 
-.PHONY: install test ci format clean smoke relay-check
+.PHONY: install test ci format clean smoke relay-check e2e e2e-deps
 
 # Nothing to install — MV3 loads unpacked; tests use node --test with no deps.
 install:
@@ -34,6 +37,17 @@ smoke:
 # End-to-end register + ingest against a real local journal (run ON the journal machine).
 relay-check:
 	npm run relay-check
+
+# One-time browser download for the agentic e2e harness (the extension-capable
+# Chromium build Playwright's `channel:'chromium'` selects).
+e2e-deps:
+	npm install
+	npx playwright install chromium
+
+# Agentic integration harness: content script -> service worker -> relay, under
+# Playwright new-headless (no display). Run `make e2e-deps` once first.
+e2e:
+	npm run e2e
 
 clean:
 	rm -rf node_modules

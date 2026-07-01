@@ -73,10 +73,41 @@ make ci             # the gate: pure-logic unit tests (== npm test)
 npm test            # pure-logic unit tests (diff/delta/jsonl, role typing) — no browser, no deps
 make smoke          # (npm run smoke) headless Chrome over CDP: skim the Gmail/Slack/article fixtures
 make relay-check    # (npm run relay-check) ON the journal machine: register + multipart ingest + verify a segment landed
+make e2e-deps       # one-time: npm install + npx playwright install chromium (dev-only deps)
+make e2e            # (npm run e2e) agentic integration: content script -> SW -> relay, headless
 ```
 
-The smoke needs a real Chrome and relay-check needs a live local journal, so
-neither runs in headless CI — `make ci` is unit-only by design.
+`make ci` (the unit suite) is the CI-able gate and needs no deps. The smoke needs
+a real Chrome; relay-check needs a live local journal; the e2e harness needs the
+Playwright chromium build (dev-only — the shipped extension stays dependency-free).
+
+## Agentic e2e (the live path, headless)
+
+`make e2e` (`test/e2e.mjs`) drives the one path the unit tests can't reach —
+**dynamically-registered content script → service worker → relay POST** —
+end-to-end under browser automation with no display, against an in-process stub
+journal. It is the automated half of `test/GUIDED.md`.
+
+The prototype believed this leg was un-verifiable headlessly. It isn't; the fix
+is two binary choices:
+
+1. **Playwright `channel:'chromium'`** — selects the real new-headless build, not
+   the extension-blind `chromium-headless-shell`. That build injects MV3 content
+   scripts (static **and** dynamic) with no display and no Xvfb. (Verified: our
+   `chrome.scripting.registerContentScripts` opt-in path fires under it.)
+2. **`--load-extension`** — honored by Chrome-for-Testing / the Playwright
+   chromium build; *branded* Chrome dropped it in Chrome 137, which is why the
+   earlier headless/Xvfb attempts against branded Chrome loaded nothing.
+
+**Permission faithfulness:** the shipped extension gets host access to a site via
+the per-site `optional_host_permissions` grant, which needs a real user gesture
+and **cannot** be obtained under headless automation (the harness confirms this
+with a non-gating probe). So the harness pre-grants the fixture origin by adding
+it to a *throwaway copy* of the manifest's `host_permissions`. This isolates the
+question it answers (does our **dynamic** registration inject + relay under
+new-headless?) from the orthogonal permission-UI question — the live per-site
+opt-in is what the guided walkthrough verifies. The stub binds an **ephemeral
+port**, so the harness never clashes with a real journal on `:5015`.
 
 There is no build step. The shared `lib/*.js` files are classic scripts that
 publish a `globalThis` namespace, so the same source loads as a content script,

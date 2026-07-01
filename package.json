@@ -8,6 +8,10 @@
   "scripts": {
     "test": "node --test test/segment.test.mjs test/blocks.test.mjs test/hosts.test.mjs test/adapters.test.mjs",
     "smoke": "node test/skim.cdp.mjs",
-    "relay-check": "node test/relay_roundtrip.mjs"
+    "relay-check": "node test/relay_roundtrip.mjs",
+    "e2e": "node test/e2e.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
   }
 }

@@ -500,7 +500,7 @@ async function setPausedAll(paused) {
   await setCfg(cfg);
   for (const host of cfg.allowlist) {
     try {
-      const tabs = await chrome.tabs.query({ url: `*://${host}/*` });
+      const tabs = await chrome.tabs.query({ url: H.matchPatternFor(host) }); // port-safe: match patterns reject ports
       for (const tab of tabs) {
         if (tab.id != null) chrome.tabs.sendMessage(tab.id, { kind: "setPaused", paused }, () => void chrome.runtime.lastError);
       }
@@ -515,7 +515,7 @@ async function setIndicatorAll(show) {
   const cfg = await getCfg();
   for (const host of cfg.allowlist) {
     try {
-      const tabs = await chrome.tabs.query({ url: `*://${host}/*` });
+      const tabs = await chrome.tabs.query({ url: H.matchPatternFor(host) }); // port-safe: match patterns reject ports
       for (const tab of tabs) {
         if (tab.id != null) chrome.tabs.sendMessage(tab.id, { kind: "setIndicator", show, allowlist: cfg.allowlist }, () => void chrome.runtime.lastError);
       }

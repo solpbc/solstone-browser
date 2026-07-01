@@ -13,6 +13,10 @@ lockstep, and `make dist` refuses to build if they drift.
   can't reach your journal, paused, and attention.
 - **Pin suggestion.** The popup suggests pinning solstone when Chrome has tucked
   the icon away, so the status light stays visible.
+- **Port-safe live broadcasts.** Pause-all and the marker toggle now reach
+  observed tabs on port-bearing hosts (e.g. `localhost:5015`), not only portless
+  domains — the broadcasts use the same port-stripped match pattern as
+  registration.
 
 ## 0.0.8 — 2026-07-01
 

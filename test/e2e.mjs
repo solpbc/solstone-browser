@@ -203,7 +203,16 @@ async function main() {
     ok("extension id resolved from SW url", !!extId, extId);
     console.log(`  chrome UA: ${await sw.evaluate(() => self.navigator.userAgent)}`);
 
+    // Spy on chrome.action.setIcon so we can assert the live updateBadge -> setIcon
+    // wiring (the pure state matrix is unit-tested in test/status.test.mjs).
+    await sw.evaluate(() => {
+      globalThis.__icons = [];
+      const orig = chrome.action.setIcon.bind(chrome.action);
+      chrome.action.setIcon = (d) => { try { globalThis.__icons.push(d && d.path && d.path["16"]); } catch (_e) {} return orig(d); };
+    });
+
     // 2. Point the observer at the stub + opt the fixture host into the allowlist.
+    //    (showPageIndicator is left at its default — false — so we verify off-by-default.)
     await sw.evaluate(async ({ journalUrl, host }) => {
       await chrome.storage.local.set({
         cfg: {
@@ -233,16 +242,22 @@ async function main() {
     const page = await context.newPage();
     await page.goto(`${stub.url}/observe-test`, { waitUntil: "domcontentloaded" });
 
-    // 5. THE injection assertion under new-headless.
-    let injected = true;
-    try {
-      await page.waitForFunction(() => !!document.getElementById("solstone-observer-indicator-host"), { timeout: 12000 });
-    } catch (_e) { injected = false; }
-    ok("DYNAMIC content script INJECTED under new-headless (on-page indicator mounted)", injected);
+    // 5. THE injection assertion under new-headless — independent of the (now
+    // opt-in, off-by-default) on-page marker: the content script ran and skimmed
+    // to the SW. Wait for a buffered line to appear.
+    let seg = null, injected = false;
+    for (let i = 0; i < 48 && !injected; i++) {
+      seg = await sw.evaluate(async () => (await chrome.storage.local.get("seg")).seg || null);
+      injected = !!(seg && Object.values(seg.ctxs || {}).some((e) => e.lines && e.lines.length));
+      if (!injected) await sleep(250);
+    }
+    ok("DYNAMIC content script INJECTED under new-headless (ran + skimmed to the SW)", injected);
 
-    // 6. content-script -> SW messaging: a snapshot buffered for this context.
-    await sleep(1500);
-    const seg = await sw.evaluate(async () => (await chrome.storage.local.get("seg")).seg || null);
+    // 5b. The on-page marker is OFF by default — nothing mounted on the page.
+    const markerOff = await page.evaluate(() => !document.getElementById("solstone-observer-indicator-host"));
+    ok("on-page marker is OFF by default (no indicator injected)", markerOff);
+
+    // 6. that buffered line is a segment_start snapshot with observed content.
     const ctxs = seg ? Object.values(seg.ctxs || {}) : [];
     const withLines = ctxs.filter((e) => e.lines && e.lines.length);
     ok("SW received the skim (a context with >=1 buffered line)", withLines.length > 0,
@@ -274,6 +289,19 @@ async function main() {
       ok("segment_start carries the skimmed heading", !!bfile && /On structural trust/.test(bfile.text));
       ok("relayed segment does NOT carry hidden content", !bfile || !/SECRET-HIDDEN/.test(bfile.text));
     }
+
+    // 7b. Live toggle: enabling the on-page marker mounts it on the already-open
+    // observed tab (exercises setIndicatorAll -> the hostAllowed-gated content path).
+    await popup.evaluate(() => new Promise((res) => chrome.runtime.sendMessage({ cmd: "setConfig", showPageIndicator: true }, () => res(true))));
+    let markerOn = false;
+    try { await page.waitForFunction(() => !!document.getElementById("solstone-observer-indicator-host"), { timeout: 6000 }); markerOn = true; } catch (_e) {}
+    ok("enabling the on-page marker mounts it live on the observed tab", markerOn);
+
+    // 7c. Icon wiring: after a successful upload the state is observing + connected,
+    // so updateBadge must have driven the full-sun icon via iconState.
+    const icons = await sw.evaluate(() => globalThis.__icons || []);
+    ok("updateBadge drove the toolbar icon to full sun (observing + journal connected)",
+      icons.length > 0 && icons[icons.length - 1] === "icons/icon16.png", icons.slice(-4).join(",") || "no setIcon calls");
 
     // 8. NON-GATING diagnostic: confirm (and document) that the optional-permission
     // grant cannot be obtained headlessly — why this harness pre-grants the origin.

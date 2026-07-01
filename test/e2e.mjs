@@ -86,6 +86,9 @@ function startStub() {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         return res.end(PAGE);
       }
+      // Browsers auto-request /favicon.ico; answer it so it isn't a stray 404 in
+      // the observed page's console (that noise is the stub's, not the extension's).
+      if (req.method === "GET" && path === "/favicon.ico") { res.writeHead(204); return res.end(); }
       if (req.method === "GET" && path === "/__/received") return json(res, 200, received);
       if (req.method === "POST" && path === "/app/observer/register") {
         let desc = {};
@@ -182,6 +185,17 @@ async function main() {
       process.exit(2);
     }
 
+    // Capture cleanliness signals from the moment the extension loads: console
+    // errors/warnings (context-level events cover the service worker AND all
+    // extension pages) and uncaught exceptions. Used by the clean-load checks below.
+    const consoleErrs = [], consoleWarns = [], uncaught = [];
+    context.on("console", (msg) => {
+      const t = msg.type();
+      if (t === "error") consoleErrs.push(msg.text());
+      else if (t === "warning") consoleWarns.push(msg.text());
+    });
+    context.on("weberror", (e) => uncaught.push(String((e.error && e.error()) || e)));
+
     // 1. SW present == the 'chromium' channel resolved to the extension-capable build.
     const sw = await getSW(context);
     ok("service worker present (channel:'chromium' resolved to the real build, not the shell)", !!sw);
@@ -275,6 +289,20 @@ async function main() {
     const grant = await Promise.race([opts.evaluate(() => window.__g), sleep(5000).then(() => "blocked")]);
     const after = await opts.evaluate(() => chrome.permissions.contains({ origins: ["*://example.test/*"] }));
     console.log(`  note optional_host_permissions grant under headless automation: request()=>${JSON.stringify(grant)} contains(after)=${after} => ${after ? "granted" : "not automatable (guided mode covers the live opt-in)"}`);
+
+    // 9. clean-load: the extension loaded + ran with no errors. Ignore the benign
+    // registration-race warning the SW logs when a skim arrives before the lazy
+    // ensureRegistered() resolves (expected, self-heals on the retry).
+    console.log("\n  -- clean load (no errors / exceptions) --");
+    const extErr = await sw.evaluate(async () => {
+      const c = (await chrome.storage.local.get("cfg")).cfg || {};
+      return { lastError: (c.health && c.health.lastError) || null, siteErrors: Object.keys(c.siteErrors || {}).length };
+    });
+    ok("service worker still alive (no crash/restart)", context.serviceWorkers().length > 0);
+    ok("no uncaught exceptions (SW or any extension/observed page)", uncaught.length === 0, uncaught.join(" | "));
+    ok("no console errors from the extension or observed page", consoleErrs.length === 0, consoleErrs.join(" | "));
+    ok("extension self-reports no error (health.lastError null, 0 site errors)", !extErr.lastError && extErr.siteErrors === 0, `lastError=${extErr.lastError} siteErrors=${extErr.siteErrors}`);
+    if (consoleWarns.length) console.log("  note console warnings (non-fatal):", JSON.stringify(consoleWarns));
 
     console.log(`\n=== e2e: ${fail === 0 ? "ALL " + pass + " CHECKS PASS" : pass + " pass / " + fail + " FAIL"} ===`);
   } finally {

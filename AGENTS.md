@@ -64,11 +64,19 @@ test/        node --test pure logic, a real-Chrome CDP skim smoke, a journal rou
 
 ## Build and test
 
+`make ci` is the gate (it runs the unit suite; there are no deps to install and
+no formatter/linter wired yet). The underlying commands:
+
 ```bash
+make install        # no-op — MV3 loads unpacked, tests need no deps
+make ci             # the gate: pure-logic unit tests (== npm test)
 npm test            # pure-logic unit tests (diff/delta/jsonl, role typing) — no browser, no deps
-npm run smoke       # headless Chrome over CDP: skim the Gmail/Slack/article fixtures
-npm run relay-check # ON the journal machine: register + multipart ingest + verify a segment landed
+make smoke          # (npm run smoke) headless Chrome over CDP: skim the Gmail/Slack/article fixtures
+make relay-check    # (npm run relay-check) ON the journal machine: register + multipart ingest + verify a segment landed
 ```
+
+The smoke needs a real Chrome and relay-check needs a live local journal, so
+neither runs in headless CI — `make ci` is unit-only by design.
 
 There is no build step. The shared `lib/*.js` files are classic scripts that
 publish a `globalThis` namespace, so the same source loads as a content script,

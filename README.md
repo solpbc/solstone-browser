@@ -102,6 +102,17 @@ Two ways to exercise the live path (content script → worker → relay):
 - **Guided** — [test/GUIDED.md](test/GUIDED.md) is the human-in-the-loop
   walkthrough you run in real Chrome (the one that proves the real per-site opt-in).
 
+## Build & install a release
+
+```bash
+make dist          # clean, versioned artifact in dist/ (gated on `make ci`)
+```
+
+Produces `dist/solstone-browser-<version>/` (Load unpacked this in Chrome) and a
+matching `.zip`. Bump with `make set-version V=0.0.8`. Full flow — install, version
+bump, tagged releases, and the future store/signed-channel layers — in
+[RELEASE.md](RELEASE.md).
+
 ## License
 
 AGPL-3.0-only. Copyright (c) 2026 sol pbc.

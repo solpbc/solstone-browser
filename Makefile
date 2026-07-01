@@ -11,7 +11,7 @@
 # (dev-only dependency; the shipped extension stays dependency-free). See
 # INSTALL.md / test/GUIDED.md / AGENTS.md.
 
-.PHONY: install test ci format clean smoke relay-check e2e e2e-deps
+.PHONY: install test ci format clean smoke relay-check e2e e2e-deps dist set-version
 
 # Nothing to install — MV3 loads unpacked; tests use node --test with no deps.
 install:
@@ -49,6 +49,17 @@ e2e-deps:
 e2e:
 	npm run e2e
 
+# Build a clean, versioned, installable artifact into dist/ (gated on the unit
+# suite). Produces dist/solstone-browser-<version>/ (Load unpacked this) and a
+# matching .zip. See RELEASE.md.
+dist: ci
+	node scripts/build.mjs
+
+# Stamp a new version across manifest.json, package.json, and background.js so
+# they never drift. Usage: make set-version V=0.0.8
+set-version:
+	node scripts/set-version.mjs $(V)
+
 clean:
-	rm -rf node_modules
+	rm -rf node_modules dist
 	rm -f *.log

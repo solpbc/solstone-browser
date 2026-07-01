@@ -9,7 +9,7 @@
 // (snapshot) -> skim (delta) -> flushNow -> getState. Then it verifies the
 // segment landed in the journal under the test stream. Args: <port>.
 //
-// Uses a throwaway stream name (suzeswtest.browser) so it never touches real data.
+// Uses a throwaway stream name (swtest.browser) so it never touches real data.
 
 const PORT = Number(process.argv[2] || 9311);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -32,7 +32,7 @@ const ORCH = `(async () => {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const meta = { url:'https://swtest.example/inbox', title:'Inbox (2)', adapter:'generic' }; const ctx='test-ctx-1';
   const out = {};
-  out.setConfig = await send({cmd:'setConfig', hostname:'suzeswtest', segmentSec:15, journalUrl:'http://localhost:5015'});
+  out.setConfig = await send({cmd:'setConfig', hostname:'swtest', segmentSec:15, journalUrl:'http://localhost:5015'});
   out.siteGranted = await send({cmd:'siteGranted', host:'swtest.example'});
   await send({kind:'hello', ctx, site:'swtest.example', meta});
   await send({kind:'skim', ctx, site:'swtest.example', meta, blocks:[

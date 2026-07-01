@@ -5,10 +5,10 @@ extension that experiences a few web apps you choose — reading their visible
 text, never screenshots — and relays what it reads into your solstone journal as
 its own `browser` stream.
 
-## Prerequisites (already true on suze)
+## Prerequisites
 
 - Chrome (desktop).
-- Your solstone journal running locally on `http://localhost:5015` (it is).
+- Your solstone journal running locally on `http://localhost:5015`.
   The extension registers itself as a `<hostname>.browser` observer over that
   local link — same way the tmux and screen observers register. It only works on
   the machine the journal runs on (the journal accepts registrations from
@@ -17,12 +17,12 @@ its own `browser` stream.
 ## Install (one paragraph)
 
 Open `chrome://extensions`, turn on **Developer mode** (top-right), click **Load
-unpacked**, and choose the `extension/` folder inside this directory
-(`~/projects/solstone-browser/extension`). That's it — the ☼ sol mark appears in
+unpacked**, and choose the `extension/` folder inside this repo. That's it — the ☼ sol mark appears in
 your toolbar. Nothing is observed yet: the extension does nothing until you add a
 site. Open the options page (right-click the icon → **Options**, or the
-“settings ›” link in the popup) and confirm **this computer's short name** reads
-`suze` and the journal URL reads `http://localhost:5015`. For a snappy demo, set
+“settings ›” link in the popup) and confirm **this computer's short name** is set
+to your machine's name (it labels the stream — e.g. `laptop`) and the journal URL
+reads `http://localhost:5015`. For a snappy demo, set
 **segment length** to `60` seconds (default is 300, matching the other
 observers).
 
@@ -50,19 +50,20 @@ observers).
 4. **Watch it reach your journal.** Leave an observed tab open for one segment
    length (60s if you set that), or click **send buffered now** in the options
    page to flush immediately. The journal's observer dashboard should also now
-   show `suze.browser` as **connected** (a heartbeat fires every minute). Then
-   check the stream landed:
+   show `<hostname>.browser` as **connected** (a heartbeat fires every minute).
+   Then check the stream landed (substitute the short name you set above):
 
    ```bash
-   ls ~/journal/chronicle/$(date +%Y%m%d)/suze.browser/
+   ls ~/journal/chronicle/$(date +%Y%m%d)/<hostname>.browser/
    # -> a HHMMSS_LEN segment folder containing browser_mail-google-com.jsonl etc.
-   cat ~/journal/chronicle/$(date +%Y%m%d)/suze.browser/*/browser_*.jsonl | head
+   cat ~/journal/chronicle/$(date +%Y%m%d)/<hostname>.browser/*/browser_*.jsonl | head
    ```
 
    Each file opens with a `segment_start` snapshot of what was on the page, then
    accumulates `delta` lines (new message added, unread count updated, …) as the
-   page changes. It's a **distinct `suze.browser` stream**, a sibling of
-   `iphone.mobile` / `suze` — never merged into another stream.
+   page changes. It's a **distinct `<hostname>.browser` stream**, a sibling of
+   your other observer streams (e.g. `iphone.mobile`) — never merged into another
+   stream.
 
 ## Removing / revoking
 

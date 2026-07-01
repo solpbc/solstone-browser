@@ -28,7 +28,7 @@ const MAX_LINES = 4000; // per-site per-segment safety cap
 
 const DEFAULT_CFG = {
   journalUrl: "http://localhost:5015",
-  hostname: "suze", // the short machine name -> stream "<hostname>.browser"; editable in options
+  hostname: "desktop", // the short machine name -> stream "<hostname>.browser"; set to your machine name in options
   key: "",
   stream: "",
   protocolVersion: null,

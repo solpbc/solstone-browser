@@ -10,12 +10,14 @@
 //
 // Must run ON the journal machine (the register endpoint requires localhost) —
 // the same place the extension runs. Run: `node test/relay_roundtrip.mjs`
-// (or via ssh on suze). Expects ./segment.js alongside, or imports the repo copy.
+// on the machine running the journal. Expects ./segment.js alongside, or imports
+// the repo copy. Uses a dedicated `relaytest.browser` stream so the synthetic
+// segment never lands in your real browser stream (override with HOSTNAME_OVERRIDE).
 
 import assert from "node:assert/strict";
 
 const JOURNAL = (process.env.JOURNAL_URL || "http://localhost:5015").replace(/\/+$/, "");
-const HOSTNAME = process.env.HOSTNAME_OVERRIDE || "suze";
+const HOSTNAME = process.env.HOSTNAME_OVERRIDE || "relaytest";
 
 // load lib/segment.js (sets globalThis.SolstoneSegment)
 let segUrl;

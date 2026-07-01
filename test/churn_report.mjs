@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 //
-// churn_report.mjs — structure-only health/churn summary of the suze.browser
+// churn_report.mjs — structure-only health/churn summary of a <hostname>.browser
 // stream for a given day. Prints per-segment delta composition + id scheme so
 // we can tell real change from render churn. NEVER prints observed text.
 // Run on the journal host: `node churn_report.mjs [YYYYMMDD] [stream] [root]`.
@@ -14,7 +14,7 @@ const _now = new Date();
 const day =
   process.argv[2] ||
   `${_now.getFullYear()}${String(_now.getMonth() + 1).padStart(2, "0")}${String(_now.getDate()).padStart(2, "0")}`;
-const stream = process.argv[3] || "suze.browser";
+const stream = process.argv[3] || "desktop.browser";
 const root = process.argv[4] || path.join(process.env.HOME, "journal", "chronicle");
 const dir = path.join(root, day, stream);
 

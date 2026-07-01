@@ -108,10 +108,13 @@ Two ways to exercise the live path (content script → worker → relay):
 make dist          # clean, versioned artifact in dist/ (gated on `make ci`)
 ```
 
-Produces `dist/solstone-browser-<version>/` (Load unpacked this in Chrome) and a
-matching `.zip`. Bump with `make set-version V=0.0.8`. Full flow — install, version
-bump, tagged releases, and the future store/signed-channel layers — in
-[RELEASE.md](RELEASE.md).
+Produces `dist/solstone-browser-<version>/` + a `.zip`, and maintains a stable
+`dist/current` symlink. **Load unpacked `dist/current` once**, then after each
+`make dist` just hit **reload** on the extension card — the manifest `key` pins
+the extension id, so your granted sites persist across rebuilds. Bump with
+`make set-version V=x.y.z`. Full flow — the reload loop, version bumps, tagged
+releases, and the future store/signed-channel layers — in [RELEASE.md](RELEASE.md);
+history in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

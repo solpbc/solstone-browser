@@ -11,7 +11,7 @@
 //
 // Run: `make dist` (gated on `make ci`) or `node scripts/build.mjs`.
 
-import { cpSync, rmSync, mkdirSync, readFileSync, existsSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { cpSync, rmSync, mkdirSync, readFileSync, existsSync, readdirSync, statSync, unlinkSync, symlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,12 +79,20 @@ function tryRun(cmd, args) { try { execFileSync(cmd, args, { stdio: "ignore" });
 if (tryRun("python3", ["-c", PY, stage, zipPath])) zipped = "python3";
 else if (tryRun("bash", ["-c", `cd ${JSON.stringify(stage)} && zip -qr ${JSON.stringify(zipPath)} .`])) zipped = "zip";
 
+// ---- 4. the stable reload target: dist/current -> the version just built.
+// Load unpacked dist/current ONCE; every `make dist` re-points it and you just
+// hit reload in Chrome. The manifest `key` pins the extension id, so the id (and
+// your granted sites / allowlist) survive across reloads and version bumps.
+const current = join(DIST, "current");
+symlinkSync(`${NAME}-${VERSION}`, current); // relative target inside dist/ (DIST was rm'd above, so it's fresh)
+
 // ---- summary ----
 console.log(`\nsolstone-browser ${VERSION} — release build`);
 console.log(`  version agrees across manifest.json / package.json / background.js`);
 console.log(`  staged ${files} runtime files`);
-console.log(`\n  Load unpacked (Chrome -> chrome://extensions -> Load unpacked):`);
-console.log(`    ${stage}`);
-if (zipped) console.log(`\n  zip (Web-Store / release artifact, via ${zipped}):\n    ${zipPath}`);
-else console.log(`\n  (no zipper found — folder only; install with Load unpacked above)`);
+console.log(`\n  Load unpacked THIS once, then just hit reload after each build:`);
+console.log(`    ${current}   ->   ${NAME}-${VERSION}`);
+console.log(`\n  versioned build: ${stage}`);
+if (zipped) console.log(`  zip (Web-Store / release artifact, via ${zipped}): ${zipPath}`);
+else console.log(`  (no zipper found — folder only)`);
 console.log(`\nrelease build OK`);

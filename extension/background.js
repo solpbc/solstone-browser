@@ -19,7 +19,7 @@ importScripts("lib/blocks.js", "lib/hosts.js", "lib/segment.js", "journal.js");
 const Seg = globalThis.SolstoneSegment;
 const H = globalThis.SolstoneHosts;
 const J = globalThis.SolstoneJournal;
-const VERSION = "0.0.7";
+const VERSION = "0.0.8";
 const BOOT_MS = Date.now();
 
 const CONTENT_SCRIPT_FILES = ["lib/blocks.js", "lib/hosts.js", "adapters.js", "skim.js", "indicator.js", "content.js"];

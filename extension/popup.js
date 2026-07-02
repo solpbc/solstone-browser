@@ -5,6 +5,7 @@
 // (the per-site grant moment), and pause-all.
 
 const $ = (id) => document.getElementById(id);
+const esc = (s) => globalThis.SolstoneEscape.escapeHtml(s);
 
 function cmd(message) {
   return new Promise((resolve) => chrome.runtime.sendMessage(message, (r) => resolve(r || {})));
@@ -96,20 +97,43 @@ async function refresh() {
       `<span class="s">${state.activeSites.length} observing · ${state.pendingLines} updates waiting</span></div>` +
       state.allowlist
         .map((h2) => {
+          const host = esc(h2);
           if (errs[h2]) {
-            return `<div class="s" style="color:var(--bad)" title="${errs[h2]}">· ${h2} — ${globalThis.SolstoneFailures.classify(errs[h2])}</div>`;
+            const err = esc(errs[h2]);
+            const classified = esc(globalThis.SolstoneFailures.classify(errs[h2]));
+            return `<div class="s" style="color:var(--bad)" title="${err}">· ${host} — ${classified}</div>`;
           }
-          if (state.paused) return `<div class="s">· ${h2} <span class="muted">— paused</span></div>`;
-          if (state.activeSites.includes(h2) && connected) return `<div class="s">· ${h2} <span style="color:var(--ok)">● observing</span></div>`;
-          if (state.activeSites.includes(h2)) return `<div class="s">· ${h2} observing — waiting to sync</div>`;
-          return `<div class="s">· ${h2} <span class="muted">— open/reload a tab</span></div>`;
+          if (state.paused) return `<div class="s">· ${host} <span class="muted">— paused</span></div>`;
+          if (state.activeSites.includes(h2) && connected) return `<div class="s">· ${host} <span style="color:var(--ok)">● observing</span></div>`;
+          if (state.activeSites.includes(h2)) return `<div class="s">· ${host} observing — waiting to sync</div>`;
+          if (h2 === pageHost) return `<div class="s">· ${host} <button type="button" class="reload-site">reload this tab to begin</button></div>`;
+          return `<div class="s">· ${host} <span class="muted">— open/reload a tab</span></div>`;
         })
         .join("");
+    const reload = sites.querySelector(".reload-site");
+    if (reload) {
+      reload.addEventListener("click", async () => {
+        const current = tab && tab.id != null ? tab : await currentTab();
+        if (current && current.id != null) chrome.tabs.reload(current.id);
+      });
+    }
   } else {
     sites.innerHTML = '<div class="s muted" style="padding-top:6px">no sites yet — open any site and click “observe this site”.</div>';
   }
 
-  $("streamLabel").textContent = state.stream || (state.hostname ? `${state.hostname}.browser` : "—");
+  const streamText = state.stream || (state.hostname ? `${state.hostname}.browser` : "—");
+  const streamLabel = $("streamLabel");
+  streamLabel.textContent = "";
+  if (state.journalUrl) {
+    const a = document.createElement("a");
+    a.href = state.journalUrl;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = `${streamText} ↗`;
+    streamLabel.appendChild(a);
+  } else {
+    streamLabel.textContent = streamText;
+  }
   const us = await chrome.action.getUserSettings().catch(() => ({}));
   $("pinHint").hidden = us.isOnToolbar !== false;
 }

@@ -14,7 +14,7 @@
 // as its own observer and uploads finished segments directly. MV3 ephemerality
 // is handled by persisting all state to chrome.storage and waking on alarms.
 
-importScripts("lib/blocks.js", "lib/hosts.js", "lib/segment.js", "lib/status.js", "journal.js");
+importScripts("lib/blocks.js", "lib/hosts.js", "lib/segment.js", "lib/status.js", "lib/buffered.js", "journal.js");
 
 const Seg = globalThis.SolstoneSegment;
 const H = globalThis.SolstoneHosts;
@@ -353,7 +353,7 @@ async function pruneSigs(seg) {
 // just the snapshot (no deltas) AND whose snapshot is unchanged from the last one
 // we uploaded is SKIPPED — so an idle page produces no segment at all. Surviving
 // contexts are grouped by host into one file per host (rows carry their `ctx`).
-// `force` (manual "send buffered now") bypasses idle.
+// `force` (manual "send now") bypasses idle.
 async function flushSeg(seg, now, force = false) {
   const sigs = (await chrome.storage.local.get("sigs")).sigs || {};
   const byHost = {}; // host -> concatenated lines (ctx-tagged)
@@ -370,13 +370,13 @@ async function flushSeg(seg, now, force = false) {
     name: Seg.fileForSite(host),
     text: Seg.serializeJsonl(lines),
   }));
-  if (!files.length) return; // fully idle — no segment created
+  if (!files.length) return "empty"; // fully idle — no segment created
   let cfg;
   try {
     cfg = await ensureRegistered();
   } catch (_e) {
     console.warn("[solstone] cannot upload segment — journal unreachable; segment dropped");
-    return;
+    return "failed";
   }
   const duration = Math.max(1, Math.floor((now - seg.startMs) / 1000));
   const segment = Seg.segmentKey(seg.startMs, duration);
@@ -386,14 +386,16 @@ async function flushSeg(seg, now, force = false) {
     res = await J.uploadSegment(cfg.journalUrl, cfg.key, { day: seg.day, segment, meta, files });
   } catch (e) {
     await recordHealth({ ok: false, status: 0, body: { error: String(e && e.message) } });
-    return;
+    return "failed";
   }
   await recordHealth(res);
+  const outcome = res && res.ok ? "uploaded" : "failed";
   if (res.ok && !res.failed) {
     Object.assign(sigs, nextSigs);
     await chrome.storage.local.set({ sigs });
   }
   console.log(`[solstone] segment ${seg.day}/${segment} -> ${res.ok ? (res.duplicate ? "duplicate" : "stored") : "HTTP " + res.status}`);
+  return outcome;
 }
 
 async function recordHealth(res) {
@@ -471,11 +473,11 @@ async function rotateIfDue() {
 
 // Force an immediate upload of whatever is buffered (popup "flush now" / demo).
 async function flushNow() {
-  await withSeg(async () => {
+  return withSeg(async () => {
     const seg = await getSeg();
-    if (!seg) return;
+    if (!seg) return "empty";
     const now = Date.now();
-    await flushSeg(seg, now, true); // manual flush bypasses idle
+    const outcome = await flushSeg(seg, now, true); // manual flush bypasses idle
     const next = newSeg(now);
     for (const [ctx, e] of Object.entries(seg.ctxs)) {
       if (e.active && e.last && e.last.length) {
@@ -486,6 +488,7 @@ async function flushNow() {
     }
     await setSeg(next);
     await pruneSigs(next);
+    return outcome || "empty";
   });
 }
 
@@ -593,6 +596,11 @@ async function handleCommand(msg, sendResponse) {
         });
         break;
       }
+      case "getBufferedPreview": {
+        const seg = await getSeg();
+        sendResponse({ ok: true, ...globalThis.SolstoneBuffered.summarize(seg) });
+        break;
+      }
       case "siteGranted": {
         const err = await addSite(msg.host);
         sendResponse({ ok: !err, error: err || undefined });
@@ -645,10 +653,11 @@ async function handleCommand(msg, sendResponse) {
         sendResponse(r);
         break;
       }
-      case "flushNow":
-        await flushNow();
-        sendResponse({ ok: true });
+      case "flushNow": {
+        const outcome = await flushNow();
+        sendResponse({ ok: outcome !== "failed", outcome });
         break;
+      }
       default:
         sendResponse({ ok: false, error: "unknown command" });
     }

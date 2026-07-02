@@ -4,7 +4,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>solstone browser observer — settings</title>
+    <title>solstone browser — settings</title>
     <style>
       @font-face { font-family: "Comfortaa"; src: url("fonts/comfortaa.woff2") format("woff2"); font-weight: 700; font-display: swap; }
       @font-face { font-family: "InterBody"; src: url("fonts/inter.woff2") format("woff2"); font-weight: 400 600; font-display: swap; }
@@ -90,6 +90,12 @@
       .addrow > div { flex: 1; }
       .addrow button { margin: 0; }
       .status { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 16px; }
+      details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+      summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+      .waiting-host { margin-top: 8px; }
+      .waiting-host strong { font-size: 12px; }
+      .waiting-host ul { margin: 4px 0 0 18px; padding: 0; color: var(--soft); font-size: 12px; }
+      .disabled-link { color: var(--muted); text-decoration: none; pointer-events: none; }
       code { background: var(--orange-wash); color: var(--orange-ink); padding: 1px 6px; border-radius: 5px; }
       a { color: var(--orange-ink); }
     </style>
@@ -98,7 +104,7 @@
     <div class="wrap">
       <h1>
         <img src="brand/sol-ring.svg" width="24" height="24" alt="" />
-        solstone <span class="desc">browser observer — settings</span>
+        solstone <span class="desc">browser — settings</span>
       </h1>
       <p class="muted">
         this prototype experiences only the web apps you add below — taking in their visible text, never screenshots — and
@@ -108,37 +114,47 @@
 
       <div class="card">
         <h2>journal connection</h2>
-        <div class="grid">
-          <div>
-            <label>this computer’s short name (labels the stream)</label>
-            <input id="hostname" placeholder="e.g. laptop" />
+        <form id="connForm" novalidate>
+          <div class="grid">
+            <div>
+              <label>this computer’s short name (labels the stream)</label>
+              <input id="hostname" placeholder="e.g. laptop" />
+            </div>
+            <div>
+              <label>journal url (local)</label>
+              <input id="journalUrl" placeholder="http://localhost:5015" />
+            </div>
           </div>
+          <label>send to your journal every (seconds)</label>
+          <input id="segmentSec" type="number" min="30" step="30" placeholder="300" />
+          <div class="muted">how often what's been observed is batched and sent. default 300.</div>
           <div>
-            <label>journal url (local)</label>
-            <input id="journalUrl" placeholder="http://localhost:5015" />
+            <button id="saveBtn" class="primary" type="submit">save</button>
+            <button id="registerBtn" type="button">connect</button>
+            <button id="flushBtn" type="button">send now</button>
           </div>
-        </div>
-        <label>segment length (seconds — how often a snapshot+deltas batch is sent; 60 for a snappy demo)</label>
-        <input id="segmentSec" type="number" min="30" step="30" placeholder="300" />
-        <div>
-          <button id="saveBtn" class="primary">save</button>
-          <button id="registerBtn">register / test connection</button>
-          <button id="flushBtn">send buffered now</button>
-        </div>
+        </form>
+        <p class="muted"><a href="#" id="journalLink" target="_blank" rel="noopener">open your journal ↗</a></p>
         <div class="status" id="connStatus"></div>
+        <details id="waitingDetails">
+          <summary id="waitingSummary">waiting to send (0 updates)</summary>
+          <div id="waitingBody" class="muted">nothing waiting.</div>
+        </details>
       </div>
 
       <div class="card">
         <h2>observed sites</h2>
         <p class="muted">adding a site asks chrome for permission to read just that site. you can revoke any time here, or in
           chrome’s own per-site controls.</p>
-        <div class="addrow">
-          <div>
-            <label>add a site by host</label>
-            <input id="newHost" placeholder="mail.google.com" />
+        <form id="addForm" novalidate>
+          <div class="addrow">
+            <div>
+              <label>add a site by host</label>
+              <input id="newHost" placeholder="mail.google.com" />
+            </div>
+            <button id="addBtn" class="primary" type="submit">add</button>
           </div>
-          <button id="addBtn" class="primary">add</button>
-        </div>
+        </form>
         <div class="status" id="addStatus"></div>
         <div id="siteList" style="margin-top: 12px"></div>
       </div>
@@ -158,6 +174,7 @@
       </p>
     </div>
     <script src="lib/hosts.js"></script>
+    <script src="lib/escape.js"></script>
     <script src="lib/failures.js"></script>
     <script src="options.js"></script>
   </body>

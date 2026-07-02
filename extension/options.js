@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 //
-// options.js — full settings: journal connection, register/test, and the
+// options.js — full settings: journal connection, connect, and the
 // opt-in allowlist manager (add by host, remove honored both ways).
 
 const $ = (id) => document.getElementById(id);
 const cmd = (m) => new Promise((r) => chrome.runtime.sendMessage(m, (x) => r(x || {})));
+const esc = (s) => globalThis.SolstoneEscape.escapeHtml(s);
 
 let state = null;
+let loadedHostname = "";
+let loadedJournalUrl = "";
 
 function normHost(input) {
   let h = input.trim();
@@ -19,6 +22,61 @@ function normHost(input) {
   return h.replace(/\/.*$/, "").toLowerCase();
 }
 
+function renderConnStatus() {
+  const h = state.health || {};
+  const cs = $("connStatus");
+  if (state.registered && !h.lastError) {
+    const up = h.lastUploadAt ? new Date(h.lastUploadAt).toLocaleTimeString() : "none yet";
+    cs.innerHTML = `<span class="pill ok">connected as ${esc(state.stream)}</span> · ${h.segmentsUploaded || 0} sent · last ${esc(up)}`;
+  } else if (h.lastError) {
+    cs.innerHTML = `<span class="pill bad">can't reach</span> · <span title="${esc(h.lastError)}">your journal isn't answering. what's observed while it can't be reached may not be kept.</span>`;
+  } else {
+    cs.innerHTML = '<span class="pill">not connected yet</span> · add your journal address and save';
+  }
+}
+
+function renderJournalLink() {
+  const a = $("journalLink");
+  if (state.journalUrl) {
+    a.href = state.journalUrl;
+    a.className = "";
+    a.removeAttribute("aria-disabled");
+  } else {
+    a.removeAttribute("href");
+    a.className = "disabled-link";
+    a.setAttribute("aria-disabled", "true");
+  }
+}
+
+async function renderWaiting() {
+  const preview = await cmd({ cmd: "getBufferedPreview" });
+  const total = preview.totalLines || 0;
+  $("waitingSummary").textContent = `waiting to send (${total} updates)`;
+  const body = $("waitingBody");
+  body.textContent = "";
+  if (!total || !(preview.perHost || []).length) {
+    body.textContent = "nothing waiting.";
+    return;
+  }
+  for (const entry of preview.perHost || []) {
+    const wrap = document.createElement("div");
+    wrap.className = "waiting-host";
+    const head = document.createElement("strong");
+    head.textContent = `${entry.host} · ${entry.count} update${entry.count === 1 ? "" : "s"}`;
+    wrap.appendChild(head);
+    if ((entry.texts || []).length) {
+      const ul = document.createElement("ul");
+      for (const text of entry.texts) {
+        const li = document.createElement("li");
+        li.textContent = text;
+        ul.appendChild(li);
+      }
+      wrap.appendChild(ul);
+    }
+    body.appendChild(wrap);
+  }
+}
+
 async function refresh() {
   state = await cmd({ cmd: "getState" });
   $("hostname").value = state.hostname || "";
@@ -27,28 +85,24 @@ async function refresh() {
   $("showPageIndicator").checked = !!state.showPageIndicator;
   $("ver").textContent = state.version ? "v" + state.version : "";
   $("streamLabel").textContent = state.stream || (state.hostname ? state.hostname + ".browser" : "—");
-  const h = state.health || {};
+  loadedHostname = state.hostname || "";
+  loadedJournalUrl = state.journalUrl || "";
 
-  const cs = $("connStatus");
-  if (state.registered && !h.lastError) {
-    const up = h.lastUploadAt ? new Date(h.lastUploadAt).toLocaleTimeString() : "none yet";
-    cs.innerHTML = `<span class="pill ok">registered as ${state.stream}</span> · ${h.segmentsUploaded || 0} segments sent · last ${up}`;
-  } else if (h.lastError) {
-    cs.innerHTML = `<span class="pill bad">can't reach</span> · <span title="${h.lastError}">your journal isn't answering. what's observed while it can't be reached may not be kept.</span>`;
-  } else {
-    cs.innerHTML = `<span class="pill">not registered</span> · saved settings, click “register / test connection”`;
-  }
+  renderConnStatus();
+  renderJournalLink();
+  await renderWaiting();
 
   const list = $("siteList");
   const errs = state.siteErrors || {};
   if (state.allowlist.length) {
     list.innerHTML = state.allowlist
       .map((h) => {
+        const host = esc(h);
         let status;
-        if (errs[h]) status = `<span style="color:var(--bad)" title="${errs[h]}">⚠ ${globalThis.SolstoneFailures.classify(errs[h])}</span>`;
+        if (errs[h]) status = `<span style="color:var(--bad)" title="${esc(errs[h])}">⚠ ${esc(globalThis.SolstoneFailures.classify(errs[h]))}</span>`;
         else if (state.activeSites.includes(h)) status = '<span style="color:var(--ok)">● observing now</span>';
         else status = '<span class="muted">added — open or reload a tab on this site</span>';
-        return `<div class="site"><span>${h} &nbsp; ${status}</span><button data-host="${h}">remove</button></div>`;
+        return `<div class="site"><span>${host} &nbsp; ${status}</span><button type="button" data-host="${host}">remove</button></div>`;
       })
       .join("");
     list.querySelectorAll("button[data-host]").forEach((b) =>
@@ -62,43 +116,43 @@ async function refresh() {
   }
 }
 
-$("saveBtn").addEventListener("click", async () => {
-  await cmd({
-    cmd: "setConfig",
-    hostname: $("hostname").value,
-    journalUrl: $("journalUrl").value,
-    segmentSec: Number($("segmentSec").value) || 300,
-  });
-  $("connStatus").textContent = "saved.";
-  await refresh();
-});
-
-$("registerBtn").addEventListener("click", async () => {
-  $("connStatus").textContent = "registering…";
-  await cmd({ cmd: "probe" });
-  await refresh();
-});
-
-$("flushBtn").addEventListener("click", async () => {
-  await cmd({ cmd: "flushNow" });
-  $("connStatus").textContent = "flushed buffered content to the journal.";
-  await refresh();
-});
-
-$("showPageIndicator").addEventListener("change", async () => {
-  await cmd({ cmd: "setConfig", showPageIndicator: $("showPageIndicator").checked });
-});
-
-$("addBtn").addEventListener("click", async () => {
-  const host = normHost($("newHost").value);
-  if (!host) {
-    $("addStatus").textContent = "enter a host like mail.google.com (or localhost, an IP, host:port)";
+async function saveConfig() {
+  const segmentSec = Number.parseInt($("segmentSec").value, 10);
+  if (Number.isNaN(segmentSec) || segmentSec < 30) {
+    $("connStatus").textContent = "minimum 30 seconds";
     return;
   }
-  // request a port-less origin (match patterns reject ports); the worker keeps
-  // port precision via the allowlist self-gate.
+
+  const hostname = $("hostname").value;
+  const journalUrl = $("journalUrl").value;
+  const connectionChanged = hostname.trim() !== loadedHostname || journalUrl.trim().replace(/\/+$/, "") !== loadedJournalUrl;
+  await cmd({ cmd: "setConfig", hostname, journalUrl, segmentSec });
+
+  if (connectionChanged) {
+    $("connStatus").textContent = "connecting…";
+    await cmd({ cmd: "probe" });
+    await refresh();
+  } else {
+    await refresh();
+    $("connStatus").textContent = "saved.";
+  }
+}
+
+async function addSite() {
+  const raw = $("newHost").value;
+  if (!globalThis.SolstoneHosts.isValidHostInput(raw)) {
+    $("addStatus").textContent = "enter a site like mail.google.com";
+    return;
+  }
+  const host = normHost(raw);
   const origin = `*://${globalThis.SolstoneHosts.matchHostFor(host)}/*`;
-  const granted = await chrome.permissions.request({ origins: [origin] });
+  let granted;
+  try {
+    granted = await chrome.permissions.request({ origins: [origin] });
+  } catch (_e) {
+    $("addStatus").textContent = "enter a site like mail.google.com";
+    return;
+  }
   if (!granted) {
     $("addStatus").textContent = "permission declined — nothing added.";
     return;
@@ -107,6 +161,37 @@ $("addBtn").addEventListener("click", async () => {
   $("newHost").value = "";
   $("addStatus").textContent = res && res.error ? "could not observe: " + res.error : `added ${host}. open or reload a tab on it to begin.`;
   await refresh();
+}
+
+$("connForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  await saveConfig();
+});
+
+$("registerBtn").addEventListener("click", async () => {
+  $("connStatus").textContent = "connecting…";
+  await cmd({ cmd: "probe" });
+  await refresh();
+});
+
+$("flushBtn").addEventListener("click", async () => {
+  const res = await cmd({ cmd: "flushNow" });
+  if (res.outcome === "failed") {
+    await refresh();
+    renderConnStatus();
+    return;
+  }
+  await refresh();
+  $("connStatus").textContent = res.outcome === "uploaded" ? "sent." : "nothing waiting.";
+});
+
+$("showPageIndicator").addEventListener("change", async () => {
+  await cmd({ cmd: "setConfig", showPageIndicator: $("showPageIndicator").checked });
+});
+
+$("addForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  await addSite();
 });
 
 refresh();

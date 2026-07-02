@@ -53,5 +53,13 @@
     return false;
   }
 
-  globalThis.SolstoneHosts = { splitHost, matchHostFor, matchPatternFor, hostAllowed };
+  function isValidHostInput(input) {
+    const raw = String(input || "").trim();
+    if (!raw || /\s/.test(raw) || raw.includes("/")) return false;
+    const host = raw.replace(/:\d+$/, "").toLowerCase();
+    if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(host)) return true;
+    return /^[a-z0-9-]+(?:\.[a-z0-9-]+)*$/.test(host);
+  }
+
+  globalThis.SolstoneHosts = { splitHost, matchHostFor, matchPatternFor, hostAllowed, isValidHostInput };
 })();

@@ -50,3 +50,15 @@ test("hostAllowed: any-site works (generic hosts), non-members rejected", () => 
   assert.equal(H.hostAllowed("evil.example", ["mail.google.com"]), false);
   assert.equal(H.hostAllowed("mail.google.com", []), false);
 });
+
+test("isValidHostInput accepts host-shaped owner input", () => {
+  for (const h of ["localhost", "localhost:5015", "192.168.1.10", "myhost:8080", "mail.google.com", "EXAMPLE.com"]) {
+    assert.equal(H.isValidHostInput(h), true, h);
+  }
+});
+
+test("isValidHostInput rejects empty, spaces, and non-host-shaped input", () => {
+  for (const h of ["", "   ", "not a url!!", "has spaces here", "bad/host", "bad_host.example", "example.com/path"]) {
+    assert.equal(H.isValidHostInput(h), false, h);
+  }
+});

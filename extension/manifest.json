@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA50W9PjYwnPaiAi30BL9zyFzMbh+SVUC7E5Ys/na+pBPEn2I88WWpvwnX8rlnPoHKxTi0etNN4jbaLJL8QN5JIV/DN0N3XAZom/rfnuP5uzCLM8+n89GKbXf6iVcXHFES5MlJPE+JYS2BgrJpHbZz+/V7V734hWjQnBMyECGChlZo4j81hnaXUJmvCvAvSAUA24LbVVe6dZAo/m5NYQmgqHw51KJVCRspjhQhOrxQerB4JPPk34Hl7dvHkzooOtdR5FX9NKYV7Dtpjb3zvM4BPLgxgtW8w0n97ZdUmznPOutjchZmKhZfZGgp7DPiaHDYIQbkvgWkvnxznimZTNDitwIDAQAB",
-  "name": "solstone browser observer (prototype)",
+  "name": "solstone browser (prototype)",
   "version": "0.0.9",
   "description": "experiences the web apps you choose along with you — taking in their visible text, never pixels — and relays it into your local solstone journal. opt-in, per site.",
   "minimum_chrome_version": "120",
@@ -13,7 +13,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "solstone browser observer",
+    "default_title": "solstone browser",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

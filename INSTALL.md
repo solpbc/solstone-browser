@@ -1,4 +1,4 @@
-# Install — solstone browser observer (prototype)
+# Install — solstone browser (prototype)
 
 **This is a discovery prototype, not a finished product.** It's a Chrome
 extension that experiences a few web apps you choose — reading their visible
@@ -49,8 +49,8 @@ observers).
 3. **Pause.** Click the icon → **pause all**. The toolbar icon switches to
    paused, and nothing is read until you resume. This is the one-tap kill switch.
 4. **Watch it reach your journal.** Leave an observed tab open for one segment
-   length (60s if you set that), or click **send buffered now** in the options
-   page to flush immediately. The journal's observer dashboard should also now
+   length (60s if you set that), or click **send now** in the options
+   page to send immediately. The journal's observer dashboard should also now
    show `<hostname>.browser` as **connected** (a heartbeat fires every minute).
    Then check the stream landed (substitute the short name you set above):
 

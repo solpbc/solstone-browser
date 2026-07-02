@@ -44,7 +44,7 @@
         color: var(--ink);
         letter-spacing: -0.3px;
       }
-      header .desc { color: var(--muted); font-size: 11px; }
+      header .desc { color: var(--muted); font-size: 12px; }
       .body { padding: 0 14px 14px; }
       .row {
         display: flex;
@@ -56,7 +56,7 @@
       }
       .muted { color: var(--muted); }
       .pill {
-        font-size: 11px;
+        font-size: 12px;
         padding: 2px 9px;
         border-radius: 999px;
         background: var(--surface);
@@ -87,31 +87,31 @@
       a { color: var(--orange-ink); text-decoration: none; }
       footer {
         padding: 9px 14px 12px;
-        font-size: 11px;
+        font-size: 12px;
         color: var(--muted);
         display: flex;
         justify-content: space-between;
         border-top: 1px solid var(--line);
       }
-      .err { color: var(--bad); font-size: 11px; margin-top: 6px; }
+      .err { color: var(--bad); font-size: 12px; margin-top: 6px; }
       .consequence {
         color: var(--bad);
-        font-size: 11px;
+        font-size: 12px;
         margin-top: 6px;
         display: flex;
         align-items: center;
         gap: 8px;
         justify-content: space-between;
       }
-      .consequence button { margin: 0; padding: 4px 10px; font-size: 11px; }
-      .pinhint { font-size: 11px; color: var(--muted); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+      .consequence button { margin: 0; padding: 4px 10px; font-size: 12px; }
+      .pinhint { font-size: 12px; color: var(--muted); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
     </style>
   </head>
   <body>
     <header>
       <img src="brand/sol-ring.svg" width="20" height="20" alt="" />
       <span class="word">solstone</span>
-      <span class="desc">browser observer</span>
+      <span class="desc">browser</span>
     </header>
     <div class="body">
       <div class="row">
@@ -137,13 +137,14 @@
         <button id="tryBtn">try now</button>
       </div>
       <div class="err" id="err"></div>
-      <div class="pinhint" id="pinHint" hidden>📌 pin solstone to your toolbar so its status light stays visible.</div>
+      <div class="pinhint" id="pinHint" hidden>pin solstone to your toolbar so its status light stays visible.</div>
     </div>
     <footer>
       <span id="streamLabel">—</span>
       <a href="#" id="optsLink">settings ›</a>
     </footer>
     <script src="lib/hosts.js"></script>
+    <script src="lib/escape.js"></script>
     <script src="lib/failures.js"></script>
     <script src="popup.js"></script>
   </body>

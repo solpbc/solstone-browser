@@ -4,6 +4,41 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 `make set-version` keeps `manifest.json` / `package.json` / `background.js` in
 lockstep, and `make dist` refuses to build if they drift.
 
+## 0.0.10 — 2026-07-01
+
+The owner-experience pass from the VPX full-surface review: honest failure
+states, plain language, and one-tap symmetry.
+
+- **Honest can't-reach states.** When your journal can't be reached, the popup
+  and options now say what it means — "what's observed while it can't be reached
+  may not be kept" — with a **try now** recovery probe; per-site rows switch from
+  green to "observing — waiting to sync", and a persistently unreachable journal
+  escalates the toolbar icon to the attention tier. (No offline queue yet; this
+  makes the gap visible instead of silent.)
+- **Errors in plain language.** Raw error strings ("Failed to fetch") map to
+  owner-readable copy — what happened and what to do next — with the technical
+  detail kept in the tooltip.
+- **Stop observing from the popup.** Leaving a site is now one tap, same as
+  joining: on an observed site the popup button flips to **stop observing**
+  (removes the site and revokes its permission).
+- **Calm paused states.** Paused reads as a neutral chip (not red), site rows say
+  "— paused", and the on-page marker's paused pill is solid and legible.
+- **Readable buttons.** Primary buttons use dark ink on sol orange (white on
+  orange failed WCAG contrast).
+- **"solstone browser".** The extension names itself solstone browser — observing
+  is what it does, not its name.
+- **Connect, save, send now.** Options speaks owner language: **connect** replaces
+  "register / test connection", saving a changed journal address connects
+  immediately, Enter submits, invalid values get inline messages instead of
+  silent ignores, and **send now** reports sent / nothing waiting / can't reach
+  honestly.
+- **See what's waiting.** A read-only "waiting to send" view in options shows the
+  updates buffered for your journal, plus **open your journal** links from both
+  popup and options.
+- **Craft.** 12px minimum type, HTML-escaped host/error rendering everywhere,
+  a "reload this tab to begin" action for just-added sites, and the guided-test /
+  install docs brought up to current behavior.
+
 ## 0.0.9 — 2026-07-01
 
 - **On-page marker is opt-in.** The floating sol-mark marker is now off by

@@ -1,6 +1,6 @@
 {
   "name": "solstone-browser",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "private": true,
   "type": "module",
   "description": "Prototype Chrome (MV3) semantic browser observer for solstone.",

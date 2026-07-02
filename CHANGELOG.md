@@ -20,8 +20,9 @@ Durable offline outbox — buffered observations are never silently dropped.
   is now reserved for observations that were actually dropped (outbox at
   capacity), with a dismiss affordance that appears only after the backlog fully
   drains.
-- **Bounded, never unbounded.** The outbox is capped (2000 lines); overflow
-  evicts oldest and is surfaced as real loss, not hidden.
+- **Bounded, never unbounded.** The outbox is capped at 2000 segments (about a
+  week of continuous offline observing at the default cadence); overflow evicts
+  oldest and is surfaced as real loss, not hidden.
 
 ## 0.0.10 — 2026-07-01
 

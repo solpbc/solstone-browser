@@ -4,6 +4,25 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 `make set-version` keeps `manifest.json` / `package.json` / `background.js` in
 lockstep, and `make dist` refuses to build if they drift.
 
+## 0.0.11 — 2026-07-01
+
+Durable offline outbox — buffered observations are never silently dropped.
+
+- **Offline retry queue.** When your journal can't be reached, a segment that
+  can't be delivered is now held in a durable outbox in `chrome.storage` instead
+  of being discarded. Every give-up path (registration failure, upload error,
+  non-ok response, ok-with-failed body) enqueues rather than drops, and the
+  buffer drains oldest-first once the journal comes back — on the next alarm tick
+  and after a successful reconnect.
+- **One honest waiting total.** The popup, options, per-site rows, and toolbar
+  icon all read from a single waiting count (pending + queued lines). The calm
+  half-sun carries an "{N} update(s) waiting to sync" suffix; the red loss state
+  is now reserved for observations that were actually dropped (outbox at
+  capacity), with a dismiss affordance that appears only after the backlog fully
+  drains.
+- **Bounded, never unbounded.** The outbox is capped (2000 lines); overflow
+  evicts oldest and is surfaced as real loss, not hidden.
+
 ## 0.0.10 — 2026-07-01
 
 The owner-experience pass from the VPX full-surface review: honest failure

@@ -20,7 +20,7 @@ const Seg = globalThis.SolstoneSegment;
 const H = globalThis.SolstoneHosts;
 const J = globalThis.SolstoneJournal;
 const Outbox = globalThis.SolstoneOutbox;
-const VERSION = "0.0.10";
+const VERSION = "0.0.11";
 const BOOT_MS = Date.now();
 
 const CONTENT_SCRIPT_FILES = ["lib/blocks.js", "lib/hosts.js", "adapters.js", "skim.js", "indicator.js", "content.js"];

@@ -26,11 +26,7 @@ const cells = [
   ],
   [
     { allowlist: ["x"], key: "k", health: { lastError: "down", consecutiveFailures: 2 } },
-    {
-      prefix: "icon-error-",
-      title: "solstone — observing 1 site · can't reach your journal — recent observations may not be kept",
-      badge: "!",
-    },
+    { prefix: "icon-half-", title: "solstone — observing 1 site · can't reach your journal", badge: "" },
   ],
   [
     { allowlist: ["x"], health: { lastError: "down", consecutiveFailures: 1 } },
@@ -38,11 +34,7 @@ const cells = [
   ],
   [
     { allowlist: ["x"], health: { lastError: "down", consecutiveFailures: 2 } },
-    {
-      prefix: "icon-error-",
-      title: "solstone — observing 1 site · can't reach your journal — recent observations may not be kept",
-      badge: "!",
-    },
+    { prefix: "icon-half-", title: "solstone — observing 1 site · connecting to your journal", badge: "" },
   ],
   [
     { allowlist: ["x"], key: "k", health: { lastError: "down" } },
@@ -50,11 +42,27 @@ const cells = [
   ],
   [
     { allowlist: ["x"], key: "k", siteErrors: { x: "boom" }, health: { lastError: "down", consecutiveFailures: 2 } },
-    {
-      prefix: "icon-error-",
-      title: "solstone — observing 1 site · can't reach your journal — recent observations may not be kept",
-      badge: "!",
-    },
+    { prefix: "icon-error-", title: "solstone — boom", badge: "!" },
+  ],
+  [
+    { allowlist: ["x"], key: "k", health: { lastError: "down" }, waiting: 12 },
+    { prefix: "icon-half-", title: "solstone — observing 1 site · can't reach your journal — 12 updates waiting to sync", badge: "" },
+  ],
+  [
+    { allowlist: ["x"], key: "k", health: { lastError: "down" }, waiting: 1 },
+    { prefix: "icon-half-", title: "solstone — observing 1 site · can't reach your journal — 1 update waiting to sync", badge: "" },
+  ],
+  [
+    { allowlist: ["a", "b"], key: "k", health: { lastError: "down" }, waiting: 0 },
+    { prefix: "icon-half-", title: "solstone — observing 2 sites · can't reach your journal", badge: "" },
+  ],
+  [
+    { allowlist: ["a", "b"], waiting: 3 },
+    { prefix: "icon-half-", title: "solstone — observing 2 sites · connecting to your journal — 3 updates waiting to sync", badge: "" },
+  ],
+  [
+    { allowlist: ["x"], dropped: { segments: 1, lines: 8 } },
+    { prefix: "icon-error-", title: "solstone — some observations couldn't be kept — open settings", badge: "!" },
   ],
 ];
 

@@ -109,8 +109,9 @@ observers).
 - Browser segments land on disk and are queryable, but the journal doesn't yet
   *render* a `browser` stream in the timeline the way it renders screen/audio —
   that's a journal-side follow-up the spike surfaced, not a bug in the extension.
-- No offline retry queue yet: if the journal is down at the moment a segment
-  rotates, that segment is dropped (fine for localhost; noted for the real build).
+- Offline outbox: if the journal is down when observations are ready to send,
+  they are kept locally and sync when the journal returns; if it stays down too
+  long, the oldest queued observations are counted and surfaced.
 - The live content-script → worker → relay path is now covered two ways: an
   automated headless harness (`npm run e2e`, using Playwright's real new-headless
   build, which *does* inject our dynamically-registered content scripts), and the

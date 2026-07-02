@@ -69,6 +69,8 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 
 function startStub() {
   const received = { registers: [], ingests: [], events: [] };
+  const seenSegments = new Set();
+  let rejectIngest = false;
   let keySeq = 0;
   const json = (res, code, obj) => {
     res.writeHead(code, { "content-type": "application/json", "access-control-allow-origin": "*" });
@@ -99,6 +101,7 @@ function startStub() {
         return json(res, 200, { key, name, prefix: key.slice(0, 8), protocol_version: 1 });
       }
       if (req.method === "POST" && path === "/app/observer/ingest") {
+        if (rejectIngest) return json(res, 503, { error: "stub outage" });
         const buf = await readBuf(req);
         const auth = req.headers["authorization"] || req.headers["x-solstone-observer"] || "";
         const fd = await new Response(buf, { headers: { "content-type": req.headers["content-type"] } }).formData();
@@ -109,7 +112,12 @@ function startStub() {
         }
         let meta = null;
         try { meta = JSON.parse(fd.get("meta") || "null"); } catch (_e) {}
-        received.ingests.push({ at: Date.now(), day: fd.get("day"), segment: fd.get("segment"), meta, files, authPresent: !!auth });
+        const day = fd.get("day");
+        const segment = fd.get("segment");
+        const key = `${day}/${segment}`;
+        if (seenSegments.has(key)) return json(res, 200, { status: "duplicate", segment, files: files.map((f) => f.name) });
+        seenSegments.add(key);
+        received.ingests.push({ at: Date.now(), day, segment, meta, files, authPresent: !!auth });
         return json(res, 200, { status: "ok", segment: fd.get("segment"), files: files.map((f) => f.name) });
       }
       if (req.method === "POST" && path === "/app/observer/ingest/event") {
@@ -130,7 +138,7 @@ function startStub() {
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => {
       const port = server.address().port; // ephemeral — never clashes with a real journal on 5015
-      resolve({ port, url: `http://127.0.0.1:${port}`, received, close: () => server.close() });
+      resolve({ port, url: `http://127.0.0.1:${port}`, received, setIngestReject: (v) => { rejectIngest = !!v; }, close: () => server.close() });
     });
   });
 }
@@ -289,6 +297,37 @@ async function main() {
       ok("segment_start carries the skimmed heading", !!bfile && /On structural trust/.test(bfile.text));
       ok("relayed segment does NOT carry hidden content", !bfile || !/SECRET-HIDDEN/.test(bfile.text));
     }
+
+    // 7a. Outage round-trip: a failed send is kept in the offline outbox; when
+    // the stub recovers, probe triggers drain and the original day/segment lands.
+    await sleep(1100);
+    await sw.evaluate(async () => {
+      const r = await chrome.storage.local.get("seg");
+      if (r.seg) {
+        r.seg.startMs = Date.now();
+        r.seg.day = globalThis.SolstoneSegment.dayKey(r.seg.startMs);
+        await chrome.storage.local.set({ seg: r.seg });
+      }
+    });
+    const beforeOutageIngests = stub.received.ingests.length;
+    stub.setIngestReject(true);
+    const queued = await popup.evaluate(() => new Promise((res) => chrome.runtime.sendMessage({ cmd: "flushNow" }, (r) => res(r || {}))));
+    ok("outage send-now reports queued", queued.outcome === "queued", JSON.stringify(queued));
+    const queuedState = await sw.evaluate(async () => {
+      const r = await chrome.storage.local.get(["outbox", "dropped"]);
+      return { outbox: r.outbox || [], dropped: r.dropped || { segments: 0, lines: 0 } };
+    });
+    ok("outage leaves a durable outbox entry", queuedState.outbox.length > 0, `outbox=${queuedState.outbox.length}`);
+    ok("outage does not count loss", (queuedState.dropped.segments || 0) === 0 && (queuedState.dropped.lines || 0) === 0, JSON.stringify(queuedState.dropped));
+    stub.setIngestReject(false);
+    await popup.evaluate(() => new Promise((res) => chrome.runtime.sendMessage({ cmd: "probe" }, () => res(true))));
+    let drained = false;
+    for (let i = 0; i < 40 && !drained; i++) {
+      drained = await sw.evaluate(async () => (((await chrome.storage.local.get("outbox")).outbox || []).length === 0));
+      if (!drained) await sleep(250);
+    }
+    ok("recovered journal drains the offline outbox", drained);
+    ok("drain delivered the queued segment exactly once", stub.received.ingests.length === beforeOutageIngests + 1, `ingests=${stub.received.ingests.length}`);
 
     // 7b. Live toggle: enabling the on-page marker mounts it on the already-open
     // observed tab (exercises setIndicatorAll -> the hostAllowed-gated content path).

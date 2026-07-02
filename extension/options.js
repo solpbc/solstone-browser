@@ -29,7 +29,7 @@ function renderConnStatus() {
     const up = h.lastUploadAt ? new Date(h.lastUploadAt).toLocaleTimeString() : "none yet";
     cs.innerHTML = `<span class="pill ok">connected as ${esc(state.stream)}</span> · ${h.segmentsUploaded || 0} sent · last ${esc(up)}`;
   } else if (h.lastError) {
-    cs.innerHTML = `<span class="pill bad">can't reach</span> · <span title="${esc(h.lastError)}">your journal isn't answering. what's observed while it can't be reached may not be kept.</span>`;
+    cs.innerHTML = `<span class="pill bad">can't reach</span> · <span title="${esc(h.lastError)}">your journal isn't answering. what's observed is kept here, waiting to sync.</span>`;
   } else {
     cs.innerHTML = '<span class="pill">not connected yet</span> · add your journal address and save';
   }
@@ -50,11 +50,37 @@ function renderJournalLink() {
 
 async function renderWaiting() {
   const preview = await cmd({ cmd: "getBufferedPreview" });
-  const total = preview.totalLines || 0;
+  const total = preview.waiting || 0;
+  const outbox = preview.outbox || {};
+  const dropped = preview.dropped || {};
   $("waitingSummary").textContent = `waiting to send (${total} updates)`;
   const body = $("waitingBody");
   body.textContent = "";
-  if (!total || !(preview.perHost || []).length) {
+  if (dropped.segments > 0) {
+    const loss = document.createElement("div");
+    loss.className = "loss";
+    const text = document.createElement("span");
+    text.textContent = `offline too long — the oldest ${dropped.lines} updates couldn't be kept.`;
+    loss.appendChild(text);
+    if (!outbox.lines) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "dismiss";
+      btn.addEventListener("click", async () => {
+        await cmd({ cmd: "clearDropped" });
+        await refresh();
+      });
+      loss.appendChild(btn);
+    }
+    body.appendChild(loss);
+  }
+  if (outbox.lines > 0) {
+    const earlier = document.createElement("div");
+    earlier.className = "muted";
+    earlier.textContent = `${outbox.lines} updates from earlier are waiting to sync.`;
+    body.appendChild(earlier);
+  }
+  if ((!total && !(dropped.segments > 0)) || (!(preview.perHost || []).length && !outbox.lines && !(dropped.segments > 0))) {
     body.textContent = "nothing waiting.";
     return;
   }
@@ -184,7 +210,7 @@ $("flushBtn").addEventListener("click", async () => {
     return;
   }
   await refresh();
-  $("connStatus").textContent = res.outcome === "uploaded" ? "sent." : "nothing waiting.";
+  $("connStatus").textContent = res.outcome === "uploaded" ? "sent." : res.outcome === "queued" ? "can't reach your journal — kept here, waiting to sync." : "nothing waiting.";
 });
 
 $("showPageIndicator").addEventListener("change", async () => {

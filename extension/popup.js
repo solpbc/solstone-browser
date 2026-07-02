@@ -44,9 +44,14 @@ async function refresh() {
     j.textContent = "not connected yet";
     j.className = "pill";
   }
-  $("consequenceText").textContent = h.lastError ? "your journal isn't answering. what's observed while it can't be reached may not be kept." : "";
+  $("consequenceText").textContent = h.lastError ? "your journal isn't answering. what's observed is kept here, waiting to sync." : "";
   $("consequence").title = h.lastError || "";
   $("consequence").hidden = !h.lastError;
+  const dropped = state.dropped || {};
+  const outbox = state.outbox || {};
+  $("lossText").textContent = dropped.lines > 0 ? `offline too long — the oldest ${dropped.lines} updates couldn't be kept.` : "";
+  $("loss").hidden = !(dropped.segments > 0);
+  $("lossBtn").hidden = !!outbox.lines;
 
   // pause
   const p = $("pauseState");
@@ -94,7 +99,7 @@ async function refresh() {
   if (state.allowlist.length) {
     sites.innerHTML =
       '<div class="row" style="border-top:1px solid var(--line)"><span class="muted">observed sites</span>' +
-      `<span class="s">${state.activeSites.length} observing · ${state.pendingLines} updates waiting</span></div>` +
+      `<span class="s">${state.activeSites.length} observing · ${state.waiting || 0} updates waiting</span></div>` +
       state.allowlist
         .map((h2) => {
           const host = esc(h2);
@@ -165,6 +170,11 @@ $("tryBtn").addEventListener("click", async () => {
   await cmd({ cmd: "probe" });
   b.disabled = false;
   b.textContent = "try now";
+  await refresh();
+});
+
+$("lossBtn").addEventListener("click", async () => {
+  await cmd({ cmd: "clearDropped" });
   await refresh();
 });
 

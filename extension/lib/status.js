@@ -12,20 +12,18 @@
     const siteErrs = cfg.siteErrors || {};
     const siteErrKeys = Object.keys(siteErrs);
     const connected = !!cfg.key && !health.lastError;
+    const waiting = Math.max(0, Number(cfg.waiting || 0));
+    const dropped = cfg.dropped || {};
     const badge = "";
+    const waitingSuffix = waiting > 0 ? ` — ${waiting} update${waiting > 1 ? "s" : ""} waiting to sync` : "";
 
     if (!observing) {
       if (sites === 0) return { prefix: "icon-paused-", title: "solstone — add a site to begin", badge };
       return { prefix: "icon-paused-", title: "solstone — paused", badge };
     }
 
-    if (health.lastError && (health.consecutiveFailures || 0) >= 2) {
-      const n = sites;
-      return {
-        prefix: "icon-error-",
-        title: `solstone — observing ${n} site${n > 1 ? "s" : ""} · can't reach your journal — recent observations may not be kept`,
-        badge: "!",
-      };
+    if ((dropped.segments || 0) > 0) {
+      return { prefix: "icon-error-", title: "solstone — some observations couldn't be kept — open settings", badge: "!" };
     }
 
     if (siteErrKeys.length) {
@@ -37,7 +35,7 @@
     if (!connected) {
       return {
         prefix: "icon-half-",
-        title: `solstone — ${label} · ${cfg.key ? "can't reach your journal" : "connecting to your journal"}`,
+        title: `solstone — ${label} · ${cfg.key ? "can't reach your journal" : "connecting to your journal"}${waitingSuffix}`,
         badge,
       };
     }

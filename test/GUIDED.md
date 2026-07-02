@@ -112,5 +112,6 @@ browser-side revoke immediately.
 - **Options shows `⚠ <error>`** → the surfaced registration/observe error (errors
   are surfaced, not swallowed) tells you what failed.
 - **Nothing lands** → confirm the journal is up on `localhost:5015`, that a segment
-  length elapsed, or click **send now**. A transient journal outage at
-  rotation drops that one segment (no offline queue yet — a known prototype edge).
+  length elapsed, or click **send now**. If the journal is down, observations are
+  kept in the offline outbox and sync when the journal returns; if it stays down
+  too long, the oldest queued observations are counted and surfaced.

@@ -95,7 +95,7 @@
       }
       .err { color: var(--bad); font-size: 12px; margin-top: 6px; }
       .consequence {
-        color: var(--bad);
+        color: var(--muted);
         font-size: 12px;
         margin-top: 6px;
         display: flex;
@@ -105,6 +105,9 @@
       }
       .consequence button { margin: 0; padding: 4px 10px; font-size: 12px; white-space: nowrap; }
       .consequence[hidden] { display: none; }
+      .loss { color: var(--bad); font-size: 12px; margin-top: 6px; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+      .loss button { margin: 0; padding: 4px 10px; font-size: 12px; white-space: nowrap; }
+      .loss[hidden] { display: none; }
       .pinhint { font-size: 12px; color: var(--muted); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
     </style>
   </head>
@@ -136,6 +139,10 @@
       <div class="consequence" id="consequence" hidden>
         <span id="consequenceText"></span>
         <button id="tryBtn">try now</button>
+      </div>
+      <div class="loss" id="loss" hidden>
+        <span id="lossText"></span>
+        <button id="lossBtn">dismiss</button>
       </div>
       <div class="err" id="err"></div>
       <div class="pinhint" id="pinHint" hidden>pin solstone to your toolbar so its status light stays visible.</div>

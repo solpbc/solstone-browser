@@ -14,11 +14,12 @@
 // as its own observer and uploads finished segments directly. MV3 ephemerality
 // is handled by persisting all state to chrome.storage and waking on alarms.
 
-importScripts("lib/blocks.js", "lib/hosts.js", "lib/segment.js", "lib/status.js", "lib/buffered.js", "journal.js");
+importScripts("lib/blocks.js", "lib/hosts.js", "lib/segment.js", "lib/status.js", "lib/buffered.js", "lib/outbox.js", "journal.js");
 
 const Seg = globalThis.SolstoneSegment;
 const H = globalThis.SolstoneHosts;
 const J = globalThis.SolstoneJournal;
+const Outbox = globalThis.SolstoneOutbox;
 const VERSION = "0.0.10";
 const BOOT_MS = Date.now();
 
@@ -64,6 +65,14 @@ async function getSeg() {
 async function setSeg(seg) {
   await chrome.storage.local.set({ seg });
 }
+async function getOutbox() {
+  const r = await chrome.storage.local.get("outbox");
+  return Array.isArray(r.outbox) ? r.outbox : [];
+}
+async function getDropped() {
+  const r = await chrome.storage.local.get("dropped");
+  return normalizeDropped(r.dropped);
+}
 
 function newSeg(now) {
   const ms = now || Date.now();
@@ -74,6 +83,25 @@ function newSeg(now) {
 function round1(x) {
   return Math.round(x * 10) / 10;
 }
+function normalizeDropped(dropped) {
+  return {
+    segments: Math.max(0, Number((dropped && dropped.segments) || 0)),
+    lines: Math.max(0, Number((dropped && dropped.lines) || 0)),
+  };
+}
+function pendingLinesForSeg(seg) {
+  return seg ? Object.values(seg.ctxs || {}).reduce((n, e) => n + (e.lines ? e.lines.length : 0), 0) : 0;
+}
+function uploadMeta(cfg) {
+  return { host: cfg.hostname || "local", platform: "browser", stream: cfg.stream, observer: cfg.stream };
+}
+async function waitingSummary(seg) {
+  const outbox = await getOutbox();
+  const dropped = await getDropped();
+  const outboxLines = Outbox.outboxLineCount(outbox);
+  const summary = Outbox.summary({ segPendingLines: pendingLinesForSeg(seg), outboxLines, dropped });
+  return { summary, outbox, outboxInfo: { entries: outbox.length, lines: outboxLines }, dropped: summary.dropped };
+}
 
 // Serialize all segment read-modify-write through one chain to avoid races
 // between concurrent content-script messages.
@@ -82,6 +110,8 @@ function withSeg(fn) {
   segChain = segChain.then(fn, fn);
   return segChain;
 }
+
+let draining = false;
 
 // ---- registration ----------------------------------------------------------
 
@@ -178,6 +208,7 @@ async function addSite(host) {
   }
   await setCfg(cfg);
   await updateBadge();
+  if (!cfg.siteErrors[host]) drainOutbox();
   return cfg.siteErrors[host] || null;
 }
 
@@ -298,7 +329,18 @@ async function handleSkim(ctx, site, tabId, meta, blocks) {
     const now = Date.now();
     const day = Seg.dayKey(now);
     if (!seg || seg.day !== day) {
-      if (seg && hasLines(seg)) await flushSeg(seg, now);
+      if (seg && hasLines(seg)) {
+        const r = await flushSeg(seg, now);
+        const next = newSeg(now);
+        try {
+          await commitFlushedTransition(next, r);
+          await pruneSigs(next);
+          await updateBadge();
+        } catch (e) {
+          await recordHealth({ ok: false, status: 0, body: { error: String(e && e.message) } });
+          return;
+        }
+      }
       seg = newSeg(now);
     }
     const rel = round1((now - seg.startMs) / 1000);
@@ -370,32 +412,67 @@ async function flushSeg(seg, now, force = false) {
     name: Seg.fileForSite(host),
     text: Seg.serializeJsonl(lines),
   }));
-  if (!files.length) return "empty"; // fully idle — no segment created
+  if (!files.length) return { outcome: "empty", nextSigs: {} }; // fully idle — no segment created
+  const duration = Math.max(1, Math.floor((now - seg.startMs) / 1000));
+  const segment = Seg.segmentKey(seg.startMs, duration);
+  const entry = { day: seg.day, segment, files };
   let cfg;
   try {
     cfg = await ensureRegistered();
   } catch (_e) {
-    console.warn("[solstone] cannot upload segment — journal unreachable; segment dropped");
-    return "failed";
+    console.warn("[solstone] cannot upload segment — journal unreachable; queued in offline outbox");
+    return { outcome: "queued", entry, nextSigs };
   }
-  const duration = Math.max(1, Math.floor((now - seg.startMs) / 1000));
-  const segment = Seg.segmentKey(seg.startMs, duration);
-  const meta = { host: cfg.hostname || "local", platform: "browser", stream: cfg.stream, observer: cfg.stream };
+  const meta = uploadMeta(cfg);
   let res;
   try {
     res = await J.uploadSegment(cfg.journalUrl, cfg.key, { day: seg.day, segment, meta, files });
   } catch (e) {
     await recordHealth({ ok: false, status: 0, body: { error: String(e && e.message) } });
-    return "failed";
+    return { outcome: "queued", entry, nextSigs };
   }
   await recordHealth(res);
-  const outcome = res && res.ok ? "uploaded" : "failed";
-  if (res.ok && !res.failed) {
-    Object.assign(sigs, nextSigs);
-    await chrome.storage.local.set({ sigs });
+  const delivered = !!(res && res.ok && !res.failed);
+  console.log(`[solstone] segment ${seg.day}/${segment} -> ${delivered ? (res.duplicate ? "duplicate" : "stored") : "HTTP " + (res && res.status)}`);
+  return delivered ? { outcome: "uploaded", nextSigs } : { outcome: "queued", entry, nextSigs };
+}
+
+function carryActiveContexts(seg, next, now) {
+  // carry forward only still-active contexts, each re-opening with a snapshot;
+  // inactive (closed-tab) contexts fall away here after their flush.
+  for (const [ctx, e] of Object.entries(seg.ctxs)) {
+    if (e.active && e.last && e.last.length) {
+      const line = Seg.snapshotLine(e.host, e.meta, e.last, now, 0);
+      line.ctx = ctx;
+      next.ctxs[ctx] = {
+        host: e.host,
+        tabId: e.tabId,
+        meta: e.meta,
+        snapshotWritten: true,
+        active: true,
+        last: e.last,
+        lines: [line],
+      };
+    }
   }
-  console.log(`[solstone] segment ${seg.day}/${segment} -> ${res.ok ? (res.duplicate ? "duplicate" : "stored") : "HTTP " + res.status}`);
-  return outcome;
+}
+
+async function commitFlushedTransition(next, r) {
+  const sigs = (await chrome.storage.local.get("sigs")).sigs || {};
+  const outbox = await getOutbox();
+  const dropped = await getDropped();
+  if (r && (r.outcome === "uploaded" || r.outcome === "queued")) Object.assign(sigs, r.nextSigs || {});
+  let newOutbox = outbox;
+  let newDropped = dropped;
+  if (r && r.entry) {
+    const enqueued = Outbox.enqueue(outbox, r.entry, Outbox.OUTBOX_CAP);
+    newOutbox = enqueued.outbox;
+    newDropped = {
+      segments: dropped.segments + enqueued.dropped.segments,
+      lines: dropped.lines + enqueued.dropped.lines,
+    };
+  }
+  await chrome.storage.local.set({ seg: next, sigs, outbox: newOutbox, dropped: newDropped });
 }
 
 async function recordHealth(res) {
@@ -424,7 +501,7 @@ async function emitStatus() {
     return; // journal unreachable — nothing to beacon to
   }
   const seg = await getSeg();
-  const pending = seg ? Object.values(seg.ctxs).reduce((n, e) => n + (e.lines ? e.lines.length : 0), 0) : 0;
+  const { summary } = await waitingSummary(seg);
   const siteErrs = Object.keys(c.siteErrors || {}).length;
   await J.relayEvent(c.journalUrl, c.key, "observe", "status", {
     host: c.hostname || "local",
@@ -434,7 +511,7 @@ async function emitStatus() {
     version: VERSION,
     uptime: Math.floor((Date.now() - BOOT_MS) / 1000),
     last_successful_sync: c.health && c.health.lastUploadAt ? Math.floor(c.health.lastUploadAt / 1000) : null,
-    pending_queue_depth: pending,
+    pending_queue_depth: summary.waiting,
     recent_error_count: siteErrs + (c.health && c.health.lastError ? 1 : 0),
     last_error_reason: (c.health && c.health.lastError) || (siteErrs ? Object.values(c.siteErrors)[0] : null),
   });
@@ -447,27 +524,17 @@ async function rotateIfDue() {
     const cfg = await getCfg();
     const now = Date.now();
     if ((now - seg.startMs) / 1000 < cfg.segmentSec) return;
-    await flushSeg(seg, now);
+    const r = await flushSeg(seg, now);
     const next = newSeg(now);
-    // carry forward only still-active contexts, each re-opening with a snapshot;
-    // inactive (closed-tab) contexts fall away here after their flush.
-    for (const [ctx, e] of Object.entries(seg.ctxs)) {
-      if (e.active && e.last && e.last.length) {
-        const line = Seg.snapshotLine(e.host, e.meta, e.last, now, 0);
-        line.ctx = ctx;
-        next.ctxs[ctx] = {
-          host: e.host,
-          tabId: e.tabId,
-          meta: e.meta,
-          snapshotWritten: true,
-          active: true,
-          last: e.last,
-          lines: [line],
-        };
-      }
+    carryActiveContexts(seg, next, now);
+    try {
+      await commitFlushedTransition(next, r);
+    } catch (e) {
+      await recordHealth({ ok: false, status: 0, body: { error: String(e && e.message) } });
+      return;
     }
-    await setSeg(next);
     await pruneSigs(next);
+    await updateBadge();
   });
 }
 
@@ -475,21 +542,59 @@ async function rotateIfDue() {
 async function flushNow() {
   return withSeg(async () => {
     const seg = await getSeg();
-    if (!seg) return "empty";
+    if (!seg) return { ok: true, outcome: "empty" };
     const now = Date.now();
-    const outcome = await flushSeg(seg, now, true); // manual flush bypasses idle
+    const r = await flushSeg(seg, now, true); // manual flush bypasses idle
     const next = newSeg(now);
-    for (const [ctx, e] of Object.entries(seg.ctxs)) {
-      if (e.active && e.last && e.last.length) {
-        const line = Seg.snapshotLine(e.host, e.meta, e.last, now, 0);
-        line.ctx = ctx;
-        next.ctxs[ctx] = { host: e.host, tabId: e.tabId, meta: e.meta, snapshotWritten: true, active: true, last: e.last, lines: [line] };
-      }
+    carryActiveContexts(seg, next, now);
+    try {
+      await commitFlushedTransition(next, r);
+    } catch (e) {
+      await recordHealth({ ok: false, status: 0, body: { error: String(e && e.message) } });
+      return { ok: false, outcome: "failed" };
     }
-    await setSeg(next);
     await pruneSigs(next);
-    return outcome || "empty";
+    await updateBadge();
+    return { ok: r.outcome !== "failed", outcome: r.outcome || "empty" };
   });
+}
+
+async function drainOutbox() {
+  if (draining) return;
+  draining = true;
+  try {
+    while (true) {
+      const entry = await withSeg(async () => Outbox.head(await getOutbox()));
+      if (!entry) break;
+      let cfg;
+      try {
+        cfg = await ensureRegistered();
+      } catch (_e) {
+        break;
+      }
+      const meta = uploadMeta(cfg);
+      let res;
+      try {
+        res = await J.uploadSegment(cfg.journalUrl, cfg.key, { day: entry.day, segment: entry.segment, meta, files: entry.files });
+      } catch (e) {
+        await recordHealth({ ok: false, status: 0, body: { error: String(e && e.message) } });
+        break;
+      }
+      await recordHealth(res);
+      const delivered = !!(res && res.ok && !res.failed);
+      if (!delivered) break;
+      await withSeg(async () => {
+        const outbox = await getOutbox();
+        const current = Outbox.head(outbox);
+        if (current && current.day === entry.day && current.segment === entry.segment) {
+          await chrome.storage.local.set({ outbox: Outbox.removeHead(outbox) });
+        }
+      });
+      await updateBadge();
+    }
+  } finally {
+    draining = false;
+  }
 }
 
 async function probe() {
@@ -497,6 +602,7 @@ async function probe() {
   if (!cfg.key) {
     try {
       const c = await ensureRegistered();
+      drainOutbox();
       return { ok: true, stream: c.stream };
     } catch (e) {
       return { ok: false, status: (e && e.status) || 0, error: String(e && e.message) };
@@ -508,6 +614,7 @@ async function probe() {
   next.health = globalThis.SolstoneStatus.updateHealth(next.health, { ok: res.ok, status: res.status, error: res.ok ? null : res.error });
   await setCfg(next);
   await updateBadge();
+  if (res.ok) drainOutbox();
   return { ok: res.ok, status: res.status, error: res.error, stream: cfg.stream };
 }
 
@@ -554,7 +661,9 @@ const ICON_SET = (prefix) => ({
 
 async function updateBadge() {
   const cfg = await getCfg();
-  const { prefix, title, badge } = globalThis.SolstoneStatus.iconState(cfg);
+  const seg = await getSeg();
+  const { summary } = await waitingSummary(seg);
+  const { prefix, title, badge } = globalThis.SolstoneStatus.iconState(Object.assign({}, cfg, { waiting: summary.waiting, dropped: summary.dropped }));
   try {
     await chrome.action.setIcon({ path: ICON_SET(prefix) });
     await chrome.action.setTitle({ title });
@@ -577,6 +686,7 @@ async function handleCommand(msg, sendResponse) {
         const activeSites = [...new Set(ctxs.filter((e) => e.active).map((e) => e.host))];
         const activeContexts = ctxs.filter((e) => e.active).length;
         const pendingLines = ctxs.reduce((n, e) => n + (e.lines ? e.lines.length : 0), 0);
+        const { summary, outboxInfo } = await waitingSummary(seg);
         sendResponse({
           ok: true,
           journalUrl: cfg.journalUrl,
@@ -591,6 +701,9 @@ async function handleCommand(msg, sendResponse) {
           activeSites,
           activeContexts,
           pendingLines,
+          outbox: outboxInfo,
+          dropped: summary.dropped,
+          waiting: summary.waiting,
           health: cfg.health,
           version: VERSION,
         });
@@ -598,7 +711,21 @@ async function handleCommand(msg, sendResponse) {
       }
       case "getBufferedPreview": {
         const seg = await getSeg();
-        sendResponse({ ok: true, ...globalThis.SolstoneBuffered.summarize(seg) });
+        const { summary, outboxInfo, dropped } = await waitingSummary(seg);
+        sendResponse({ ok: true, ...globalThis.SolstoneBuffered.summarize(seg), waiting: summary.waiting, outbox: outboxInfo, dropped });
+        break;
+      }
+      case "clearDropped": {
+        const cleared = await withSeg(async () => {
+          const state = { outbox: await getOutbox(), dropped: await getDropped() };
+          const next = Outbox.clearDropped(state);
+          if (next.dropped.segments !== state.dropped.segments || next.dropped.lines !== state.dropped.lines) {
+            await chrome.storage.local.set({ dropped: next.dropped });
+          }
+          return next.dropped;
+        });
+        await updateBadge();
+        sendResponse({ ok: true, dropped: cleared });
         break;
       }
       case "siteGranted": {
@@ -643,6 +770,7 @@ async function handleCommand(msg, sendResponse) {
       case "registerNow":
         try {
           const cfg = await ensureRegistered();
+          drainOutbox();
           sendResponse({ ok: true, stream: cfg.stream });
         } catch (e) {
           sendResponse({ ok: false, error: String(e && e.message) });
@@ -654,8 +782,8 @@ async function handleCommand(msg, sendResponse) {
         break;
       }
       case "flushNow": {
-        const outcome = await flushNow();
-        sendResponse({ ok: outcome !== "failed", outcome });
+        const r = await flushNow();
+        sendResponse(r);
         break;
       }
       default:
@@ -699,7 +827,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ROTATE_ALARM) {
-    rotateIfDue();
+    rotateIfDue().then(() => drainOutbox());
     emitStatus();
   }
 });

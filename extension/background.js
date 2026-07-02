@@ -37,7 +37,7 @@ const DEFAULT_CFG = {
   showPageIndicator: false,
   allowlist: [],
   siteErrors: {}, // host -> last registration/observe error string
-  health: { lastError: null, lastUploadAt: null, segmentsUploaded: 0, lastStatus: null },
+  health: { lastError: null, lastUploadAt: null, segmentsUploaded: 0, lastStatus: null, consecutiveFailures: 0 },
 };
 
 // ---- storage helpers -------------------------------------------------------
@@ -103,7 +103,7 @@ async function ensureRegistered() {
     next.key = res.key;
     next.stream = res.name;
     next.protocolVersion = res.protocol_version;
-    next.health = Object.assign({}, next.health, { lastError: null });
+    next.health = globalThis.SolstoneStatus.updateHealth(next.health, { ok: true });
     await setCfg(next);
     console.log(`[solstone] registered as ${res.name} (${res.prefix}…)`);
     return next;
@@ -112,7 +112,7 @@ async function ensureRegistered() {
     return await registering;
   } catch (e) {
     const next = await getCfg();
-    next.health = Object.assign({}, next.health, { lastError: String(e && e.message) });
+    next.health = globalThis.SolstoneStatus.updateHealth(next.health, { ok: false, status: (e && e.status) || 0, error: String(e && e.message) });
     await setCfg(next);
     console.warn("[solstone] registration failed:", e);
     throw e;
@@ -398,14 +398,11 @@ async function flushSeg(seg, now, force = false) {
 
 async function recordHealth(res) {
   const cfg = await getCfg();
-  const h = Object.assign({}, cfg.health);
-  h.lastStatus = res.status;
+  const error = (res.body && (res.body.detail || res.body.error)) || null;
+  const h = globalThis.SolstoneStatus.updateHealth(cfg.health, { ok: res.ok, status: res.status, error });
   if (res.ok) {
     h.lastUploadAt = Date.now();
     if (!res.duplicate) h.segmentsUploaded = (h.segmentsUploaded || 0) + 1;
-    h.lastError = null;
-  } else {
-    h.lastError = (res.body && (res.body.detail || res.body.error)) || `HTTP ${res.status}`;
   }
   cfg.health = h;
   await setCfg(cfg);
@@ -490,6 +487,25 @@ async function flushNow() {
     await setSeg(next);
     await pruneSigs(next);
   });
+}
+
+async function probe() {
+  const cfg = await getCfg();
+  if (!cfg.key) {
+    try {
+      const c = await ensureRegistered();
+      return { ok: true, stream: c.stream };
+    } catch (e) {
+      return { ok: false, status: (e && e.status) || 0, error: String(e && e.message) };
+    }
+  }
+  const day = Seg.dayKey(Date.now());
+  const res = await J.checkConnection(cfg.journalUrl, cfg.key, day);
+  const next = await getCfg();
+  next.health = globalThis.SolstoneStatus.updateHealth(next.health, { ok: res.ok, status: res.status, error: res.ok ? null : res.error });
+  await setCfg(next);
+  await updateBadge();
+  return { ok: res.ok, status: res.status, error: res.error, stream: cfg.stream };
 }
 
 // ---- pause + badge ---------------------------------------------------------
@@ -624,6 +640,11 @@ async function handleCommand(msg, sendResponse) {
           sendResponse({ ok: false, error: String(e && e.message) });
         }
         break;
+      case "probe": {
+        const r = await probe();
+        sendResponse(r);
+        break;
+      }
       case "flushNow":
         await flushNow();
         sendResponse({ ok: true });

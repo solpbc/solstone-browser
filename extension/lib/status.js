@@ -8,14 +8,24 @@
     cfg = cfg || {};
     const sites = (cfg.allowlist || []).length;
     const observing = sites > 0 && !cfg.paused;
+    const health = cfg.health || {};
     const siteErrs = cfg.siteErrors || {};
     const siteErrKeys = Object.keys(siteErrs);
-    const connected = !!cfg.key && !((cfg.health || {}).lastError);
+    const connected = !!cfg.key && !health.lastError;
     const badge = "";
 
     if (!observing) {
       if (sites === 0) return { prefix: "icon-paused-", title: "solstone — add a site to begin", badge };
       return { prefix: "icon-paused-", title: "solstone — paused", badge };
+    }
+
+    if (health.lastError && (health.consecutiveFailures || 0) >= 2) {
+      const n = sites;
+      return {
+        prefix: "icon-error-",
+        title: `solstone — observing ${n} site${n > 1 ? "s" : ""} · can't reach your journal — recent observations may not be kept`,
+        badge: "!",
+      };
     }
 
     if (siteErrKeys.length) {
@@ -35,5 +45,18 @@
     return { prefix: "icon", title: `solstone — ${label} · connected`, badge };
   }
 
-  globalThis.SolstoneStatus = { iconState };
+  function updateHealth(prev, res) {
+    const h = Object.assign({}, prev || {});
+    if (typeof res.status !== "undefined") h.lastStatus = res.status;
+    if (res.ok) {
+      h.lastError = null;
+      h.consecutiveFailures = 0;
+    } else {
+      h.lastError = res.error || `HTTP ${res.status}`;
+      h.consecutiveFailures = (h.consecutiveFailures || 0) + 1;
+    }
+    return h;
+  }
+
+  globalThis.SolstoneStatus = { iconState, updateHealth };
 })();

@@ -76,7 +76,7 @@
       button.primary {
         background: var(--orange);
         border-color: var(--orange);
-        color: #fff;
+        color: #1a1a1a;
         font-weight: 600;
       }
       button:disabled { opacity: 0.5; cursor: default; }
@@ -94,6 +94,16 @@
         border-top: 1px solid var(--line);
       }
       .err { color: var(--bad); font-size: 11px; margin-top: 6px; }
+      .consequence {
+        color: var(--bad);
+        font-size: 11px;
+        margin-top: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        justify-content: space-between;
+      }
+      .consequence button { margin: 0; padding: 4px 10px; font-size: 11px; }
       .pinhint { font-size: 11px; color: var(--muted); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
     </style>
   </head>
@@ -122,6 +132,10 @@
         <button id="addBtn" class="primary">observe this site</button>
         <button id="pauseBtn">pause all</button>
       </div>
+      <div class="consequence" id="consequence" hidden>
+        <span id="consequenceText"></span>
+        <button id="tryBtn">try now</button>
+      </div>
       <div class="err" id="err"></div>
       <div class="pinhint" id="pinHint" hidden>📌 pin solstone to your toolbar so its status light stays visible.</div>
     </div>
@@ -130,6 +144,7 @@
       <a href="#" id="optsLink">settings ›</a>
     </footer>
     <script src="lib/hosts.js"></script>
+    <script src="lib/failures.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

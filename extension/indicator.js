@@ -21,6 +21,7 @@
 
   let hostEl = null;
   let labelEl = null;
+  let pillEl = null;
 
   function ensure() {
     if (hostEl && document.documentElement.contains(hostEl)) return;
@@ -37,6 +38,7 @@
       "background:rgba(26,26,26,0.92);color:#FAF3E4",
       "box-shadow:0 2px 10px rgba(0,0,0,0.35);user-select:none;cursor:default",
     ].join(";");
+    pillEl = pill;
     const mark = document.createElement("span");
     mark.style.cssText = "display:flex;align-items:center";
     mark.innerHTML = SOL_RING;
@@ -52,13 +54,15 @@
   function show(paused) {
     ensure();
     if (labelEl) labelEl.textContent = paused ? "paused" : "observing";
-    if (hostEl) hostEl.style.opacity = paused ? "0.5" : "1";
+    if (pillEl) pillEl.style.background = paused ? "rgba(91,82,70,0.95)" : "rgba(26,26,26,0.92)";
+    if (hostEl) hostEl.style.opacity = "1";
   }
 
   function remove() {
     if (hostEl && hostEl.parentNode) hostEl.parentNode.removeChild(hostEl);
     hostEl = null;
     labelEl = null;
+    pillEl = null;
   }
 
   globalThis.SolstoneIndicator = { show, remove };

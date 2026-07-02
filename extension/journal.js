@@ -100,5 +100,23 @@
     return resp.json();
   }
 
-  globalThis.SolstoneJournal = { register, uploadSegment, relayEvent, getSegments, OBSERVER_HEADER, PROTOCOL_HEADER };
+  async function checkConnection(journalUrl, key, day) {
+    const url = journalUrl.replace(/\/+$/, "") + `/app/observer/ingest/segments/${day}`;
+    try {
+      const resp = await fetch(url, { headers: { [OBSERVER_HEADER]: key, Authorization: `Bearer ${key}` } });
+      let error = null;
+      if (!resp.ok) {
+        let d = "";
+        try {
+          d = JSON.stringify(await resp.json());
+        } catch (_e) {}
+        error = `HTTP ${resp.status}${d ? " " + d : ""}`;
+      }
+      return { ok: resp.ok, status: resp.status, error };
+    } catch (e) {
+      return { ok: false, status: 0, error: String((e && e.message) || e) };
+    }
+  }
+
+  globalThis.SolstoneJournal = { register, uploadSegment, relayEvent, getSegments, checkConnection, OBSERVER_HEADER, PROTOCOL_HEADER };
 })();

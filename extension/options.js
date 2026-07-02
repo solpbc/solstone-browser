@@ -27,13 +27,14 @@ async function refresh() {
   $("showPageIndicator").checked = !!state.showPageIndicator;
   $("ver").textContent = state.version ? "v" + state.version : "";
   $("streamLabel").textContent = state.stream || (state.hostname ? state.hostname + ".browser" : "—");
+  const h = state.health || {};
 
   const cs = $("connStatus");
-  if (state.registered && !(state.health && state.health.lastError)) {
-    const up = state.health && state.health.lastUploadAt ? new Date(state.health.lastUploadAt).toLocaleTimeString() : "none yet";
-    cs.innerHTML = `<span class="pill ok">registered as ${state.stream}</span> · ${state.health.segmentsUploaded || 0} segments sent · last ${up}`;
-  } else if (state.health && state.health.lastError) {
-    cs.innerHTML = `<span class="pill bad">not connected</span> · ${state.health.lastError}`;
+  if (state.registered && !h.lastError) {
+    const up = h.lastUploadAt ? new Date(h.lastUploadAt).toLocaleTimeString() : "none yet";
+    cs.innerHTML = `<span class="pill ok">registered as ${state.stream}</span> · ${h.segmentsUploaded || 0} segments sent · last ${up}`;
+  } else if (h.lastError) {
+    cs.innerHTML = `<span class="pill bad">can't reach</span> · <span title="${h.lastError}">your journal isn't answering. what's observed while it can't be reached may not be kept.</span>`;
   } else {
     cs.innerHTML = `<span class="pill">not registered</span> · saved settings, click “register / test connection”`;
   }
@@ -44,7 +45,7 @@ async function refresh() {
     list.innerHTML = state.allowlist
       .map((h) => {
         let status;
-        if (errs[h]) status = `<span style="color:var(--bad)">⚠ ${errs[h]}</span>`;
+        if (errs[h]) status = `<span style="color:var(--bad)" title="${errs[h]}">⚠ ${globalThis.SolstoneFailures.classify(errs[h])}</span>`;
         else if (state.activeSites.includes(h)) status = '<span style="color:var(--ok)">● observing now</span>';
         else status = '<span class="muted">added — open or reload a tab on this site</span>';
         return `<div class="site"><span>${h} &nbsp; ${status}</span><button data-host="${h}">remove</button></div>`;
@@ -74,9 +75,7 @@ $("saveBtn").addEventListener("click", async () => {
 
 $("registerBtn").addEventListener("click", async () => {
   $("connStatus").textContent = "registering…";
-  const r = await cmd({ cmd: "registerNow" });
-  if (r.ok) $("connStatus").innerHTML = `<span class="pill ok">registered as ${r.stream}</span>`;
-  else $("connStatus").innerHTML = `<span class="pill bad">failed</span> · ${r.error || "unknown"}`;
+  await cmd({ cmd: "probe" });
   await refresh();
 });
 

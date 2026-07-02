@@ -20,6 +20,42 @@ const cells = [
     { prefix: "icon-half-", title: "solstone — observing 1 site · can't reach your journal", badge: "" },
   ],
   [{ allowlist: ["a", "b"], key: "k" }, { prefix: "icon", title: "solstone — observing 2 sites · connected", badge: "" }],
+  [
+    { allowlist: ["x"], key: "k", health: { lastError: "down", consecutiveFailures: 1 } },
+    { prefix: "icon-half-", title: "solstone — observing 1 site · can't reach your journal", badge: "" },
+  ],
+  [
+    { allowlist: ["x"], key: "k", health: { lastError: "down", consecutiveFailures: 2 } },
+    {
+      prefix: "icon-error-",
+      title: "solstone — observing 1 site · can't reach your journal — recent observations may not be kept",
+      badge: "!",
+    },
+  ],
+  [
+    { allowlist: ["x"], health: { lastError: "down", consecutiveFailures: 1 } },
+    { prefix: "icon-half-", title: "solstone — observing 1 site · connecting to your journal", badge: "" },
+  ],
+  [
+    { allowlist: ["x"], health: { lastError: "down", consecutiveFailures: 2 } },
+    {
+      prefix: "icon-error-",
+      title: "solstone — observing 1 site · can't reach your journal — recent observations may not be kept",
+      badge: "!",
+    },
+  ],
+  [
+    { allowlist: ["x"], key: "k", health: { lastError: "down" } },
+    { prefix: "icon-half-", title: "solstone — observing 1 site · can't reach your journal", badge: "" },
+  ],
+  [
+    { allowlist: ["x"], key: "k", siteErrors: { x: "boom" }, health: { lastError: "down", consecutiveFailures: 2 } },
+    {
+      prefix: "icon-error-",
+      title: "solstone — observing 1 site · can't reach your journal — recent observations may not be kept",
+      badge: "!",
+    },
+  ],
 ];
 
 test("iconState returns the accepted toolbar status cells", () => {
@@ -39,6 +75,23 @@ test("all emitted toolbar icon assets exist", () => {
       assert.equal(fs.existsSync(new URL(`../extension/icons/${prefix}${size}.png`, import.meta.url)), true);
     }
   }
+});
+
+test("updateHealth tracks consecutive journal failures without touching upload fields", () => {
+  let h = S.updateHealth({}, { ok: false, status: 0, error: "x" });
+  assert.equal(h.consecutiveFailures, 1);
+  assert.equal(h.lastError, "x");
+  assert.equal(h.lastStatus, 0);
+
+  h = S.updateHealth(h, { ok: false, status: 500, error: "y" });
+  assert.equal(h.consecutiveFailures, 2);
+
+  h = S.updateHealth(h, { ok: true });
+  assert.equal(h.consecutiveFailures, 0);
+  assert.equal(h.lastError, null);
+
+  h = S.updateHealth({ lastError: "y" }, { ok: false });
+  assert.equal(h.consecutiveFailures, 1);
 });
 
 test("toolbar titles stay in observer voice", () => {

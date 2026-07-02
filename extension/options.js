@@ -100,7 +100,9 @@ async function refresh() {
         const host = esc(h);
         let status;
         if (errs[h]) status = `<span style="color:var(--bad)" title="${esc(errs[h])}">⚠ ${esc(globalThis.SolstoneFailures.classify(errs[h]))}</span>`;
-        else if (state.activeSites.includes(h)) status = '<span style="color:var(--ok)">● observing now</span>';
+        else if (state.paused) status = '<span class="muted">— paused</span>';
+        else if (state.activeSites.includes(h) && !(state.health && state.health.lastError)) status = '<span style="color:var(--ok)">● observing now</span>';
+        else if (state.activeSites.includes(h)) status = "observing — waiting to sync";
         else status = '<span class="muted">added — open or reload a tab on this site</span>';
         return `<div class="site"><span>${host} &nbsp; ${status}</span><button type="button" data-host="${host}">remove</button></div>`;
       })

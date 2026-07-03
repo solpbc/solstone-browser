@@ -18,29 +18,29 @@
     const waitingSuffix = waiting > 0 ? ` — ${waiting} update${waiting > 1 ? "s" : ""} waiting to sync` : "";
 
     if (!observing) {
-      if (sites === 0) return { prefix: "icon-paused-", title: "solstone — add a site to begin", badge };
-      return { prefix: "icon-paused-", title: "solstone — paused", badge };
+      if (sites === 0) return { prefix: "icon-paused-", title: "sol — add a site to begin", badge };
+      return { prefix: "icon-paused-", title: "sol — paused", badge };
     }
 
     if ((dropped.segments || 0) > 0) {
-      return { prefix: "icon-error-", title: "solstone — some observations couldn't be kept — open settings", badge: "!" };
+      return { prefix: "icon-error-", title: "sol — some updates couldn't be kept — open settings", badge: "!" };
     }
 
     if (siteErrKeys.length) {
-      return { prefix: "icon-error-", title: "solstone — " + (siteErrs[siteErrKeys[0]] || "needs attention"), badge: "!" };
+      return { prefix: "icon-error-", title: "sol — " + (siteErrs[siteErrKeys[0]] || "needs attention"), badge: "!" };
     }
 
     const n = sites;
-    const label = `observing ${n} site${n > 1 ? "s" : ""}`;
+    const label = `on ${n} site${n > 1 ? "s" : ""}`;
     if (!connected) {
       return {
         prefix: "icon-half-",
-        title: `solstone — ${label} · ${cfg.key ? "can't reach your journal" : "connecting to your journal"}${waitingSuffix}`,
+        title: `sol — ${label} · ${cfg.key ? "can't reach your journal" : "connecting to your journal"}${waitingSuffix}`,
         badge,
       };
     }
 
-    return { prefix: "icon", title: `solstone — ${label} · connected`, badge };
+    return { prefix: "icon", title: `sol — ${label} · connected`, badge };
   }
 
   function updateHealth(prev, res) {

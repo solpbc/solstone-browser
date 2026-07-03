@@ -140,13 +140,17 @@ All `.js` source files begin with:
 
 ## Brand canon
 
-solstone-browser is an **observer**. In owner-facing copy (README, INSTALL,
-popup/options text, the indicator) describe it as something that **experiences /
-reads / observes** the pages the owner chooses, along with them — never
-*captures, records, monitors, watches, or tracks* the owner. Owner-facing model:
-`solstone = observers + your journal`; sol is the keeper who tends the journal.
-Internal code vocabulary (`skim`, `capture`-free here, module/class names) stays
-as-is in code-only contexts.
+solstone-browser's in-product self-name is **sol**. In owner-facing copy (INSTALL,
+popup/options text, the on-page marker, the toolbar tooltip) the app is **sol**,
+its memory is **your journal**, and **solstone** is the platform/family both are
+part of — also the store-listing name (`solstone browser`) and the repo/identity
+strings. Describe sol as something that **experiences / reads / takes in** the
+pages the owner chooses, along with them — never *captures, records, monitors,
+watches, or tracks*, and retire *observe / observing / observed / observation*
+from owner-facing strings. (In code and architecture it is still an observer —
+see the overview above.) Internal code vocabulary (`skim`, module/class names,
+the `Solstone*` globals, the `/app/observer/*` endpoints, the `[solstone]` log
+tag) stays as-is in code-only contexts.
 
 ## License
 

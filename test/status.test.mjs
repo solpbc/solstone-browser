@@ -10,59 +10,59 @@ await import(new URL("../extension/lib/status.js", import.meta.url));
 const S = globalThis.SolstoneStatus;
 
 const cells = [
-  [{}, { prefix: "icon-paused-", title: "solstone — add a site to begin", badge: "" }],
-  [{ allowlist: ["x"], paused: true }, { prefix: "icon-paused-", title: "solstone — paused", badge: "" }],
-  [{ allowlist: ["x"], paused: true, siteErrors: { x: "boom" } }, { prefix: "icon-paused-", title: "solstone — paused", badge: "" }],
-  [{ allowlist: ["x"], siteErrors: { x: "boom" } }, { prefix: "icon-error-", title: "solstone — boom", badge: "!" }],
-  [{ allowlist: ["x"] }, { prefix: "icon-half-", title: "solstone — observing 1 site · connecting to your journal", badge: "" }],
+  [{}, { prefix: "icon-paused-", title: "sol — add a site to begin", badge: "" }],
+  [{ allowlist: ["x"], paused: true }, { prefix: "icon-paused-", title: "sol — paused", badge: "" }],
+  [{ allowlist: ["x"], paused: true, siteErrors: { x: "boom" } }, { prefix: "icon-paused-", title: "sol — paused", badge: "" }],
+  [{ allowlist: ["x"], siteErrors: { x: "boom" } }, { prefix: "icon-error-", title: "sol — boom", badge: "!" }],
+  [{ allowlist: ["x"] }, { prefix: "icon-half-", title: "sol — on 1 site · connecting to your journal", badge: "" }],
   [
     { allowlist: ["x"], key: "k", health: { lastError: "down" } },
-    { prefix: "icon-half-", title: "solstone — observing 1 site · can't reach your journal", badge: "" },
+    { prefix: "icon-half-", title: "sol — on 1 site · can't reach your journal", badge: "" },
   ],
-  [{ allowlist: ["a", "b"], key: "k" }, { prefix: "icon", title: "solstone — observing 2 sites · connected", badge: "" }],
+  [{ allowlist: ["a", "b"], key: "k" }, { prefix: "icon", title: "sol — on 2 sites · connected", badge: "" }],
   [
     { allowlist: ["x"], key: "k", health: { lastError: "down", consecutiveFailures: 1 } },
-    { prefix: "icon-half-", title: "solstone — observing 1 site · can't reach your journal", badge: "" },
+    { prefix: "icon-half-", title: "sol — on 1 site · can't reach your journal", badge: "" },
   ],
   [
     { allowlist: ["x"], key: "k", health: { lastError: "down", consecutiveFailures: 2 } },
-    { prefix: "icon-half-", title: "solstone — observing 1 site · can't reach your journal", badge: "" },
+    { prefix: "icon-half-", title: "sol — on 1 site · can't reach your journal", badge: "" },
   ],
   [
     { allowlist: ["x"], health: { lastError: "down", consecutiveFailures: 1 } },
-    { prefix: "icon-half-", title: "solstone — observing 1 site · connecting to your journal", badge: "" },
+    { prefix: "icon-half-", title: "sol — on 1 site · connecting to your journal", badge: "" },
   ],
   [
     { allowlist: ["x"], health: { lastError: "down", consecutiveFailures: 2 } },
-    { prefix: "icon-half-", title: "solstone — observing 1 site · connecting to your journal", badge: "" },
+    { prefix: "icon-half-", title: "sol — on 1 site · connecting to your journal", badge: "" },
   ],
   [
     { allowlist: ["x"], key: "k", health: { lastError: "down" } },
-    { prefix: "icon-half-", title: "solstone — observing 1 site · can't reach your journal", badge: "" },
+    { prefix: "icon-half-", title: "sol — on 1 site · can't reach your journal", badge: "" },
   ],
   [
     { allowlist: ["x"], key: "k", siteErrors: { x: "boom" }, health: { lastError: "down", consecutiveFailures: 2 } },
-    { prefix: "icon-error-", title: "solstone — boom", badge: "!" },
+    { prefix: "icon-error-", title: "sol — boom", badge: "!" },
   ],
   [
     { allowlist: ["x"], key: "k", health: { lastError: "down" }, waiting: 12 },
-    { prefix: "icon-half-", title: "solstone — observing 1 site · can't reach your journal — 12 updates waiting to sync", badge: "" },
+    { prefix: "icon-half-", title: "sol — on 1 site · can't reach your journal — 12 updates waiting to sync", badge: "" },
   ],
   [
     { allowlist: ["x"], key: "k", health: { lastError: "down" }, waiting: 1 },
-    { prefix: "icon-half-", title: "solstone — observing 1 site · can't reach your journal — 1 update waiting to sync", badge: "" },
+    { prefix: "icon-half-", title: "sol — on 1 site · can't reach your journal — 1 update waiting to sync", badge: "" },
   ],
   [
     { allowlist: ["a", "b"], key: "k", health: { lastError: "down" }, waiting: 0 },
-    { prefix: "icon-half-", title: "solstone — observing 2 sites · can't reach your journal", badge: "" },
+    { prefix: "icon-half-", title: "sol — on 2 sites · can't reach your journal", badge: "" },
   ],
   [
     { allowlist: ["a", "b"], waiting: 3 },
-    { prefix: "icon-half-", title: "solstone — observing 2 sites · connecting to your journal — 3 updates waiting to sync", badge: "" },
+    { prefix: "icon-half-", title: "sol — on 2 sites · connecting to your journal — 3 updates waiting to sync", badge: "" },
   ],
   [
     { allowlist: ["x"], dropped: { segments: 1, lines: 8 } },
-    { prefix: "icon-error-", title: "solstone — some observations couldn't be kept — open settings", badge: "!" },
+    { prefix: "icon-error-", title: "sol — some updates couldn't be kept — open settings", badge: "!" },
   ],
 ];
 

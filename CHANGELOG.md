@@ -4,6 +4,18 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 `make set-version` keeps `manifest.json` / `package.json` / `background.js` in
 lockstep, and `make dist` refuses to build if they drift.
 
+## [Unreleased]
+
+The extension names itself sol in-product — sol is the app, your journal is the
+memory, solstone is the platform.
+
+- **sol, in the owner's words.** The popup, options page, on-page marker, and
+  toolbar tooltip now call the app **sol** and its memory **your journal**. The
+  toolbar status light reads **on / paused / needs attention** at a glance.
+- **solstone stays the family name.** The store listing is still **solstone
+  browser** and each device still relays a `<host>.browser` stream — solstone is
+  the platform sol belongs to, not the in-product name.
+
 ## 0.0.11 — 2026-07-01
 
 Durable offline outbox — buffered observations are never silently dropped.

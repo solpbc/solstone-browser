@@ -4,7 +4,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>solstone browser — settings</title>
+    <title>sol browser — settings</title>
     <style>
       @font-face { font-family: "Comfortaa"; src: url("fonts/comfortaa.woff2") format("woff2"); font-weight: 700; font-display: swap; }
       @font-face { font-family: "InterBody"; src: url("fonts/inter.woff2") format("woff2"); font-weight: 400 600; font-display: swap; }
@@ -106,12 +106,12 @@
     <div class="wrap">
       <h1>
         <img src="brand/sol-ring.svg" width="24" height="24" alt="" />
-        solstone <span class="desc">browser — settings</span>
+        sol <span class="desc">browser — settings</span>
       </h1>
       <p class="muted">
         this prototype experiences only the web apps you add below — taking in their visible text, never screenshots — and
-        relays it into your local solstone journal as its own <code>browser</code> stream. nothing is observed until you add
-        a site. the toolbar icon is the always-on observation signal; the on-page marker is optional.
+        relays it into your local journal as its own <code>browser</code> stream. nothing is read until you add
+        a site. the toolbar icon is the always-on status light; the on-page marker is optional.
       </p>
 
       <div class="card">
@@ -129,7 +129,7 @@
           </div>
           <label>send to your journal every (seconds)</label>
           <input id="segmentSec" type="number" min="30" step="30" placeholder="300" />
-          <div class="muted">how often what's been observed is batched and sent. default 300.</div>
+          <div class="muted">how often what sol takes in is batched and sent. default 300.</div>
           <div>
             <button id="saveBtn" class="primary" type="submit">save</button>
             <button id="registerBtn" type="button">connect</button>
@@ -145,7 +145,7 @@
       </div>
 
       <div class="card">
-        <h2>observed sites</h2>
+        <h2>added sites</h2>
         <p class="muted">adding a site asks chrome for permission to read just that site. you can revoke any time here, or in
           chrome’s own per-site controls.</p>
         <form id="addForm" novalidate>
@@ -165,9 +165,9 @@
         <h2>on-page marker</h2>
         <label style="display:flex;align-items:center;gap:8px;margin:6px 0;color:var(--ink)">
           <input type="checkbox" id="showPageIndicator" style="width:auto" />
-          also show a floating sol-mark “observing” marker on observed pages
+          also show a floating sol-mark “on” marker on added pages
         </label>
-        <p class="muted">off by default. your always-on signal is the toolbar icon, which reads observing / paused / attention at a glance. turn this on to add an on-page marker too.</p>
+        <p class="muted">off by default. your always-on signal is the toolbar icon, which reads on / paused / needs attention at a glance. turn this on to add an on-page marker too.</p>
       </div>
 
       <p class="muted">

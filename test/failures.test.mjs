@@ -9,7 +9,7 @@ await import(new URL("../extension/lib/failures.js", import.meta.url));
 const F = globalThis.SolstoneFailures;
 
 test("classify maps network failures", () => {
-  const line = "your journal didn't answer — is solstone running on this computer?";
+  const line = "your journal didn't answer — is your journal running on this computer?";
   assert.equal(F.classify("TypeError: Failed to fetch", 0), line);
   assert.equal(F.classify("NetworkError when attempting to fetch", undefined), line);
 });
@@ -20,7 +20,7 @@ test("classify maps HTTP failures", () => {
 });
 
 test("classify maps chrome-restricted failures", () => {
-  assert.equal(F.classify("Cannot access chrome:// URL", undefined), "chrome doesn't allow observing this page");
+  assert.equal(F.classify("Cannot access chrome:// URL", undefined), "chrome doesn't allow extensions on this page");
 });
 
 test("classify maps unmapped failures", () => {

@@ -29,7 +29,7 @@ function renderConnStatus() {
     const up = h.lastUploadAt ? new Date(h.lastUploadAt).toLocaleTimeString() : "none yet";
     cs.innerHTML = `<span class="pill ok">connected as ${esc(state.stream)}</span> · ${h.segmentsUploaded || 0} sent · last ${esc(up)}`;
   } else if (h.lastError) {
-    cs.innerHTML = `<span class="pill bad">can't reach</span> · <span title="${esc(h.lastError)}">your journal isn't answering. what's observed is kept here, waiting to sync.</span>`;
+    cs.innerHTML = `<span class="pill bad">can't reach</span> · <span title="${esc(h.lastError)}">your journal isn't answering. what sol takes in is kept here, waiting to sync.</span>`;
   } else {
     cs.innerHTML = '<span class="pill">not connected yet</span> · add your journal address and save';
   }
@@ -127,8 +127,8 @@ async function refresh() {
         let status;
         if (errs[h]) status = `<span style="color:var(--bad)" title="${esc(errs[h])}">⚠ ${esc(globalThis.SolstoneFailures.classify(errs[h]))}</span>`;
         else if (state.paused) status = '<span class="muted">— paused</span>';
-        else if (state.activeSites.includes(h) && !(state.health && state.health.lastError)) status = '<span style="color:var(--ok)">● observing now</span>';
-        else if (state.activeSites.includes(h)) status = "observing — waiting to sync";
+        else if (state.activeSites.includes(h) && !(state.health && state.health.lastError)) status = '<span style="color:var(--ok)">● on now</span>';
+        else if (state.activeSites.includes(h)) status = "on — waiting to sync";
         else status = '<span class="muted">added — open or reload a tab on this site</span>';
         return `<div class="site"><span>${host} &nbsp; ${status}</span><button type="button" data-host="${host}">remove</button></div>`;
       })
@@ -187,7 +187,7 @@ async function addSite() {
   }
   const res = await cmd({ cmd: "siteGranted", host });
   $("newHost").value = "";
-  $("addStatus").textContent = res && res.error ? "could not observe: " + res.error : `added ${host}. open or reload a tab on it to begin.`;
+  $("addStatus").textContent = res && res.error ? "could not add: " + res.error : `added ${host}. open or reload a tab on it to begin.`;
   await refresh();
 }
 

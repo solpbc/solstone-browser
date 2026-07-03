@@ -43,17 +43,17 @@
     mark.style.cssText = "display:flex;align-items:center";
     mark.innerHTML = SOL_RING;
     labelEl = document.createElement("span");
-    labelEl.textContent = "observing";
+    labelEl.textContent = "on";
     pill.appendChild(mark);
     pill.appendChild(labelEl);
-    pill.title = "solstone is experiencing this page with you";
+    pill.title = "sol is experiencing this page with you — kept in your journal";
     root.appendChild(pill);
     (document.body || document.documentElement).appendChild(hostEl);
   }
 
   function show(paused) {
     ensure();
-    if (labelEl) labelEl.textContent = paused ? "paused" : "observing";
+    if (labelEl) labelEl.textContent = paused ? "paused" : "on";
     if (pillEl) pillEl.style.background = paused ? "rgba(91,82,70,0.95)" : "rgba(26,26,26,0.92)";
     if (hostEl) hostEl.style.opacity = "1";
   }

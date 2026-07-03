@@ -10,13 +10,13 @@
     const code = typeof status === "number" ? status : m ? Number(m[1]) : null;
 
     if (code === 0 || /Failed to fetch|NetworkError|TypeError/i.test(raw)) {
-      return "your journal didn't answer — is solstone running on this computer?";
+      return "your journal didn't answer — is your journal running on this computer?";
     }
     if (code && code >= 400) {
       return `your journal said no (HTTP ${code}) — try again, or check settings`;
     }
     if (/Cannot access|chrome:\/\/|Web Store|match pattern/i.test(raw)) {
-      return "chrome doesn't allow observing this page";
+      return "chrome doesn't allow extensions on this page";
     }
 
     let short = raw.replace(/\s+/g, " ").trim();

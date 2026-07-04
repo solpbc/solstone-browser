@@ -14,7 +14,8 @@ Slack message, a PR review request — as clean text, in background tabs, the
 moment the page changes.
 
 This is a **discovery prototype**: Chrome desktop only, opt-in per site, relaying
-directly to the local journal. See [`INSTALL.md`](INSTALL.md) to run it.
+directly to the local journal by default, with an optional paired remote home.
+See [`INSTALL.md`](INSTALL.md) to run it.
 
 ## How it works
 
@@ -26,8 +27,8 @@ directly to the local journal. See [`INSTALL.md`](INSTALL.md) to run it.
    per-app adapters, MutationObserver        accumulate deltas in storage
    change-gating, debounced)                        │  every segment (5 min)
   optional on-page marker                          ▼
-                                            multipart upload → local journal
-                                            POST /app/observer/ingest
+                                            local: multipart upload → journal
+                                            remote: HPKE-sealed relay tunnel
                                                    │
                                                    ▼
                                        chronicle/{day}/{host}.browser/{segment}/
@@ -39,10 +40,12 @@ directly to the local journal. See [`INSTALL.md`](INSTALL.md) to run it.
   `permissions.request()`); the extension honors a browser-side revoke.
 - **Semantic-only.** It reads visible text via the `innerText` visibility
   oracle + ARIA roles/semantic tags; it never calls `captureVisibleTab`.
-- **Self-contained observer.** The worker registers as its own observer and
-  uploads finished segments straight to the journal's localhost ingest API — no
-  separate native host needed for the Chrome-desktop case. MV3 service-worker
-  ephemerality is handled with `chrome.storage` + `chrome.alarms`.
+- **Self-contained observer.** In local mode, the worker registers as its own
+  observer and uploads finished segments straight to the journal's localhost
+  ingest API. In remote mode, a pasted pair link enrolls the extension with a
+  home and sends finished segments as HPKE-sealed blobs over the relay tunnel.
+  MV3 service-worker ephemerality is handled with `chrome.storage`,
+  IndexedDB, and `chrome.alarms`.
 - **Trust controls.** The toolbar icon is a four-state status light for
   observing, connecting, can't-reach, paused, and attention states. Pin solstone
   to keep it visible; the on-page marker is an opt-in Options setting.
@@ -67,20 +70,33 @@ so deltas key to the right message across virtualized-list node recycling.
 ```
 extension/            the unpacked-loadable MV3 extension
   manifest.json
-  background.js       service worker: registration, segment buffer, rotation, upload, per-site lifecycle
-  journal.js          HTTP client for /app/observer/{register,ingest}
+  background.js       service worker: registration, segment buffer, rotation, local/remote delivery, per-site lifecycle
+  journal.js          HTTP client for /app/observer/{register,ingest} and remote enroll
   content.js          per-tab orchestrator: skim on load + on settled change, optional marker, relay
   skim.js             the visibility-aware semantic DOM walker
   adapters.js         Gmail + Slack adapters + generic fallback (data, not code)
   indicator.js        optional on-page "☼ observing" marker (closed shadow root)
   popup.html/.js      toolbar popup: status, observe-this-site, pause-all
-  options.html/.js    settings + allowlist manager
+  options.html/.js    settings + allowlist manager + remote pairing
   lib/blocks.js       pure block helpers (role→type, id, normalize) — shared, tested
   lib/segment.js      pure snapshot/delta differ + JSONL serializer — shared, tested
+  lib/db.js           shared IndexedDB helper for identity + durable outbox
+  lib/identity.js     non-extractable ECDH extension identity
+  lib/outbox.js       pure FIFO/cap/loss accounting
+  lib/outbox_store.js IndexedDB-backed durable outbox adapter
+  lib/pairlink.js     pure 0x06 pair-link parse/build + RK derivation
+  lib/uuid.js         pure UUIDv7 helpers
+  lib/remote_blob.js  tar/gzip/blob shaping + HPKE seal/open helpers
+  lib/remote_tunnel.js relay WebSocket dial helpers
+  vendor/hpke/        vendored @hpke/core IIFE + license + regen notes
   icons/
 test/
   segment.test.mjs    pure-logic unit tests (node --test)
   blocks.test.mjs
+  pairlink.test.mjs   Section 9 pair-link vector equality
+  hpke.test.mjs       Section 10 HPKE interop vector equality
+  remote_blob.test.mjs tar/blob/offer/ack pure tests
+  uuid.test.mjs       UUIDv7 pure tests
   skim.cdp.mjs        real-Chrome skim smoke over CDP (zero-dep)
   relay_roundtrip.mjs end-to-end register+ingest against a real local journal
 ```
@@ -88,18 +104,19 @@ test/
 ## Tests
 
 ```bash
-npm test          # pure-logic unit tests (diff/delta/jsonl, role typing) — no browser
+npm test          # pure-logic unit tests, pair-link/HPKE vectors, remote blob builders — no browser
 npm run smoke     # real headless Chrome: skim the Gmail/Slack/article fixtures
 npm run relay-check   # run ON the journal machine: register + upload + verify a segment landed
-npm run e2e       # agentic integration: content script -> service worker -> relay, under
+npm run e2e       # agentic integration: content script -> service worker -> journal/relay, under
                   #   Playwright new-headless (one-time: `npx playwright install chromium`)
 ```
 
-Two ways to exercise the live path (content script → worker → relay):
+Two ways to exercise the live path (content script → worker → journal/relay):
 
 - **Agentic** — `npm run e2e` (a.k.a. `make e2e`) drives it under headless
-  automation against a stub journal, including the dynamic-`registerContentScripts`
-  injection. See [AGENTS.md](AGENTS.md) § agentic e2e.
+  automation against a stub journal/relay, including the dynamic
+  `registerContentScripts` injection and the paired HPKE relay path. See
+  [AGENTS.md](AGENTS.md) § agentic e2e.
 - **Guided** — [test/GUIDED.md](test/GUIDED.md) is the human-in-the-loop
   walkthrough you run in real Chrome (the one that proves the real per-site opt-in).
 

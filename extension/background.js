@@ -3,23 +3,32 @@
 //
 // background.js — the MV3 service worker. It is the persistent (event-driven)
 // half of the observer: it holds the journal registration, buffers each tab's
-// skims into a 5-minute segment in chrome.storage, rotates + uploads segments
-// via chrome.alarms, and owns the opt-in per-site lifecycle (grant -> register
-// a content script -> observe; revoke -> tear down). All segment / diff / JSONL
-// work is delegated to lib/segment.js so it stays pure and tested.
+// skims into a 5-minute segment in chrome.storage, rotates segments via
+// chrome.alarms, and delivers through either local multipart POST or a paired
+// HPKE relay tunnel. It also owns the opt-in per-site lifecycle (grant ->
+// register a content script -> observe; revoke -> tear down). All segment /
+// diff / JSONL work is delegated to lib/segment.js so it stays pure and tested.
 //
 // Why the worker can be the observer (no separate native host for the Chrome
-// desktop spike): the journal already runs on the same machine and exposes a
-// localhost ingest API that does segmentation-on-receipt. The worker registers
-// as its own observer and uploads finished segments directly. MV3 ephemerality
-// is handled by persisting all state to chrome.storage and waking on alarms.
+// desktop spike): in local mode, the journal already runs on the same machine
+// and exposes a localhost ingest API that does segmentation-on-receipt. Remote
+// mode keeps the same segment model but seals blobs before sending them through
+// the relay. MV3 ephemerality is handled by persisting state to chrome.storage
+// and IndexedDB and waking on alarms.
 
-importScripts("lib/blocks.js", "lib/hosts.js", "lib/segment.js", "lib/status.js", "lib/buffered.js", "lib/outbox.js", "journal.js");
+importScripts("vendor/hpke/hpke-core-1.9.0.iife.js", "lib/blocks.js", "lib/hosts.js", "lib/segment.js", "lib/status.js", "lib/buffered.js", "lib/outbox.js", "lib/db.js", "lib/uuid.js", "lib/pairlink.js", "lib/remote_blob.js", "lib/identity.js", "lib/outbox_store.js", "lib/remote_tunnel.js", "journal.js");
 
 const Seg = globalThis.SolstoneSegment;
 const H = globalThis.SolstoneHosts;
 const J = globalThis.SolstoneJournal;
 const Outbox = globalThis.SolstoneOutbox;
+const DB = globalThis.SolstoneDB;
+const OutboxStore = globalThis.SolstoneOutboxStore;
+const Pairlink = globalThis.SolstonePairlink;
+const Identity = globalThis.SolstoneIdentity;
+const RemoteBlob = globalThis.SolstoneRemoteBlob;
+const RemoteTunnel = globalThis.SolstoneRemoteTunnel;
+const Uuid = globalThis.SolstoneUuid;
 const VERSION = "0.0.11";
 const BOOT_MS = Date.now();
 
@@ -37,6 +46,7 @@ const DEFAULT_CFG = {
   paused: false,
   showPageIndicator: false,
   allowlist: [],
+  remote: null,
   siteErrors: {}, // host -> last registration/observe error string
   health: { lastError: null, lastUploadAt: null, segmentsUploaded: 0, lastStatus: null, consecutiveFailures: 0 },
 };
@@ -65,13 +75,8 @@ async function getSeg() {
 async function setSeg(seg) {
   await chrome.storage.local.set({ seg });
 }
-async function getOutbox() {
-  const r = await chrome.storage.local.get("outbox");
-  return Array.isArray(r.outbox) ? r.outbox : [];
-}
 async function getDropped() {
-  const r = await chrome.storage.local.get("dropped");
-  return normalizeDropped(r.dropped);
+  return OutboxStore.getDropped();
 }
 
 function newSeg(now) {
@@ -96,11 +101,60 @@ function uploadMeta(cfg) {
   return { host: cfg.hostname || "local", platform: "browser", stream: cfg.stream, observer: cfg.stream };
 }
 async function waitingSummary(seg) {
-  const outbox = await getOutbox();
   const dropped = await getDropped();
-  const outboxLines = Outbox.outboxLineCount(outbox);
+  const outboxInfo = await OutboxStore.counts();
+  const outboxLines = outboxInfo.lines;
   const summary = Outbox.summary({ segPendingLines: pendingLinesForSeg(seg), outboxLines, dropped });
-  return { summary, outbox, outboxInfo: { entries: outbox.length, lines: outboxLines }, dropped: summary.dropped };
+  return { summary, outboxInfo, dropped: summary.dropped };
+}
+
+function isRemotePaired(cfg) {
+  return !!(cfg.remote && cfg.remote.instanceId && cfg.remote.deviceToken && cfg.remote.homeSpki);
+}
+
+function hex(bytes) {
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function bytesFromHex(s) {
+  const raw = String(s || "");
+  if (!/^(?:[0-9a-fA-F]{2})*$/.test(raw)) throw new Error("invalid hex");
+  return Uint8Array.from(raw.match(/../g)?.map((x) => Number.parseInt(x, 16)) || []);
+}
+
+function b64url(bytes) {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function fromB64url(s) {
+  const b64 = String(s || "").replace(/-/g, "+").replace(/_/g, "/");
+  const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob(padded);
+  return Uint8Array.from(raw, (ch) => ch.charCodeAt(0));
+}
+
+function concatBytes(parts) {
+  const total = parts.reduce((n, p) => n + p.byteLength, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const p of parts) {
+    out.set(p, off);
+    off += p.byteLength;
+  }
+  return out;
+}
+
+function bytesEqual(a, b) {
+  if (!a || !b || a.byteLength !== b.byteLength) return false;
+  let diff = 0;
+  for (let i = 0; i < a.byteLength; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+
+function backoffMs(attempts) {
+  return Math.min(5 * 60 * 1000, 1000 * Math.pow(2, Math.min(8, Math.max(0, attempts))));
 }
 
 // Serialize all segment read-modify-write through one chain to avoid races
@@ -323,7 +377,7 @@ async function handleSkim(ctx, site, tabId, meta, blocks) {
   const cfg = await getCfg();
   if (cfg.paused) return;
   if (!H.hostAllowed(site, cfg.allowlist)) return; // only observe allowlisted host:port
-  ensureRegistered().catch(() => {}); // lazy; upload retries if not ready
+  if (!isRemotePaired(cfg)) ensureRegistered().catch(() => {}); // lazy; upload retries if not ready
   await withSeg(async () => {
     let seg = await getSeg();
     const now = Date.now();
@@ -336,6 +390,7 @@ async function handleSkim(ctx, site, tabId, meta, blocks) {
           await commitFlushedTransition(next, r);
           await pruneSigs(next);
           await updateBadge();
+          drainOutbox();
         } catch (e) {
           await recordHealth({ ok: false, status: 0, body: { error: String(e && e.message) } });
           return;
@@ -415,26 +470,28 @@ async function flushSeg(seg, now, force = false) {
   if (!files.length) return { outcome: "empty", nextSigs: {} }; // fully idle — no segment created
   const duration = Math.max(1, Math.floor((now - seg.startMs) / 1000));
   const segment = Seg.segmentKey(seg.startMs, duration);
-  const entry = { day: seg.day, segment, files };
+  const cfg0 = await getCfg();
+  const meta = uploadMeta(cfg0);
+  const entry = { day: seg.day, segment, files, meta };
+  if (isRemotePaired(cfg0)) return { outcome: "queued", entry: Object.assign({ mode: "remote" }, entry), nextSigs };
   let cfg;
   try {
     cfg = await ensureRegistered();
   } catch (_e) {
     console.warn("[solstone] cannot upload segment — journal unreachable; queued in offline outbox");
-    return { outcome: "queued", entry, nextSigs };
+    return { outcome: "queued", entry: Object.assign({ mode: "local" }, entry), nextSigs };
   }
-  const meta = uploadMeta(cfg);
   let res;
   try {
     res = await J.uploadSegment(cfg.journalUrl, cfg.key, { day: seg.day, segment, meta, files });
   } catch (e) {
     await recordHealth({ ok: false, status: 0, body: { error: String(e && e.message) } });
-    return { outcome: "queued", entry, nextSigs };
+    return { outcome: "queued", entry: Object.assign({ mode: "local" }, entry), nextSigs };
   }
   await recordHealth(res);
   const delivered = !!(res && res.ok && !res.failed);
   console.log(`[solstone] segment ${seg.day}/${segment} -> ${delivered ? (res.duplicate ? "duplicate" : "stored") : "HTTP " + (res && res.status)}`);
-  return delivered ? { outcome: "uploaded", nextSigs } : { outcome: "queued", entry, nextSigs };
+  return delivered ? { outcome: "uploaded", nextSigs } : { outcome: "queued", entry: Object.assign({ mode: "local" }, entry), nextSigs };
 }
 
 function carryActiveContexts(seg, next, now) {
@@ -459,20 +516,9 @@ function carryActiveContexts(seg, next, now) {
 
 async function commitFlushedTransition(next, r) {
   const sigs = (await chrome.storage.local.get("sigs")).sigs || {};
-  const outbox = await getOutbox();
-  const dropped = await getDropped();
   if (r && (r.outcome === "uploaded" || r.outcome === "queued")) Object.assign(sigs, r.nextSigs || {});
-  let newOutbox = outbox;
-  let newDropped = dropped;
-  if (r && r.entry) {
-    const enqueued = Outbox.enqueue(outbox, r.entry, Outbox.OUTBOX_CAP);
-    newOutbox = enqueued.outbox;
-    newDropped = {
-      segments: dropped.segments + enqueued.dropped.segments,
-      lines: dropped.lines + enqueued.dropped.lines,
-    };
-  }
-  await chrome.storage.local.set({ seg: next, sigs, outbox: newOutbox, dropped: newDropped });
+  if (r && r.entry) await OutboxStore.enqueue(r.entry);
+  await chrome.storage.local.set({ seg: next, sigs });
 }
 
 async function recordHealth(res) {
@@ -494,6 +540,7 @@ async function recordHealth(res) {
 async function emitStatus() {
   const cfg = await getCfg();
   if (cfg.paused || !cfg.allowlist.length) return;
+  if (isRemotePaired(cfg)) return;
   let c;
   try {
     c = await ensureRegistered();
@@ -535,6 +582,7 @@ async function rotateIfDue() {
     }
     await pruneSigs(next);
     await updateBadge();
+    drainOutbox();
   });
 }
 
@@ -555,8 +603,88 @@ async function flushNow() {
     }
     await pruneSigs(next);
     await updateBadge();
+    drainOutbox();
     return { ok: r.outcome !== "failed", outcome: r.outcome || "empty" };
   });
+}
+
+async function markBackoff(entry, error) {
+  const attempts = Math.max(0, Number(entry.attempts || 0)) + 1;
+  await OutboxStore.setBackoff(entry, Date.now() + backoffMs(attempts), String((error && error.message) || error || "delivery failed"), attempts);
+}
+
+async function deliverLocalOutboxEntry(entry, cfg) {
+  let c = cfg;
+  try {
+    c = c.key ? c : await ensureRegistered();
+  } catch (e) {
+    await markBackoff(entry, e);
+    return false;
+  }
+  let res;
+  try {
+    res = await J.uploadSegment(c.journalUrl, c.key, { day: entry.day, segment: entry.segment, meta: entry.meta || uploadMeta(c), files: entry.files });
+  } catch (e) {
+    await recordHealth({ ok: false, status: 0, body: { error: String(e && e.message) } });
+    await markBackoff(entry, e);
+    return false;
+  }
+  await recordHealth(res);
+  const delivered = !!(res && res.ok && !res.failed);
+  if (!delivered) await markBackoff(entry, `HTTP ${res && res.status}`);
+  return delivered;
+}
+
+async function deliverRemoteOutboxEntry(entry, cfg) {
+  if (!isRemotePaired(cfg)) {
+    await markBackoff(entry, "not paired");
+    return false;
+  }
+  let ws = null;
+  try {
+    const ident = await Identity.ensureIdentity();
+    const blobId = bytesFromHex(entry.blob_id);
+    const instanceId16 = Uuid.bytesFromUuidString(cfg.remote.instanceId);
+    const recipientSpki = fromB64url(cfg.remote.homeSpki);
+    const plaintext = await RemoteBlob.packPlaintext(entry.files, {
+      v: 1,
+      day: entry.day,
+      segment: entry.segment,
+      host: (entry.meta && entry.meta.host) || cfg.hostname || "local",
+      meta: entry.meta || uploadMeta(cfg),
+    });
+    const info = RemoteBlob.blobInfo(instanceId16, ident.senderFp);
+    const ctLen = plaintext.byteLength + 16; // AES-GCM ciphertext is plaintext plus 16-byte tag.
+    const offer = RemoteBlob.offerBytes({ senderFp: ident.senderFp, blobId, ctLen });
+    const sealed = await RemoteBlob.sealBlob({
+      recipientSpki,
+      senderPrivateKey: ident.privateKey,
+      senderPublicKey: ident.publicKey,
+      info,
+      aad: offer,
+      plaintext,
+    });
+    if (sealed.ct.byteLength !== ctLen) throw new Error(`HPKE ct_len mismatch: expected ${ctLen}, got ${sealed.ct.byteLength}`);
+
+    ws = await RemoteTunnel.dialData(cfg.remote.relayOrigin, cfg.remote.instanceId, cfg.remote.deviceToken);
+    ws.sendBinary(offer);
+    const ready = RemoteBlob.parseReady(await ws.recvBinary());
+    if (!ready.ok) throw new Error(`relay rejected blob with status ${ready.status}`);
+    RemoteTunnel.sendChunked(ws, concatBytes([sealed.enc, sealed.ct]));
+    const ack = RemoteBlob.parseAck(await ws.recvBinary());
+    const expected = await RemoteBlob.ackTag(sealed.kAck, ack.status, blobId);
+    if (!bytesEqual(ack.blobId, blobId)) throw new Error("ACK blob_id mismatch");
+    if (!bytesEqual(ack.tag, expected)) throw new Error("ACK tag mismatch");
+    if (ack.status !== 0x00 && ack.status !== 0x01) throw new Error(`ACK retry status ${ack.status}`);
+    await recordHealth({ ok: true, status: 200, body: null, duplicate: ack.status === 0x01 });
+    return true;
+  } catch (e) {
+    await recordHealth({ ok: false, status: 0, body: { error: String(e && e.message) } });
+    await markBackoff(entry, e);
+    return false;
+  } finally {
+    if (ws) ws.close();
+  }
 }
 
 async function drainOutbox() {
@@ -564,32 +692,13 @@ async function drainOutbox() {
   draining = true;
   try {
     while (true) {
-      const entry = await withSeg(async () => Outbox.head(await getOutbox()));
+      const entry = await OutboxStore.head();
       if (!entry) break;
-      let cfg;
-      try {
-        cfg = await ensureRegistered();
-      } catch (_e) {
-        break;
-      }
-      const meta = uploadMeta(cfg);
-      let res;
-      try {
-        res = await J.uploadSegment(cfg.journalUrl, cfg.key, { day: entry.day, segment: entry.segment, meta, files: entry.files });
-      } catch (e) {
-        await recordHealth({ ok: false, status: 0, body: { error: String(e && e.message) } });
-        break;
-      }
-      await recordHealth(res);
-      const delivered = !!(res && res.ok && !res.failed);
+      if (entry.nextAttemptAt && entry.nextAttemptAt > Date.now()) break;
+      const cfg = await getCfg();
+      const delivered = entry.mode === "remote" ? await deliverRemoteOutboxEntry(entry, cfg) : await deliverLocalOutboxEntry(entry, cfg);
       if (!delivered) break;
-      await withSeg(async () => {
-        const outbox = await getOutbox();
-        const current = Outbox.head(outbox);
-        if (current && current.day === entry.day && current.segment === entry.segment) {
-          await chrome.storage.local.set({ outbox: Outbox.removeHead(outbox) });
-        }
-      });
+      await OutboxStore.removeHeadIf(entry);
       await updateBadge();
     }
   } finally {
@@ -674,6 +783,78 @@ async function updateBadge() {
   }
 }
 
+// ---- remote pairing --------------------------------------------------------
+
+async function verifyHomeIdentity(parsedLink, identityMsg) {
+  const pkHSpki = fromB64url(identityMsg.pkH_spki);
+  const caSpki = fromB64url(identityMsg.ca_spki);
+  const sig = fromB64url(identityMsg.sig);
+  const instanceId16 = Uuid.bytesFromUuidString(identityMsg.instance_id);
+  const caFp = new Uint8Array(await crypto.subtle.digest("SHA-256", caSpki)).slice(0, 16);
+  if (!bytesEqual(caFp, parsedLink.caFpSpki)) throw new Error("home CA fingerprint mismatch");
+  const caKey = await crypto.subtle.importKey("spki", caSpki, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]);
+  const signed = concatBytes([new TextEncoder().encode("spl-pair-browser-v1"), pkHSpki, instanceId16]);
+  const ok = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, caKey, sig, signed);
+  if (!ok) throw new Error("home identity signature invalid");
+  return { pkHSpki, caSpki, instanceId16 };
+}
+
+async function pairRemote(link) {
+  const cfg = await getCfg();
+  const ident = await Identity.ensureIdentity();
+  const parsed = Pairlink.parseLink(link);
+  const rk = await Pairlink.deriveRK(parsed.SBytes);
+  let ws = null;
+  try {
+    ws = await RemoteTunnel.dialPair(parsed.relayOrigin, hex(rk));
+    ws.sendBinary(concatBytes([new TextEncoder().encode("SBP1"), Uint8Array.of(0x01)]));
+    const identityMsg = JSON.parse(await ws.recvText());
+    if (!identityMsg.pkH_spki || !identityMsg.ca_spki || !identityMsg.instance_id || !identityMsg.sig) {
+      throw new Error("pair identity missing required fields");
+    }
+    const verified = await verifyHomeIdentity(parsed, identityMsg);
+    const hello = new TextEncoder().encode(JSON.stringify({
+      S: b64url(parsed.SBytes),
+      ext_pub_spki: b64url(ident.spki),
+      device_label: cfg.hostname || "browser",
+    }));
+    const sealedHello = await RemoteBlob.sealBase({
+      recipientSpki: verified.pkHSpki,
+      info: verified.instanceId16,
+      plaintext: hello,
+    });
+    ws.sendBinary(concatBytes([sealedHello.enc, sealedHello.ct]));
+    const sealedReply = await ws.recvBinary();
+    if (sealedReply.byteLength < 66) throw new Error("sealed pair reply too short");
+    const replyBytes = await RemoteBlob.openBaseSealed({
+      recipientPrivateKey: ident.privateKey,
+      recipientPublicKey: ident.publicKey,
+      enc: sealedReply.slice(0, 65),
+      info: verified.instanceId16,
+      ct: sealedReply.slice(65),
+    });
+    const reply = JSON.parse(new TextDecoder().decode(replyBytes));
+    if (reply.instance_id !== identityMsg.instance_id) throw new Error("pair reply instance mismatch");
+    if (!reply.home_attestation) throw new Error("pair reply missing home_attestation");
+    const enrolled = await J.enrollDevice(parsed.relayOrigin, { instance_id: reply.instance_id, home_attestation: reply.home_attestation });
+    if (!enrolled.device_token) throw new Error("enroll response missing device_token");
+    const next = await getCfg();
+    next.remote = {
+      instanceId: reply.instance_id,
+      deviceToken: enrolled.device_token,
+      homeSpki: identityMsg.pkH_spki,
+      relayOrigin: parsed.relayOrigin,
+      expiresAt: enrolled.expires_at || null,
+      pairedAt: Date.now(),
+    };
+    await setCfg(next);
+    drainOutbox();
+    return { ok: true, instanceId: reply.instance_id };
+  } finally {
+    if (ws) ws.close();
+  }
+}
+
 // ---- UI command router -----------------------------------------------------
 
 async function handleCommand(msg, sendResponse) {
@@ -705,6 +886,7 @@ async function handleCommand(msg, sendResponse) {
           dropped: summary.dropped,
           waiting: summary.waiting,
           health: cfg.health,
+          remote: cfg.remote ? { paired: isRemotePaired(cfg), instanceId: cfg.remote.instanceId, relayOrigin: cfg.remote.relayOrigin } : { paired: false },
           version: VERSION,
         });
         break;
@@ -716,14 +898,7 @@ async function handleCommand(msg, sendResponse) {
         break;
       }
       case "clearDropped": {
-        const cleared = await withSeg(async () => {
-          const state = { outbox: await getOutbox(), dropped: await getDropped() };
-          const next = Outbox.clearDropped(state);
-          if (next.dropped.segments !== state.dropped.segments || next.dropped.lines !== state.dropped.lines) {
-            await chrome.storage.local.set({ dropped: next.dropped });
-          }
-          return next.dropped;
-        });
+        const cleared = await OutboxStore.clearDropped();
         await updateBadge();
         sendResponse({ ok: true, dropped: cleared });
         break;
@@ -731,6 +906,22 @@ async function handleCommand(msg, sendResponse) {
       case "siteGranted": {
         const err = await addSite(msg.host);
         sendResponse({ ok: !err, error: err || undefined });
+        break;
+      }
+      case "pairRemote": {
+        try {
+          sendResponse(await pairRemote(msg.link));
+        } catch (e) {
+          sendResponse({ ok: false, error: String((e && e.message) || e || "pairing failed") });
+        }
+        break;
+      }
+      case "unpairRemote": {
+        const cfg = await getCfg();
+        cfg.remote = null;
+        await setCfg(cfg);
+        await updateBadge();
+        sendResponse({ ok: true });
         break;
       }
       case "removeSite":
@@ -839,8 +1030,26 @@ chrome.permissions.onRemoved.addListener(async (perms) => {
   }
 });
 
+async function migrateOutboxV1() {
+  if (await DB.get("meta", "migratedOutboxV1")) return;
+  const legacy = await chrome.storage.local.get(["outbox", "dropped"]);
+  const entries = Array.isArray(legacy.outbox) ? legacy.outbox : [];
+  for (const entry of entries) await OutboxStore.enqueue(Object.assign({ mode: "local" }, entry));
+  const oldDropped = normalizeDropped(legacy.dropped);
+  if (oldDropped.segments || oldDropped.lines) {
+    const current = await OutboxStore.getDropped();
+    await OutboxStore.setDropped({
+      segments: current.segments + oldDropped.segments,
+      lines: current.lines + oldDropped.lines,
+    });
+  }
+  await DB.put("meta", true, "migratedOutboxV1");
+  if ("outbox" in legacy || "dropped" in legacy) await chrome.storage.local.remove(["outbox", "dropped"]);
+}
+
 async function init() {
   await chrome.alarms.create(ROTATE_ALARM, { periodInMinutes: 1 });
+  await migrateOutboxV1();
   // Re-assert content-script registrations for the allowlist (idempotent).
   const cfg = await getCfg();
   for (const host of cfg.allowlist) {

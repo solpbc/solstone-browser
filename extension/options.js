@@ -48,6 +48,21 @@ function renderJournalLink() {
   }
 }
 
+function permissionOriginForRelay(relayOrigin) {
+  const u = new URL(relayOrigin);
+  return `${u.origin}/*`;
+}
+
+function renderRemoteState() {
+  const remote = state.remote || {};
+  $("unpairBtn").hidden = !remote.paired;
+  if (remote.paired) {
+    $("remoteState").textContent = `paired to ${remote.instanceId || "remote home"} via ${remote.relayOrigin || "relay"}.`;
+  } else {
+    $("remoteState").textContent = "not paired.";
+  }
+}
+
 async function renderWaiting() {
   const preview = await cmd({ cmd: "getBufferedPreview" });
   const total = preview.waiting || 0;
@@ -116,6 +131,7 @@ async function refresh() {
 
   renderConnStatus();
   renderJournalLink();
+  renderRemoteState();
   await renderWaiting();
 
   const list = $("siteList");
@@ -191,6 +207,38 @@ async function addSite() {
   await refresh();
 }
 
+async function pairRemote() {
+  const link = $("pairLink").value.trim();
+  let parsed;
+  try {
+    parsed = globalThis.SolstonePairlink.parseLink(link);
+  } catch (_e) {
+    $("pairStatus").textContent = "paste a valid pair link.";
+    return;
+  }
+  const origin = permissionOriginForRelay(parsed.relayOrigin);
+  let granted;
+  try {
+    granted = await chrome.permissions.request({ origins: [origin] });
+  } catch (_e) {
+    $("pairStatus").textContent = "could not request relay permission.";
+    return;
+  }
+  if (!granted) {
+    $("pairStatus").textContent = "permission declined — remote home not paired.";
+    return;
+  }
+  $("pairStatus").textContent = "pairing…";
+  const res = await cmd({ cmd: "pairRemote", link });
+  if (res && res.ok) {
+    $("pairLink").value = "";
+    $("pairStatus").textContent = `paired to ${res.instanceId}.`;
+  } else {
+    $("pairStatus").textContent = "pairing failed: " + ((res && res.error) || "unknown error");
+  }
+  await refresh();
+}
+
 $("connForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   await saveConfig();
@@ -220,6 +268,17 @@ $("showPageIndicator").addEventListener("change", async () => {
 $("addForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   await addSite();
+});
+
+$("pairForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  await pairRemote();
+});
+
+$("unpairBtn").addEventListener("click", async () => {
+  await cmd({ cmd: "unpairRemote" });
+  $("pairStatus").textContent = "unpaired.";
+  await refresh();
 });
 
 refresh();

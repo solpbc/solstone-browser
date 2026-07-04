@@ -145,6 +145,20 @@
       </div>
 
       <div class="card">
+        <h2>remote home</h2>
+        <form id="pairForm" novalidate>
+          <label>pair link</label>
+          <input id="pairLink" placeholder="https://go.solstone.app/p#…" />
+          <div>
+            <button id="pairBtn" class="primary" type="submit">pair</button>
+            <button id="unpairBtn" type="button">unpair</button>
+          </div>
+        </form>
+        <div class="status" id="pairStatus"></div>
+        <div class="muted" id="remoteState">not paired.</div>
+      </div>
+
+      <div class="card">
         <h2>added sites</h2>
         <p class="muted">adding a site asks chrome for permission to read just that site. you can revoke any time here, or in
           chrome’s own per-site controls.</p>
@@ -176,6 +190,7 @@
       </p>
     </div>
     <script src="lib/hosts.js"></script>
+    <script src="lib/pairlink.js"></script>
     <script src="lib/escape.js"></script>
     <script src="lib/failures.js"></script>
     <script src="options.js"></script>

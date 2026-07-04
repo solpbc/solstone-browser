@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 //
-// journal.js — the HTTP client for the local solstone journal's observer API.
-// One observer registration, one stream, segment uploads. Mirrors the contract
-// the Python observers use (observe/remote_client.py): self-register against
-// /app/observer/register, then multipart-upload segments to
-// /app/observer/ingest with the minted key as a bearer token.
+// journal.js — the HTTP client for the local solstone journal's observer API,
+// plus remote relay device enrollment. One observer registration, one stream,
+// segment uploads. Mirrors the contract the Python observers use
+// (observe/remote_client.py): self-register against /app/observer/register,
+// then multipart-upload segments to /app/observer/ingest with the minted key as
+// a bearer token.
 //
 // Runs in the MV3 service worker via importScripts -> `globalThis.SolstoneJournal`.
 
@@ -118,5 +119,26 @@
     }
   }
 
-  globalThis.SolstoneJournal = { register, uploadSegment, relayEvent, getSegments, checkConnection, OBSERVER_HEADER, PROTOCOL_HEADER };
+  async function enrollDevice(relayOrigin, body) {
+    const url = relayOrigin.replace(/\/+$/, "") + "/enroll/device";
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    let parsed = null;
+    try {
+      parsed = await resp.json();
+    } catch (_e) {
+      /* non-JSON */
+    }
+    if (!resp.ok) {
+      const err = new Error(`enroll failed: HTTP ${resp.status}${parsed ? " " + JSON.stringify(parsed) : ""}`);
+      err.status = resp.status;
+      throw err;
+    }
+    return parsed || {};
+  }
+
+  globalThis.SolstoneJournal = { register, uploadSegment, relayEvent, getSegments, checkConnection, enrollDevice, OBSERVER_HEADER, PROTOCOL_HEADER };
 })();

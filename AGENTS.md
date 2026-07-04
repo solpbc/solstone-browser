@@ -14,8 +14,9 @@ segments, sync. The difference is the source: semantic DOM content instead of
 pixels or terminal text.
 
 This is a **discovery prototype** — Chrome desktop only, opt-in per site,
-relaying directly to the local journal. Cross-browser (Firefox/Safari) packaging
-and the iOS Safari path are the eventual architecture, deliberately out of scope.
+relaying directly to the local journal by default, with an optional paired
+remote home. Cross-browser (Firefox/Safari) packaging and the iOS Safari path
+are the eventual architecture, deliberately out of scope.
 
 ## Architecture
 
@@ -30,15 +31,19 @@ Two halves, one substrate (the WebExtensions API):
 - **Service worker** (`background.js` + `journal.js` + `lib/*`) is the
   event-driven persistent half. It holds the journal registration, buffers each
   tab's skims into a segment in `chrome.storage`, diffs successive skims into a
-  snapshot+delta stream, rotates + uploads every segment via `chrome.alarms`, and
-  owns the opt-in per-site lifecycle (grant → register a content script;
-  revoke → tear down). MV3 service-worker ephemerality is handled by persisting
-  all state to `chrome.storage` and waking on alarms.
+  snapshot+delta stream, rotates segments via `chrome.alarms`, and delivers them
+  either by local multipart POST or, after a pasted `0x06` pair link, as
+  HPKE-sealed blobs over the relay tunnel. It keeps its non-extractable ECDH
+  identity and durable outbox in IndexedDB, and owns the opt-in per-site
+  lifecycle (grant → register a content script; revoke → tear down). MV3
+  service-worker ephemerality is handled by persisting state and waking on
+  alarms.
 
-Why no separate native host for this prototype: the journal runs on the same
-machine and exposes a localhost ingest API that segments on receipt, so the
-worker registers as its own observer and uploads directly. A native host may
-return for the cross-platform / iOS shape later.
+Why no separate native host for this prototype: in local mode, the journal runs
+on the same machine and exposes a localhost ingest API that segments on receipt,
+so the worker registers as its own observer and uploads directly. Remote mode
+uses the paired relay path without adding a native host. A native host may return
+for the cross-platform / iOS shape later.
 
 ## The block model
 
@@ -59,7 +64,13 @@ A block is `{id, type, depth, text, attrs}`:
 ```
 extension/   the unpacked MV3 extension (see README for the per-file map)
   lib/blocks.js, lib/segment.js   pure, shared by worker + tests
-test/        node --test pure logic, a real-Chrome CDP skim smoke, a journal round-trip
+  lib/db.js, lib/identity.js      IndexedDB + non-extractable extension identity
+  lib/pairlink.js, lib/uuid.js    pure pair-link and UUID helpers
+  lib/remote_blob.js              tar/blob/HPKE helpers
+  lib/remote_tunnel.js            relay WebSocket client
+  lib/outbox.js, lib/outbox_store.js pure FIFO logic + IDB adapter
+  vendor/hpke/                    pinned @hpke/core IIFE artifact
+test/        node --test pure logic/vectors, real-Chrome CDP skim smoke, journal/relay round-trips
 ```
 
 ## Build and test
@@ -70,7 +81,7 @@ no formatter/linter wired yet). The underlying commands:
 ```bash
 make install        # no-op — MV3 loads unpacked, tests need no deps
 make ci             # the gate: pure-logic unit tests (== npm test)
-npm test            # pure-logic unit tests (diff/delta/jsonl, role typing) — no browser, no deps
+npm test            # pure-logic unit tests + pair-link/HPKE byte vectors — no browser, no deps
 make smoke          # (npm run smoke) headless Chrome over CDP: skim the Gmail/Slack/article fixtures
 make relay-check    # (npm run relay-check) ON the journal machine: register + multipart ingest + verify a segment landed
 make e2e-deps       # one-time: npm install + npx playwright install chromium (dev-only deps)
@@ -84,9 +95,9 @@ Playwright chromium build (dev-only — the shipped extension stays dependency-f
 ## Agentic e2e (the live path, headless)
 
 `make e2e` (`test/e2e.mjs`) drives the one path the unit tests can't reach —
-**dynamically-registered content script → service worker → relay POST** —
-end-to-end under browser automation with no display, against an in-process stub
-journal. It is the automated half of `test/GUIDED.md`.
+**dynamically-registered content script → service worker → local POST / remote
+relay** end-to-end under browser automation with no display, against an
+in-process stub journal and relay. It is the automated half of `test/GUIDED.md`.
 
 The prototype believed this leg was un-verifiable headlessly. It isn't; the fix
 is two binary choices:
@@ -107,11 +118,17 @@ it to a *throwaway copy* of the manifest's `host_permissions`. This isolates the
 question it answers (does our **dynamic** registration inject + relay under
 new-headless?) from the orthogonal permission-UI question — the live per-site
 opt-in is what the guided walkthrough verifies. The stub binds an **ephemeral
-port**, so the harness never clashes with a real journal on `:5015`.
+port**, so the harness never clashes with a real journal on `:5015`. The same
+stub also implements the raw WebSocket pairing/data relay used to prove the
+HPKE-sealed remote path.
 
 There is no build step. The shared `lib/*.js` files are classic scripts that
 publish a `globalThis` namespace, so the same source loads as a content script,
 is `importScripts`-ed by the worker, and is side-effect-imported by node tests.
+The exception is the committed `extension/vendor/hpke/` bundle:
+`@hpke/core@1.9.0` is vendored as an IIFE and regenerated manually with the
+esbuild command in `extension/vendor/hpke/README.md`; it is not a runtime npm or
+CDN dependency.
 
 ## Principles
 

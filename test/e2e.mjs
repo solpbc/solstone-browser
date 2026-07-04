@@ -81,6 +81,35 @@ const b64url = (bytes) => Buffer.from(bytes).toString("base64").replace(/\+/g, "
 const fromB64url = (s) => new Uint8Array(Buffer.from(String(s).replace(/-/g, "+").replace(/_/g, "/"), "base64"));
 const bytesEqual = (a, b) => Buffer.from(a).equals(Buffer.from(b));
 
+function frameU32(payload) {
+  const len = payload.byteLength >>> 0;
+  const out = new Uint8Array(4 + payload.byteLength);
+  out[0] = (len >>> 24) & 0xff; out[1] = (len >>> 16) & 0xff; out[2] = (len >>> 8) & 0xff; out[3] = len & 0xff;
+  out.set(payload, 4);
+  return out;
+}
+
+function makeByteReader(ws) {
+  let buf = new Uint8Array(0);
+  const readExactly = async (n) => {
+    while (buf.byteLength < n) {
+      const chunk = await ws.nextMessage();
+      const merged = new Uint8Array(buf.byteLength + chunk.byteLength);
+      merged.set(buf); merged.set(chunk, buf.byteLength);
+      buf = merged;
+    }
+    const out = buf.slice(0, n);
+    buf = buf.slice(n);
+    return out;
+  };
+  const readU32Frame = async () => {
+    const h = await readExactly(4);
+    const len = ((h[0] << 24) | (h[1] << 16) | (h[2] << 8) | h[3]) >>> 0;
+    return readExactly(len);
+  };
+  return { readExactly, readU32Frame };
+}
+
 function nextWsMessage(ws) {
   if (typeof ws.nextMessage === "function") return ws.nextMessage();
   return new Promise((resolve, reject) => {
@@ -332,12 +361,17 @@ async function startStub() {
     try {
       const protocols = String(req.headers["sec-websocket-protocol"] || "");
       if (!protocols.split(",").map((s) => s.trim()).includes(`spl-pair.${expectedRk}`)) throw new Error("missing expected pair subprotocol");
-      const hello = await nextWsMessage(ws);
+      const reader = makeByteReader(ws);
+      const hello = await reader.readExactly(5);
       if (!bytesEqual(hello, concat([te.encode("SBP1"), Uint8Array.of(1)]))) throw new Error("bad PairHello");
       const signed = concat([te.encode("spl-pair-browser-v1"), pkHSpki, instanceId16]);
       const sig = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, caKp.privateKey, signed));
-      ws.send(JSON.stringify({ pkH_spki: b64url(pkHSpki), ca_spki: b64url(caSpki), instance_id: instanceId, sig: b64url(sig) }));
-      const sealedHello = await nextWsMessage(ws);
+      const idJson = te.encode(JSON.stringify({ pkH_spki: b64url(pkHSpki), ca_spki: b64url(caSpki), instance_id: instanceId, sig: b64url(sig) }));
+      const framed = frameU32(idJson);
+      // Split inside the length header to prove the reader does not assume one WebSocket frame per message.
+      ws.send(Buffer.from(framed.slice(0, 3)));
+      ws.send(Buffer.from(framed.slice(3)));
+      const sealedHello = await reader.readU32Frame();
       const opened = await RB.openBaseSealed({
         recipientPrivateKey: homeKp.privateKey,
         recipientPublicKey: homeKp.publicKey,
@@ -350,7 +384,7 @@ async function startStub() {
       received.pairs.push({ hello: true, deviceLabel: parsed.device_label, S: parsed.S, extPubSpki: parsed.ext_pub_spki });
       const reply = te.encode(JSON.stringify({ instance_id: instanceId, home_attestation: "stub-attestation" }));
       const sealedReply = await RB.sealBase({ recipientSpki: extPubSpki, info: instanceId16, plaintext: reply });
-      ws.send(Buffer.from(concat([sealedReply.enc, sealedReply.ct])));
+      ws.send(Buffer.from(frameU32(concat([sealedReply.enc, sealedReply.ct]))));
     } catch (e) {
       received.pairError = String(e && e.message);
       try { ws.close(); } catch (_e) {}
@@ -401,11 +435,11 @@ async function startStub() {
 
   server.on("upgrade", (req, socket, head) => {
     const path = new URL(req.url, "http://127.0.0.1").pathname;
-    if (path !== "/pair/window" && path !== "/session/dial") return socket.destroy();
+    if (path !== "/session/pair-dial" && path !== "/session/dial") return socket.destroy();
     if (head && head.length) socket.unshift(head);
     const ws = acceptRawWs(req, socket);
     if (!ws) return;
-    if (path === "/pair/window") handlePair(ws, req);
+    if (path === "/session/pair-dial") handlePair(ws, req);
     else handleData(ws, req);
   });
 

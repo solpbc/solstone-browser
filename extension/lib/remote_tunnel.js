@@ -2,9 +2,11 @@
 // Copyright (c) 2026 sol pbc
 //
 // Relay framing for this lode:
-// - Pair WS: ws(s)://<relay-host>/pair/window, subprotocols ["spl-v1", "spl-pair.<RK hex>"].
-//   Binary PairHello is "SBP1" || 0x01. Identity is text JSON. Sealed pairing
-//   messages are binary enc(65) || ct.
+// - Pair WS: ws(s)://<relay-host>/session/pair-dial, subprotocols
+//   ["spl-v1", "spl-pair.<RK hex>"]. Pairing is a length-delimited binary byte
+//   stream: msg1 = bare 5 bytes "SBP1" || 0x01 (no length prefix);
+//   msg2/msg3/msg4 are each u32-big-endian length prefixed; msg3/msg4 payloads
+//   are enc(65) || ct.
 // - Data WS: ws(s)://<relay-host>/session/dial?instance=<id>&token=<device_token>,
 //   subprotocol ["spl-v1"]. One blob per tunnel: Offer, Ready, Sealed chunks
 //   (<=64 KiB per send), Ack.
@@ -14,7 +16,7 @@
 (function () {
   "use strict";
 
-  const PAIR_DIAL_PATH = "/pair/window";
+  const PAIR_DIAL_PATH = "/session/pair-dial";
   const DATA_DIAL_PATH = "/session/dial";
   const CHUNK_BYTES = 64 * 1024;
 
@@ -22,6 +24,14 @@
     const u = new URL(path, relayOrigin);
     u.protocol = u.protocol === "http:" ? "ws:" : "wss:";
     return u;
+  }
+
+  function frameU32(payload) {
+    const len = payload.byteLength >>> 0;
+    const out = new Uint8Array(4 + payload.byteLength);
+    out[0] = (len >>> 24) & 0xff; out[1] = (len >>> 16) & 0xff; out[2] = (len >>> 8) & 0xff; out[3] = len & 0xff;
+    out.set(payload, 4);
+    return out;
   }
 
   function connect(url, protocols) {
@@ -44,14 +54,31 @@
           sendBinary(u8) {
             ws.send(u8);
           },
-          sendText(s) {
-            ws.send(String(s));
+          sendU32Frame(payload) {
+            ws.send(frameU32(payload));
           },
           recvBinary() {
             return recv("binary");
           },
-          recvText() {
-            return recv("text");
+          reader() {
+            let buf = new Uint8Array(0);
+            const readExactly = async (n) => {
+              while (buf.byteLength < n) {
+                const chunk = await recv("binary");
+                const merged = new Uint8Array(buf.byteLength + chunk.byteLength);
+                merged.set(buf); merged.set(chunk, buf.byteLength);
+                buf = merged;
+              }
+              const out = buf.slice(0, n);
+              buf = buf.slice(n);
+              return out;
+            };
+            const readU32Frame = async () => {
+              const h = await readExactly(4);
+              const len = ((h[0] << 24) | (h[1] << 16) | (h[2] << 8) | h[3]) >>> 0;
+              return readExactly(len);
+            };
+            return { readExactly, readU32Frame };
           },
           close() {
             try {

@@ -807,8 +807,9 @@ async function pairRemote(link) {
   let ws = null;
   try {
     ws = await RemoteTunnel.dialPair(parsed.relayOrigin, hex(rk));
+    const reader = ws.reader();
     ws.sendBinary(concatBytes([new TextEncoder().encode("SBP1"), Uint8Array.of(0x01)]));
-    const identityMsg = JSON.parse(await ws.recvText());
+    const identityMsg = JSON.parse(new TextDecoder().decode(await reader.readU32Frame()));
     if (!identityMsg.pkH_spki || !identityMsg.ca_spki || !identityMsg.instance_id || !identityMsg.sig) {
       throw new Error("pair identity missing required fields");
     }
@@ -823,8 +824,8 @@ async function pairRemote(link) {
       info: verified.instanceId16,
       plaintext: hello,
     });
-    ws.sendBinary(concatBytes([sealedHello.enc, sealedHello.ct]));
-    const sealedReply = await ws.recvBinary();
+    ws.sendU32Frame(concatBytes([sealedHello.enc, sealedHello.ct]));
+    const sealedReply = await reader.readU32Frame();
     if (sealedReply.byteLength < 66) throw new Error("sealed pair reply too short");
     const replyBytes = await RemoteBlob.openBaseSealed({
       recipientPrivateKey: ident.privateKey,

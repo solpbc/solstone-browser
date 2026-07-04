@@ -8,7 +8,9 @@
 //   msg2/msg3/msg4 are each u32-big-endian length prefixed; msg3/msg4 payloads
 //   are enc(65) || ct.
 // - Data WS: ws(s)://<relay-host>/session/dial?instance=<id>&token=<device_token>,
-//   subprotocol ["spl-v1"]. One blob per tunnel: Offer, Ready, Sealed chunks
+//   NO subprotocol (auth is the ?token= query; the relay does not echo spl-v1 on
+//   /session/dial, and an un-echoed offered subprotocol fails the browser
+//   connection). One blob per tunnel: Offer, Ready, Sealed chunks
 //   (<=64 KiB per send), Ack.
 // These paths and frames are this-lode-authoritative and must match sibling
 // relay/home lodes.
@@ -128,7 +130,13 @@
     const u = wsUrl(relayOrigin, DATA_DIAL_PATH);
     u.searchParams.set("instance", instanceId);
     u.searchParams.set("token", deviceToken);
-    return connect(u, ["spl-v1"]);
+    // No subprotocol on the data dial: auth is the ?token= query and the frames
+    // are the SBO1 blob-uplink protocol, so spl-v1 carries nothing here. A
+    // browser WebSocket that offers a subprotocol the relay does not echo fails
+    // the connection (WHATWG), and the relay only echoes spl-v1 on the pair-dial
+    // (the RK carrier), not on /session/dial. Native clients dial with no
+    // subprotocol too.
+    return connect(u, []);
   }
 
   function sendChunked(ws, bytes) {

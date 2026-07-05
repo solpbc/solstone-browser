@@ -29,7 +29,7 @@ const Identity = globalThis.SolstoneIdentity;
 const RemoteBlob = globalThis.SolstoneRemoteBlob;
 const RemoteTunnel = globalThis.SolstoneRemoteTunnel;
 const Uuid = globalThis.SolstoneUuid;
-const VERSION = "0.0.11";
+const VERSION = "0.0.12";
 const BOOT_MS = Date.now();
 
 const CONTENT_SCRIPT_FILES = ["lib/blocks.js", "lib/hosts.js", "adapters.js", "skim.js", "indicator.js", "content.js"];

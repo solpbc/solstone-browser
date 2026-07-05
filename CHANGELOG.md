@@ -4,17 +4,14 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 `make set-version` keeps `manifest.json` / `package.json` / `background.js` in
 lockstep, and `make dist` refuses to build if they drift.
 
-## [Unreleased]
+## 0.0.12 — 2026-07-04
 
-The extension names itself sol in-product — sol is the app, your journal is the
-memory, solstone is the platform.
+sol can now reach your journal from anywhere, sealing everything inside your browser before it leaves.
 
-- **sol, in the owner's words.** The popup, options page, on-page marker, and
-  toolbar tooltip now call the app **sol** and its memory **your journal**. The
-  toolbar status light reads **on / paused / needs attention** at a glance.
-- **solstone stays the family name.** The store listing is still **solstone
-  browser** and each device still relays a `<host>.browser` stream — solstone is
-  the platform sol belongs to, not the in-product name.
+- **Reach your journal from anywhere.** Until now, your journal had to be on the same machine as your browser; now sol delivers to it wherever that journal runs. Everything sol takes in is sealed end-to-end (HPKE) inside the browser before it leaves, then travels over a paired relay that carries only the sealed bytes and can't read them. The same-machine path is unchanged.
+- **Paired to your journal, verified before it's trusted.** You connect sol to your journal by pasting a pairing link and confirming your journal's fingerprint, so nothing is trusted until you've checked it yourself. Sealed segments are held in a durable outbox and only cleared once your journal confirms it has them.
+- **sol, in the owner's words.** The popup, options page, on-page marker, and toolbar tooltip now call the app **sol** and its memory **your journal**. The toolbar status light reads **on / paused / needs attention** at a glance.
+- **solstone stays the family name.** The store listing is still **solstone browser**, and each device still relays a `<host>.browser` stream. solstone is the platform sol belongs to, not what it calls itself in the app.
 
 ## 0.0.11 — 2026-07-01
 

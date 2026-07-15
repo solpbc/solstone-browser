@@ -209,19 +209,24 @@ function rawWs(socket) {
   };
 }
 
-function acceptRawWs(req, socket) {
+function acceptRawWs(req, socket, requireSpl) {
   const protocols = String(req.headers["sec-websocket-protocol"] || "").split(",").map((s) => s.trim()).filter(Boolean);
-  if (!protocols.includes("spl-v1")) {
+  if (requireSpl && !protocols.includes("spl-v1")) {
     socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
     socket.destroy();
     return null;
   }
+  // Echo spl-v1 only if the client offered it. The data dial (/session/dial)
+  // authenticates via ?token= and offers no subprotocol, matching the real relay,
+  // which requires/echoes spl-v1 only on the pair-dial (the RK carrier). A 101 that
+  // named a subprotocol the client never offered would fail the WHATWG handshake.
+  const selected = protocols.includes("spl-v1") ? "spl-v1" : null;
   socket.write([
     "HTTP/1.1 101 Switching Protocols",
     "Upgrade: websocket",
     "Connection: Upgrade",
     `Sec-WebSocket-Accept: ${wsAccept(req.headers["sec-websocket-key"])}`,
-    "Sec-WebSocket-Protocol: spl-v1",
+    ...(selected ? [`Sec-WebSocket-Protocol: ${selected}`] : []),
     "\r\n",
   ].join("\r\n"));
   return rawWs(socket);
@@ -444,7 +449,7 @@ async function startStub() {
     const path = new URL(req.url, "http://127.0.0.1").pathname;
     if (path !== "/session/pair-dial" && path !== "/session/dial") return socket.destroy();
     if (head && head.length) socket.unshift(head);
-    const ws = acceptRawWs(req, socket);
+    const ws = acceptRawWs(req, socket, path === "/session/pair-dial");
     if (!ws) return;
     if (path === "/session/pair-dial") handlePair(ws, req);
     else handleData(ws, req);
@@ -887,6 +892,7 @@ async function main() {
     ok("no console errors from the extension or observed page", consoleErrs.length === 0, consoleErrs.join(" | "));
     ok("extension self-reports no error (health.lastError null, 0 site errors)", !extErr.lastError && extErr.siteErrors === 0, `lastError=${extErr.lastError} siteErrors=${extErr.siteErrors}`);
     if (consoleWarns.length) console.log("  note console warnings (non-fatal):", JSON.stringify(consoleWarns));
+    if (stub.received.remoteError) console.log(`  stub handleData raised (from received.remoteError, not the client WS layer): ${stub.received.remoteError}`);
 
     console.log(`\n=== e2e: ${fail === 0 ? "ALL " + pass + " CHECKS PASS" : pass + " pass / " + fail + " FAIL"} ===`);
   } finally {

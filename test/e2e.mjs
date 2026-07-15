@@ -568,19 +568,32 @@ async function main() {
       });
     }, { journalUrl: stub.url, host: observedHost });
 
-    // 3. Dynamic registration — the EXACT call registerSite() makes.
+    // 3. Dynamic registration — the EXACT call registerSite() makes. A transient MV3
+    // SW init() re-assertion may run registerSite() (unregister→register over
+    // cfg.allowlist) concurrently, so a single attempt/snapshot can land inside that
+    // window. Retry-poll until the id is registered; only a non-"Duplicate script ID"
+    // error is a real failure. This still exercises registerContentScripts dynamically
+    // under new-headless and requires the script to actually be registered.
     const reg = await sw.evaluate(async ({ files, pattern }) => {
-      try {
-        await chrome.scripting.registerContentScripts([{
-          id: "cs-127.0.0.1", matches: [pattern], js: files,
-          runAt: "document_idle", allFrames: true, persistAcrossSessions: true,
-        }]);
-        return { ok: true, registered: (await chrome.scripting.getRegisteredContentScripts()).map((g) => g.id) };
-      } catch (e) {
-        return { ok: false, error: String(e && e.message) };
+      let lastError = null;
+      for (let i = 0; i < 20; i++) {
+        try {
+          await chrome.scripting.registerContentScripts([{
+            id: "cs-127.0.0.1", matches: [pattern], js: files,
+            runAt: "document_idle", allFrames: true, persistAcrossSessions: true,
+          }]);
+          lastError = null;
+        } catch (e) {
+          lastError = String(e && e.message);
+          if (!/Duplicate script ID/.test(lastError)) break; // a real registration failure
+        }
+        const ids = (await chrome.scripting.getRegisteredContentScripts()).map((g) => g.id);
+        if (ids.includes("cs-127.0.0.1")) return { ok: true, registered: ids };
+        await new Promise((r) => setTimeout(r, 50));
       }
+      return { ok: false, error: lastError };
     }, { files: CONTENT_SCRIPT_FILES, pattern: GRANT_PATTERN });
-    ok("chrome.scripting.registerContentScripts succeeded (DYNAMIC registration)", reg.ok, reg.error || reg.registered?.join(","));
+    ok("chrome.scripting.registerContentScripts succeeded (DYNAMIC registration)", reg.ok, reg.registered?.join(",") || reg.error);
 
     // 4. Navigate a FRESH page — injection here is via the dynamic registration
     // (registration only affects future loads; no executeScript into open tabs).

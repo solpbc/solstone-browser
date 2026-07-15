@@ -244,6 +244,10 @@ async function gunzip(bytes) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
+function remoteDedupeKey(handle, contentIdentity) {
+  return `${handle}::${contentIdentity}`;
+}
+
 // ---- the stub journal: records every /app/observer/ingest POST (parsed as real
 // multipart via undici's global Response.formData — no deps) so we can assert the
 // batched segment POST the worker makes. Also serves a skimmable /observe-test page.
@@ -266,7 +270,7 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 async function startStub() {
   const received = { registers: [], ingests: [], events: [], pairs: [], remoteBlobs: [] };
   const seenSegments = new Set();
-  const seenBlobIds = new Set();
+  const seenRemote = new Set();
   let rejectIngest = false;
   let rejectRemoteReady = false;
   let dropRemoteAck = false;
@@ -419,12 +423,15 @@ async function startStub() {
       const blob = JSON.parse(files.find((f) => f.name === "blob.json")?.text || "{}");
       const segmentFile = files.find((f) => /^browser_.*\.jsonl$/.test(f.name));
       const blobIdHex = hex(offer.blobId);
-      const duplicate = seenBlobIds.has(blobIdHex);
-      seenBlobIds.add(blobIdHex);
+      const handle = hex(offer.senderFp);
+      const contentIdentity = hex(new Uint8Array(await crypto.subtle.digest("SHA-256", tarBytes)));
+      const dedupeKey = remoteDedupeKey(handle, contentIdentity);
+      const duplicate = seenRemote.has(dedupeKey);
+      seenRemote.add(dedupeKey);
       const kAck = new Uint8Array(await ctx.export(te.encode("spl-blob-ack-v1"), 32));
       let tag = await RB.ackTag(kAck, duplicate ? 0x01 : 0x00, offer.blobId);
       if (corruptRemoteAck) tag = Uint8Array.from(tag, (b, i) => (i === 0 ? b ^ 0xff : b));
-      const record = { blobId: blobIdHex, blob, files, segmentText: segmentFile?.text || "", ackValid: !corruptRemoteAck, duplicate };
+      const record = { blobId: blobIdHex, blob, files, segmentText: segmentFile?.text || "", handle, contentIdentity, dedupeKey, ackValid: !corruptRemoteAck, duplicate };
       received.remoteBlobs.push(record);
       if (!dropRemoteAck) ws.send(Buffer.from(concat([te.encode("SBA1"), Uint8Array.of(0x01, duplicate ? 0x01 : 0x00), offer.blobId, tag])));
     } catch (e) {
@@ -460,6 +467,8 @@ async function startStub() {
         setRemoteReadyReject: (v) => { rejectRemoteReady = !!v; },
         setDropRemoteAck: (v) => { dropRemoteAck = !!v; },
         setCorruptRemoteAck: (v) => { corruptRemoteAck = !!v; },
+        remoteDedupeKey,
+        hasSeenRemote: (key) => seenRemote.has(key),
         close: () => { server.close(); },
       });
     });
@@ -755,6 +764,52 @@ async function main() {
     ok("sealed segment carries heading and excludes hidden content", !!firstRemote && /On structural trust/.test(firstRemote.segmentText) && !/SECRET-HIDDEN/.test(firstRemote.segmentText));
     ok("stub ACK for sealed blob was tag-valid", !!firstRemote && firstRemote.ackValid === true);
 
+    stub.setDropRemoteAck(true);
+    await sleep(1100);
+    await sw.evaluate(async () => {
+      const r = await chrome.storage.local.get("seg");
+      if (r.seg) {
+        r.seg.startMs = Date.now();
+        r.seg.day = globalThis.SolstoneSegment.dayKey(r.seg.startMs);
+        await chrome.storage.local.set({ seg: r.seg });
+      }
+    });
+    const beforeDroppedAckBlobs = stub.received.remoteBlobs.length;
+    const droppedAckFlush = await popup.evaluate(() => new Promise((res) => chrome.runtime.sendMessage({ cmd: "flushNow" }, (r) => res(r || {}))));
+    let droppedAckState = null;
+    for (let i = 0; i < 32 && !droppedAckState; i++) {
+      const state = await sw.evaluate(async () => ({ outbox: await globalThis.SolstoneOutboxStore.all() }));
+      const firstAttempt = stub.received.remoteBlobs[beforeDroppedAckBlobs];
+      if (firstAttempt && state.outbox[0] && state.outbox[0].attempts > 0) droppedAckState = { firstAttempt, entry: state.outbox[0] };
+      else await sleep(250);
+    }
+    const droppedAckBlobId = droppedAckState?.entry?.blob_id;
+    ok("missing ACK retains the sealed outbox head", droppedAckFlush.outcome === "queued" && !!droppedAckBlobId && droppedAckState?.firstAttempt?.duplicate === false, JSON.stringify(droppedAckFlush));
+
+    stub.setDropRemoteAck(false);
+    await sw.evaluate(async (expectedBlobId) => {
+      const entry = await globalThis.SolstoneOutboxStore.head();
+      if (entry && entry.blob_id === expectedBlobId) await globalThis.SolstoneOutboxStore.setBackoff(entry, 0, null, entry.attempts || 0);
+    }, droppedAckBlobId);
+    await popup.evaluate(() => new Promise((res) => chrome.runtime.sendMessage({ cmd: "probe" }, () => res(true))));
+    let droppedAckRecovered = false;
+    for (let i = 0; i < 40 && !droppedAckRecovered; i++) {
+      const empty = await sw.evaluate(async () => (await globalThis.SolstoneOutboxStore.all()).length === 0);
+      const attempts = stub.received.remoteBlobs.slice(beforeDroppedAckBlobs);
+      droppedAckRecovered = empty && attempts.length === 2 && attempts[1].duplicate === true;
+      if (!droppedAckRecovered) await sleep(250);
+    }
+    const droppedAckAttempts = stub.received.remoteBlobs.slice(beforeDroppedAckBlobs);
+    const droppedAckFirst = droppedAckAttempts[0] || {};
+    const droppedAckSecond = droppedAckAttempts[1] || {};
+    ok("authenticated duplicate ACK drains the retained outbox head", droppedAckRecovered && droppedAckSecond.ackValid === true);
+    ok("dropped ACK retry reaches the home at least once with stable identity", droppedAckAttempts.length === 2 && droppedAckFirst.blobId === droppedAckSecond.blobId && droppedAckFirst.blobId === droppedAckBlobId && droppedAckFirst.handle === droppedAckSecond.handle && droppedAckFirst.contentIdentity === droppedAckSecond.contentIdentity && droppedAckFirst.dedupeKey === droppedAckSecond.dedupeKey && droppedAckFirst.duplicate === false && droppedAckSecond.duplicate === true);
+    const firstHandle = droppedAckFirst.handle || "00".repeat(32);
+    const firstContentIdentity = droppedAckFirst.contentIdentity || "00".repeat(32);
+    const otherHandle = `${firstHandle.slice(0, 2) === "00" ? "01" : "00"}${firstHandle.slice(2)}`;
+    const otherKey = stub.remoteDedupeKey(otherHandle, firstContentIdentity);
+    ok("identical content under a different observer handle is accepted as new", otherKey !== droppedAckFirst.dedupeKey && stub.hasSeenRemote(droppedAckFirst.dedupeKey) && !stub.hasSeenRemote(otherKey));
+
     stub.setRemoteReadyReject(true);
     await sleep(1100);
     await sw.evaluate(async () => {
@@ -802,7 +857,7 @@ async function main() {
     }
     const recoveredBlob = stub.received.remoteBlobs.at(-1);
     ok("sealed outage drains after relay recovers", remoteRecovered);
-    ok("sealed retry preserves blob_id and delivers exactly once after recovery", recoveredBlob && recoveredBlob.blobId === retainedBlobId && stub.received.remoteBlobs.length === beforeRejectBlobs + 1, `retained=${retainedBlobId} got=${recoveredBlob && recoveredBlob.blobId}`);
+    ok("Ready-rejected blob keeps its blob_id and drains after the relay accepts it", remoteRecovered && recoveredBlob && recoveredBlob.blobId === retainedBlobId && stub.received.remoteBlobs.length === beforeRejectBlobs + 1, `retained=${retainedBlobId} got=${recoveredBlob && recoveredBlob.blobId}`);
 
     // 8. NON-GATING diagnostic: confirm (and document) that the optional-permission
     // grant cannot be obtained headlessly — why this harness pre-grants the origin.

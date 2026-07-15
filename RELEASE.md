@@ -59,6 +59,11 @@ the bump, update `CHANGELOG.md`, then `make dist`.
 
 ## Cut a tagged release (like our other surfaces)
 
+Release compatibility gate: before any Chrome Web Store release, verify that
+remote-mode delivery targets a home running **solstone 0.8.7+**. Older homes are
+unsupported remote-delivery targets for this lode. This is a release-checklist
+precondition, not a runtime or wire-protocol negotiation.
+
 ```bash
 make set-version V=0.0.9        # if bumping
 # edit CHANGELOG.md: add the 0.0.9 section

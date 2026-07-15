@@ -45,6 +45,9 @@ so the worker registers as its own observer and uploads directly. Remote mode
 uses the paired relay path without adding a native host. A native host may return
 for the cross-platform / iOS shape later.
 
+Remote-mode releases must satisfy the compatibility precondition documented in
+the [release checklist](RELEASE.md#cut-a-tagged-release-like-our-other-surfaces).
+
 ## The block model
 
 A block is `{id, type, depth, text, attrs}`:
@@ -75,22 +78,27 @@ test/        node --test pure logic/vectors, real-Chrome CDP skim smoke, journal
 
 ## Build and test
 
-`make ci` is the gate (it runs the unit suite; there are no deps to install and
-no formatter/linter wired yet). The underlying commands:
+`make ci` is the gate. It installs locked development dependencies, then runs
+the pure unit suite, real-IndexedDB transaction tests, and vendored-HPKE
+reproducibility verification. No formatter/linter is wired yet. The underlying
+commands:
 
 ```bash
-make install        # no-op — MV3 loads unpacked, tests need no deps
-make ci             # the gate: pure-logic unit tests (== npm test)
+make install        # locked dev install; node_modules never ships in extension/
+make ci             # locked install + pure units + real-IDB + vendor verification
 npm test            # pure-logic unit tests + pair-link/HPKE byte vectors — no browser, no deps
+npm run test:idb    # production IDB adapter tests (needs fake-indexeddb)
 make smoke          # (npm run smoke) headless Chrome over CDP: skim the Gmail/Slack/article fixtures
 make relay-check    # (npm run relay-check) ON the journal machine: register + multipart ingest + verify a segment landed
 make e2e-deps       # one-time: npm install + npx playwright install chromium (dev-only deps)
 make e2e            # (npm run e2e) agentic integration: content script -> SW -> relay, headless
 ```
 
-`make ci` (the unit suite) is the CI-able gate and needs no deps. The smoke needs
-a real Chrome; relay-check needs a live local journal; the e2e harness needs the
-Playwright chromium build (dev-only — the shipped extension stays dependency-free).
+`make ci` is the CI-able gate and needs a locked dev install. `npm test` and
+`make test` remain dependency-free. The smoke needs a real Chrome; relay-check
+needs a live local journal; the e2e harness needs the Playwright chromium build.
+All dependencies are development-only: the shipped extension remains runtime-
+dependency-free and loads no code from npm or the network.
 
 ## Agentic e2e (the live path, headless)
 
@@ -126,9 +134,9 @@ There is no build step. The shared `lib/*.js` files are classic scripts that
 publish a `globalThis` namespace, so the same source loads as a content script,
 is `importScripts`-ed by the worker, and is side-effect-imported by node tests.
 The exception is the committed `extension/vendor/hpke/` bundle:
-`@hpke/core@1.9.0` is vendored as an IIFE and regenerated manually with the
-esbuild command in `extension/vendor/hpke/README.md`; it is not a runtime npm or
-CDN dependency.
+`@hpke/core@1.9.0` is vendored as an IIFE and regenerated deterministically with
+the locked development tooling described in `extension/vendor/hpke/README.md`;
+it is not a runtime npm or CDN dependency.
 
 ## Principles
 

@@ -1,30 +1,39 @@
 # solstone-browser Makefile
 # Chrome (MV3) semantic browser observer for solstone.
 #
-# The shipped extension has zero runtime/build dependencies: it is plain MV3
-# (loaded unpacked) and the unit suite runs on node's built-in test runner, so
-# `make install` fetches nothing for the extension itself. The unit suite
-# (`make test`) is the CI-able gate. The CDP skim smoke and the journal relay
+# The shipped extension has zero runtime dependencies: it is plain MV3 and
+# loads no npm or network code. `make test` remains dependency-free; `make ci`
+# installs locked dev dependencies for real-IDB and vendor-reproducibility checks.
+# The CDP skim smoke and the journal relay
 # round-trip need a real Chrome and a live local journal respectively. The
 # `e2e` target is the agentic integration harness — it drives the live
 # content-script -> service-worker -> relay path under Playwright new-headless
 # (dev-only dependency; the shipped extension stays dependency-free). See
 # INSTALL.md / test/GUIDED.md / AGENTS.md.
 
-.PHONY: install test ci format clean smoke relay-check e2e e2e-deps dist set-version
+.PHONY: install test test-idb verify-vendor-hpke ci format clean smoke relay-check e2e e2e-deps dist set-version
 
-# Nothing to install — MV3 loads unpacked; tests use node --test with no deps.
+# Install locked development tools. Nothing from node_modules ships in extension/.
 install:
-	@echo "solstone-browser has no build or deps — load extension/ unpacked in Chrome; 'make test' runs the units."
+	npm ci
 
 # Pure-logic unit tests: diff/delta/JSONL, ARIA role->type, host slugging, adapters.
 test:
 	npm test
 
-# Pre-commit / lode gate. No formatter or linter is wired yet (deliberate for a
-# dependency-free prototype), so the unit suite is the gate. Add lint/format here
-# when a toolchain is chosen.
-ci: test
+test-idb:
+	npm run test:idb
+
+verify-vendor-hpke:
+	node scripts/verify-vendor-hpke.mjs
+
+# Ordered pre-commit / lode gate: locked install, pure units, real IDB, then
+# deterministic vendored-HPKE verification. No formatter or linter is wired yet.
+ci:
+	npm ci
+	npm test
+	npm run test:idb
+	node scripts/verify-vendor-hpke.mjs
 
 # No formatter configured yet.
 format:

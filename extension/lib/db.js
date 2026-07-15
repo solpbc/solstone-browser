@@ -35,7 +35,7 @@
     const db = await open();
     return new Promise((resolve, reject) => {
       const t = db.transaction(store, mode);
-      const os = t.objectStore(store);
+      const os = t.objectStore(Array.isArray(store) ? store[0] : store);
       let result;
       t.oncomplete = () => resolve(result);
       t.onerror = () => reject(t.error);

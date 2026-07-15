@@ -44,7 +44,8 @@ See [`INSTALL.md`](INSTALL.md) to run it.
 - **Self-contained observer.** In local mode, the worker registers as its own
   observer and uploads finished segments straight to the journal's localhost
   ingest API. In remote mode, a pasted pair link enrolls the extension with a
-  home and sends finished segments as HPKE-sealed blobs over the relay tunnel.
+  remote journal and sends finished segments as HPKE-sealed blobs over the relay
+  tunnel; see the [release compatibility gate](RELEASE.md#cut-a-tagged-release-like-our-other-surfaces).
   MV3 service-worker ephemerality is handled with `chrome.storage`,
   IndexedDB, and `chrome.alarms`.
 - **Trust controls.** The toolbar icon is a live status light for on, connecting,
@@ -107,6 +108,8 @@ test/
 
 ```bash
 npm test          # pure-logic unit tests, pair-link/HPKE vectors, remote blob builders — no browser
+npm run test:idb  # production outbox transactions against fake IndexedDB (needs dev deps)
+make ci           # locked dev install + pure units + real-IDB + vendor reproducibility
 npm run smoke     # real headless Chrome: skim the Gmail/Slack/article fixtures
 npm run relay-check   # run ON the journal machine: register + upload + verify a segment landed
 npm run e2e       # agentic integration: content script -> service worker -> journal/relay, under

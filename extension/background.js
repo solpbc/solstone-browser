@@ -36,6 +36,7 @@ const BOOT_MS = Date.now();
 const CONTENT_SCRIPT_FILES = ["lib/blocks.js", "lib/hosts.js", "adapters.js", "skim.js", "indicator.js", "content.js"];
 const ROTATE_ALARM = "rotate";
 const MAX_LINES = 4000; // per-site per-segment safety cap
+const REMOTE_FRAME_TIMEOUT_MS = 5000;
 
 const DEFAULT_CFG = {
   journalUrl: "http://localhost:5015",
@@ -747,6 +748,21 @@ async function markBackoff(entry, error) {
   await OutboxStore.setBackoff(entry, Date.now() + backoffMs(attempts), String((error && error.message) || error || "delivery failed"), attempts);
 }
 
+function recvRemoteFrame(ws, stage) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer = null;
+    const settle = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(value);
+    };
+    timer = setTimeout(() => settle(reject, new Error(`${stage} timed out after ${REMOTE_FRAME_TIMEOUT_MS}ms`)), REMOTE_FRAME_TIMEOUT_MS);
+    ws.recvBinary().then((value) => settle(resolve, value), (error) => settle(reject, error));
+  });
+}
+
 async function deliverLocalOutboxEntry(entry, cfg) {
   let c = cfg;
   try {
@@ -802,10 +818,10 @@ async function deliverRemoteOutboxEntry(entry, cfg) {
 
     ws = await RemoteTunnel.dialData(cfg.remote.relayOrigin, cfg.remote.instanceId, cfg.remote.deviceToken);
     ws.sendBinary(offer);
-    const ready = RemoteBlob.parseReady(await ws.recvBinary());
+    const ready = RemoteBlob.parseReady(await recvRemoteFrame(ws, "remote Ready"));
     if (!ready.ok) throw new Error(`relay rejected blob with status ${ready.status}`);
     RemoteTunnel.sendChunked(ws, concatBytes([sealed.enc, sealed.ct]));
-    const ack = RemoteBlob.parseAck(await ws.recvBinary());
+    const ack = RemoteBlob.parseAck(await recvRemoteFrame(ws, "remote ACK"));
     const expected = await RemoteBlob.ackTag(sealed.kAck, ack.status, blobId);
     if (!bytesEqual(ack.blobId, blobId)) throw new Error("ACK blob_id mismatch");
     if (!bytesEqual(ack.tag, expected)) throw new Error("ACK tag mismatch");

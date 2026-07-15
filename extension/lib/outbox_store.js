@@ -42,7 +42,6 @@
   }
 
   async function enqueue(entry) {
-    const before = await all();
     const prepared = Object.assign({}, entry, {
       blob_id: entry.blob_id || mintBlobId(),
       createdAt: entry.createdAt || Date.now(),
@@ -50,19 +49,28 @@
       nextAttemptAt: Math.max(0, Number(entry.nextAttemptAt || 0)),
       lastError: entry.lastError || null,
     });
-    const computed = O.enqueue(before, prepared, O.OUTBOX_CAP);
-    for (let i = 0; i < computed.dropped.segments; i++) {
-      if (before[i]) await DB.del("outbox", before[i].id);
-    }
-    await DB.add("outbox", prepared);
-    if (computed.dropped.segments || computed.dropped.lines) {
-      const dropped = await getDropped();
-      dropped.segments += computed.dropped.segments;
-      dropped.lines += computed.dropped.lines;
-      await setDropped(dropped);
-      return dropped;
-    }
-    return getDropped();
+    const cumulative = { segments: 0, lines: 0 };
+    return DB.tx(["outbox", "meta"], "readwrite", (_os, t) => {
+      const outbox = t.objectStore("outbox");
+      const meta = t.objectStore("meta");
+      const rowsReq = outbox.getAll();
+      rowsReq.onsuccess = () => {
+        const rows = rowsReq.result.sort(byId);
+        const droppedReq = meta.get("dropped");
+        droppedReq.onsuccess = () => {
+          const prior = normalizeDropped(droppedReq.result);
+          const plan = O.enqueue(rows, prepared, O.OUTBOX_CAP);
+          const evictedCount = rows.length + 1 - plan.outbox.length;
+          const evictedIds = rows.slice(0, evictedCount).map((row) => row.id);
+          cumulative.segments = prior.segments + plan.dropped.segments;
+          cumulative.lines = prior.lines + plan.dropped.lines;
+          for (const id of evictedIds) outbox.delete(id);
+          outbox.add(prepared);
+          meta.put(cumulative, "dropped");
+        };
+      };
+      return cumulative;
+    });
   }
 
   async function head() {

@@ -6,11 +6,11 @@ lockstep, and `make dist` refuses to build if they drift.
 
 ## 0.0.13 — 2026-07-15
 
-sol now keeps the sites you chose when chrome changes their access, and makes getting them going again one tap.
+sol now keeps the sites you chose when Chrome changes their access, and makes getting them going again one tap.
 
-- **Your choices stay yours.** If chrome removes access to an added site, sol pauses it instead of forgetting it. Nothing more is read there, and the site remains in settings so you can allow it again.
-- **One-tap recovery.** The popup, settings rows, and toolbar status show the calm “paused by browser” state without treating it as an error. Sites sharing one chrome host grant pause and return together.
-- **Only the access sol still needs.** sol regularly reconciles chrome's grants and releases access that no added site, built-in journal connection, or paired remote home uses.
+- **Your choices stay yours.** If Chrome removes access to an added site, sol pauses it instead of forgetting it. Nothing more is read there, and the site remains in settings so you can allow it again.
+- **One-tap recovery.** The popup, settings rows, and toolbar status show the calm “paused by browser” state without treating it as an error. Sites sharing one Chrome host grant pause and return together.
+- **Only the access sol still needs.** sol regularly reconciles Chrome's grants and releases access that no added site, built-in journal connection, or paired remote home uses.
 
 ## 0.0.12 — 2026-07-04
 

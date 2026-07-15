@@ -263,10 +263,17 @@ async function unregisterContentScript(matchHost) {
   }
 }
 
-async function stopHostTabs(matchHost) {
+async function stopHostTabs(matchHost, keepAllowlist) {
   try {
     const tabs = await chrome.tabs.query({ url: H.matchPatternFor(matchHost) });
     for (const tab of tabs) {
+      if (typeof keepAllowlist !== "undefined") {
+        try {
+          if (H.hostAllowed(new URL(tab.url).host, keepAllowlist)) continue;
+        } catch (_e) {
+          /* missing / invalid tab URL: stop it to fail closed */
+        }
+      }
       if (tab.id != null) chrome.tabs.sendMessage(tab.id, { kind: "stop" }, () => void chrome.runtime.lastError);
     }
   } catch (_e) {
@@ -350,7 +357,7 @@ async function unregisterSite(host) {
     await setCfg(cfg);
 
     if (!siblingShares) await unregisterContentScript(matchHost);
-    await stopHostTabs(matchHost);
+    await stopHostTabs(matchHost, cfg.allowlist);
     if (!siblingShares) {
       try {
         await chrome.permissions.remove({ origins: [H.matchPatternFor(matchHost)] });
@@ -423,10 +430,12 @@ async function runReconcile() {
         await setCfg(cfg);
         try {
           await registerSite(action.entries[0]);
+          siteStateChanged = true;
         } catch (e) {
           console.warn("[solstone] registerSite failed while resuming", action.matchHost, e);
+          cfg.pausedHosts[action.matchHost] = true;
+          await setCfg(cfg);
         }
-        siteStateChanged = true;
       } else if (action.op === "release") {
         const current = await getCfg();
         const currentSites = new Set(current.allowlist.map((host) => H.matchPatternFor(host)));

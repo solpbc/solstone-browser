@@ -18,9 +18,8 @@ async function currentTab() {
 
 function originFor(url) {
   const u = new URL(url);
-  // store the full host (with port) for precision; request a port-less origin
-  // (Chrome match patterns / permission origins reject ports).
-  return { host: u.host, origin: globalThis.SolstoneHosts.matchPatternFor(u.host), ok: u.protocol === "http:" || u.protocol === "https:" };
+  // Store the full host (with port) for allowlist precision.
+  return { host: u.host, ok: u.protocol === "http:" || u.protocol === "https:" };
 }
 
 let state = null;
@@ -28,7 +27,7 @@ let pageHost = null;
 
 async function requestSiteAccess(host) {
   const intent = await cmd({ cmd: "siteIntent", host });
-  if (!intent.ok) return intent;
+  if (!intent.ok) return { ok: false, error: "could not save the site" };
   let granted = false;
   try {
     granted = await chrome.permissions.request({ origins: [globalThis.SolstoneHosts.matchPatternFor(host)] });

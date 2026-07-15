@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 //
-// options.js — full settings: journal connection, connect, and the
-// opt-in allowlist manager (add by host, remove honored both ways).
+// options.js — full settings: journal connection, connect, and the opt-in
+// allowlist manager. Browser-side removal pauses a site as "paused by browser";
+// the remove button forgets it.
 
 const $ = (id) => document.getElementById(id);
 const cmd = (m) => new Promise((r) => chrome.runtime.sendMessage(m, (x) => r(x || {})));
@@ -55,7 +56,7 @@ function permissionOriginForRelay(relayOrigin) {
 
 async function requestSiteAccess(host) {
   const intent = await cmd({ cmd: "siteIntent", host });
-  if (!intent.ok) return intent;
+  if (!intent.ok) return { ok: false, error: "could not save the site" };
   let granted = false;
   try {
     granted = await chrome.permissions.request({ origins: [globalThis.SolstoneHosts.matchPatternFor(host)] });
@@ -185,7 +186,10 @@ async function refresh() {
       b.addEventListener("click", async () => {
         b.disabled = true;
         const res = await requestSiteAccess(b.getAttribute("data-host"));
-        $("addStatus").textContent = res.denied ? "permission declined — site stays paused." : res.error ? "could not allow: " + res.error : "allowed again.";
+        if (res.denied) $("addStatus").textContent = "permission declined — site stays paused.";
+        else if (res.error) $("addStatus").textContent = "could not allow: " + res.error;
+        else if (res.ok === true) $("addStatus").textContent = "allowed again.";
+        else $("addStatus").textContent = "could not allow the site.";
         await refresh();
       })
     );
@@ -229,7 +233,9 @@ async function addSite() {
     $("addStatus").textContent = "permission declined — nothing added.";
     return;
   }
-  $("addStatus").textContent = res && res.error ? "could not add: " + res.error : `added ${host}. open or reload a tab on it to begin.`;
+  if (res && res.error) $("addStatus").textContent = "could not add: " + res.error;
+  else if (res && res.ok === true) $("addStatus").textContent = `added ${host}. open or reload a tab on it to begin.`;
+  else $("addStatus").textContent = "could not add the site.";
   await refresh();
 }
 

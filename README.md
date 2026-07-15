@@ -35,9 +35,10 @@ See [`INSTALL.md`](INSTALL.md) to run it.
                                                 browser_<site>.jsonl
 ```
 
-- **Opt-in per site.** Nothing is observed until you add a site. Adding one fires
+- **Opt-in per site.** Nothing is read until you add a site. Adding one asks for
   a per-site Chrome permission grant (`optional_host_permissions` +
-  `permissions.request()`); the extension honors a browser-side revoke.
+  `permissions.request()`). If Chrome removes access, sol pauses the site but
+  keeps your choice so you can allow it again; unused grants are released.
 - **Semantic-only.** It reads visible text via the `innerText` visibility
   oracle + ARIA roles/semantic tags; it never calls `captureVisibleTab`.
 - **Self-contained observer.** In local mode, the worker registers as its own
@@ -46,9 +47,9 @@ See [`INSTALL.md`](INSTALL.md) to run it.
   home and sends finished segments as HPKE-sealed blobs over the relay tunnel.
   MV3 service-worker ephemerality is handled with `chrome.storage`,
   IndexedDB, and `chrome.alarms`.
-- **Trust controls.** The toolbar icon is a four-state status light for
-  observing, connecting, can't-reach, paused, and attention states. Pin solstone
-  to keep it visible; the on-page marker is an opt-in Options setting.
+- **Trust controls.** The toolbar icon is a live status light for on, connecting,
+  can't-reach, paused, paused by browser, and attention states. Pin solstone to
+  keep it visible; the on-page marker is an opt-in Options setting.
 
 ## The journal output (`browser.jsonl`)
 
@@ -80,6 +81,7 @@ extension/            the unpacked-loadable MV3 extension
   options.html/.js    settings + allowlist manager + remote pairing
   lib/blocks.js       pure block helpers (role→type, id, normalize) — shared, tested
   lib/segment.js      pure snapshot/delta differ + JSONL serializer — shared, tested
+  lib/reconcile.js    pure desired-site / Chrome-grant reconciliation
   lib/db.js           shared IndexedDB helper for identity + durable outbox
   lib/identity.js     non-extractable ECDH extension identity
   lib/outbox.js       pure FIFO/cap/loss accounting

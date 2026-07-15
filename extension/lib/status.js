@@ -4,9 +4,13 @@
 (function () {
   "use strict";
 
-  function iconState(cfg) {
+  function iconState(cfg, entryMatchHosts) {
     cfg = cfg || {};
-    const sites = (cfg.allowlist || []).length;
+    entryMatchHosts = entryMatchHosts || {};
+    const allowlist = cfg.allowlist || [];
+    const totalSites = allowlist.length;
+    const pausedHosts = cfg.pausedHosts || {};
+    const sites = allowlist.filter((entry) => !pausedHosts[entryMatchHosts[entry] || entry]).length;
     const observing = sites > 0 && !cfg.paused;
     const health = cfg.health || {};
     const siteErrs = cfg.siteErrors || {};
@@ -17,8 +21,11 @@
     const badge = "";
     const waitingSuffix = waiting > 0 ? ` — ${waiting} update${waiting > 1 ? "s" : ""} waiting to sync` : "";
 
+    if (totalSites === 0) return { prefix: "icon-paused-", title: "sol — add a site to begin", badge };
+    if (sites === 0) {
+      return { prefix: "icon-paused-", title: "sol — paused by browser — allow again in settings", badge };
+    }
     if (!observing) {
-      if (sites === 0) return { prefix: "icon-paused-", title: "sol — add a site to begin", badge };
       return { prefix: "icon-paused-", title: "sol — paused", badge };
     }
 
@@ -43,6 +50,19 @@
     return { prefix: "icon", title: `sol — ${label} · connected`, badge };
   }
 
+  function siteRowState(entry, state) {
+    state = state || {};
+    const siteErrors = state.siteErrors || {};
+    if (siteErrors[entry]) return { kind: "error", label: siteErrors[entry] };
+    if ((state.pausedHosts || {})[state.matchHost]) return { kind: "paused-browser", label: "paused by browser" };
+    if (state.paused) return { kind: "paused", label: "paused" };
+    const active = (state.activeSites || []).includes(entry);
+    if (active && state.connected) return { kind: "on", label: "on now" };
+    if (active) return { kind: "waiting", label: "on — waiting to sync" };
+    if (entry === state.pageHost) return { kind: "reload", label: "reload this tab to begin" };
+    return { kind: "idle", label: "added — open or reload a tab" };
+  }
+
   function updateHealth(prev, res) {
     const h = Object.assign({}, prev || {});
     if (typeof res.status !== "undefined") h.lastStatus = res.status;
@@ -56,5 +76,5 @@
     return h;
   }
 
-  globalThis.SolstoneStatus = { iconState, updateHealth };
+  globalThis.SolstoneStatus = { iconState, siteRowState, updateHealth };
 })();

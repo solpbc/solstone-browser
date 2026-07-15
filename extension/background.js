@@ -16,10 +16,11 @@
 // the relay. MV3 ephemerality is handled by persisting state to chrome.storage
 // and IndexedDB and waking on alarms.
 
-importScripts("vendor/hpke/hpke-core-1.9.0.iife.js", "lib/blocks.js", "lib/hosts.js", "lib/segment.js", "lib/status.js", "lib/buffered.js", "lib/outbox.js", "lib/db.js", "lib/uuid.js", "lib/pairlink.js", "lib/remote_blob.js", "lib/identity.js", "lib/outbox_store.js", "lib/remote_tunnel.js", "journal.js");
+importScripts("vendor/hpke/hpke-core-1.9.0.iife.js", "lib/blocks.js", "lib/hosts.js", "lib/reconcile.js", "lib/segment.js", "lib/status.js", "lib/buffered.js", "lib/outbox.js", "lib/db.js", "lib/uuid.js", "lib/pairlink.js", "lib/remote_blob.js", "lib/identity.js", "lib/outbox_store.js", "lib/remote_tunnel.js", "journal.js");
 
 const Seg = globalThis.SolstoneSegment;
 const H = globalThis.SolstoneHosts;
+const Reconcile = globalThis.SolstoneReconcile;
 const J = globalThis.SolstoneJournal;
 const Outbox = globalThis.SolstoneOutbox;
 const DB = globalThis.SolstoneDB;
@@ -29,7 +30,7 @@ const Identity = globalThis.SolstoneIdentity;
 const RemoteBlob = globalThis.SolstoneRemoteBlob;
 const RemoteTunnel = globalThis.SolstoneRemoteTunnel;
 const Uuid = globalThis.SolstoneUuid;
-const VERSION = "0.0.12";
+const VERSION = "0.0.13";
 const BOOT_MS = Date.now();
 
 const CONTENT_SCRIPT_FILES = ["lib/blocks.js", "lib/hosts.js", "adapters.js", "skim.js", "indicator.js", "content.js"];
@@ -46,7 +47,9 @@ const DEFAULT_CFG = {
   paused: false,
   showPageIndicator: false,
   allowlist: [],
+  pausedHosts: {},
   remote: null,
+  remotePending: null,
   siteErrors: {}, // host -> last registration/observe error string
   health: { lastError: null, lastUploadAt: null, segmentsUploaded: 0, lastStatus: null, consecutiveFailures: 0 },
 };
@@ -56,6 +59,7 @@ const DEFAULT_CFG = {
 async function getCfg() {
   const r = await chrome.storage.local.get("cfg");
   return Object.assign({}, DEFAULT_CFG, r.cfg || {}, {
+    pausedHosts: Object.assign({}, (r.cfg && r.cfg.pausedHosts) || {}),
     siteErrors: Object.assign({}, (r.cfg && r.cfg.siteErrors) || {}),
     health: Object.assign({}, DEFAULT_CFG.health, (r.cfg && r.cfg.health) || {}),
   });
@@ -165,6 +169,12 @@ function withSeg(fn) {
   return segChain;
 }
 
+let lifecycleChain = Promise.resolve();
+function withLifecycle(fn) {
+  lifecycleChain = lifecycleChain.then(fn, fn);
+  return lifecycleChain;
+}
+
 let draining = false;
 
 // ---- registration ----------------------------------------------------------
@@ -207,11 +217,6 @@ async function ensureRegistered() {
 
 // ---- per-site lifecycle ----------------------------------------------------
 
-function hostFromOrigin(origin) {
-  const m = /^\*?:?\/\/(?:\*\.)?([^/*]+)/.exec(origin) || /^https?:\/\/([^/]+)/.exec(origin);
-  return m ? m[1] : null;
-}
-
 // Register the content script for a host. Uses a PORT-LESS match pattern
 // (Chrome match patterns reject ports); the content script self-gates on the
 // exact allowlist entry to restore port precision. Throws on a bad pattern so
@@ -250,65 +255,32 @@ async function registerSite(host) {
   }
 }
 
-async function addSite(host) {
-  const cfg = await getCfg();
-  if (!cfg.allowlist.includes(host)) cfg.allowlist.push(host);
+async function unregisterContentScript(matchHost) {
   try {
-    await registerSite(host);
-    delete cfg.siteErrors[host];
-  } catch (e) {
-    cfg.siteErrors[host] = String((e && e.message) || e) || "could not observe this site";
-    console.warn("[solstone] registerSite failed for", host, e);
+    await chrome.scripting.unregisterContentScripts({ ids: ["cs-" + matchHost] });
+  } catch (_e) {
+    /* already gone */
   }
-  await setCfg(cfg);
-  await updateBadge();
-  if (!cfg.siteErrors[host]) drainOutbox();
-  return cfg.siteErrors[host] || null;
 }
 
-// Remove a site. `byHostname` (used by the browser-side revoke handler) removes
-// every allowlist entry sharing the host's hostname; otherwise just the exact
-// entry. The shared content script is unregistered only when no sibling entry
-// still needs that hostname.
-async function unregisterSite(host, { removePerm = true, byHostname = false } = {}) {
-  const matchHost = H.matchHostFor(host);
-  const cfg = await getCfg();
-  const removed = cfg.allowlist.filter((h) => (byHostname ? H.matchHostFor(h) === matchHost : h === host));
-  cfg.allowlist = cfg.allowlist.filter((h) => !removed.includes(h));
-  for (const h of removed) delete cfg.siteErrors[h];
-
-  const siblingShares = cfg.allowlist.some((h) => H.matchHostFor(h) === matchHost);
-  if (!siblingShares) {
-    try {
-      await chrome.scripting.unregisterContentScripts({ ids: ["cs-" + matchHost] });
-    } catch (_e) {
-      /* already gone */
-    }
-  }
-  await setCfg(cfg);
-
-  // Halt live tabs on the removed host(s).
+async function stopHostTabs(matchHost) {
   try {
-    const tabs = await chrome.tabs.query({ url: H.matchPatternFor(host) });
+    const tabs = await chrome.tabs.query({ url: H.matchPatternFor(matchHost) });
     for (const tab of tabs) {
       if (tab.id != null) chrome.tabs.sendMessage(tab.id, { kind: "stop" }, () => void chrome.runtime.lastError);
     }
   } catch (_e) {
     /* ignore */
   }
-  if (removePerm && !siblingShares) {
-    try {
-      await chrome.permissions.remove({ origins: [H.matchPatternFor(host)] });
-    } catch (_e) {
-      /* ignore */
-    }
-  }
+}
+
+async function deactivateSiteContexts(entries) {
   await withSeg(async () => {
     const seg = await getSeg();
     let changed = false;
     if (seg) {
       for (const e of Object.values(seg.ctxs)) {
-        if (removed.includes(e.host) && e.active) {
+        if (entries.includes(e.host) && e.active) {
           e.active = false;
           changed = true;
         }
@@ -316,7 +288,160 @@ async function unregisterSite(host, { removePerm = true, byHostname = false } = 
     }
     if (changed) await setSeg(seg);
   });
-  await updateBadge();
+}
+
+async function siteIntent(host) {
+  return withLifecycle(async () => {
+    const cfg = await getCfg();
+    const added = !cfg.allowlist.includes(host);
+    if (added) cfg.allowlist.push(host);
+    cfg.pausedHosts[H.matchHostFor(host)] = true;
+    await setCfg(cfg);
+    await updateBadge();
+    return added;
+  });
+}
+
+async function relayIntent(relayOrigin) {
+  return withLifecycle(async () => {
+    const cfg = await getCfg();
+    cfg.remotePending = relayOrigin ? { relayOrigin } : null;
+    await setCfg(cfg);
+  });
+}
+
+async function addSite(host) {
+  return withLifecycle(async () => {
+    let cfg = await getCfg();
+    if (!cfg.allowlist.includes(host)) cfg.allowlist.push(host);
+    delete cfg.pausedHosts[H.matchHostFor(host)];
+    await setCfg(cfg);
+
+    let error = null;
+    try {
+      await registerSite(host);
+    } catch (e) {
+      error = String((e && e.message) || e) || "could not read this site";
+      console.warn("[solstone] registerSite failed for", host, e);
+    }
+
+    cfg = await getCfg();
+    if (error) cfg.siteErrors[host] = error;
+    else delete cfg.siteErrors[host];
+    await setCfg(cfg);
+    await updateBadge();
+    if (!error) drainOutbox();
+    return error;
+  });
+}
+
+// Remove one exact allowlist entry. The content script and permission are shared
+// by hostname, so they remain while a port sibling still needs them.
+async function unregisterSite(host) {
+  return withLifecycle(async () => {
+    const matchHost = H.matchHostFor(host);
+    const cfg = await getCfg();
+    const removed = cfg.allowlist.filter((h) => h === host);
+    cfg.allowlist = cfg.allowlist.filter((h) => h !== host);
+    for (const h of removed) delete cfg.siteErrors[h];
+
+    const siblingShares = cfg.allowlist.some((h) => H.matchHostFor(h) === matchHost);
+    if (!siblingShares) delete cfg.pausedHosts[matchHost];
+    await setCfg(cfg);
+
+    if (!siblingShares) await unregisterContentScript(matchHost);
+    await stopHostTabs(matchHost);
+    if (!siblingShares) {
+      try {
+        await chrome.permissions.remove({ origins: [H.matchPatternFor(matchHost)] });
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+    await deactivateSiteContexts(removed);
+    await updateBadge();
+  });
+}
+
+function permissionOriginForRelay(relayOrigin) {
+  const u = new URL(relayOrigin);
+  return `${u.origin}/*`;
+}
+
+function permissionExemptOrigins(cfg) {
+  const origins = [];
+  for (const remote of [cfg.remote, cfg.remotePending]) {
+    if (!remote || !remote.relayOrigin) continue;
+    try {
+      origins.push(permissionOriginForRelay(remote.relayOrigin));
+    } catch (_e) {
+      /* invalid stale state cannot identify a permission origin */
+    }
+  }
+  return origins;
+}
+
+function hasObservableSites(cfg) {
+  return cfg.allowlist.some((host) => !cfg.pausedHosts[H.matchHostFor(host)]);
+}
+
+function entryMatchHosts(cfg) {
+  return Object.fromEntries(cfg.allowlist.map((host) => [host, H.matchHostFor(host)]));
+}
+
+async function runReconcile() {
+  return withLifecycle(async () => {
+    const cfg = await getCfg();
+    let granted = null;
+    try {
+      const perms = await chrome.permissions.getAll();
+      granted = perms.origins || [];
+    } catch (_e) {
+      /* unknown grant state fails closed with no actions */
+    }
+    const manifestOrigins = chrome.runtime.getManifest().host_permissions || [];
+    const actions = Reconcile.reconcile({
+      granted,
+      manifestOrigins,
+      exemptOrigins: permissionExemptOrigins(cfg),
+      allowlist: cfg.allowlist,
+      pausedHosts: cfg.pausedHosts,
+    });
+    if (!actions.length) return actions;
+
+    let siteStateChanged = false;
+    for (const action of actions) {
+      if (action.op === "pause") {
+        cfg.pausedHosts[action.matchHost] = true;
+        await setCfg(cfg);
+        await unregisterContentScript(action.matchHost);
+        await stopHostTabs(action.matchHost);
+        await deactivateSiteContexts(action.entries);
+        siteStateChanged = true;
+      } else if (action.op === "resume") {
+        delete cfg.pausedHosts[action.matchHost];
+        await setCfg(cfg);
+        try {
+          await registerSite(action.entries[0]);
+        } catch (e) {
+          console.warn("[solstone] registerSite failed while resuming", action.matchHost, e);
+        }
+        siteStateChanged = true;
+      } else if (action.op === "release") {
+        const current = await getCfg();
+        const currentSites = new Set(current.allowlist.map((host) => H.matchPatternFor(host)));
+        const currentExempt = new Set(permissionExemptOrigins(current));
+        if (manifestOrigins.includes(action.origin) || currentSites.has(action.origin) || currentExempt.has(action.origin)) continue;
+        try {
+          await chrome.permissions.remove({ origins: [action.origin] });
+        } catch (e) {
+          console.warn("[solstone] could not release unused origin", action.origin, e);
+        }
+      }
+    }
+    if (siteStateChanged) await updateBadge();
+    return actions;
+  });
 }
 
 // ---- skim ingest -----------------------------------------------------------
@@ -331,7 +456,7 @@ function capLines(entry) {
 async function markActive(ctx, site, tabId, meta) {
   if (!ctx) return;
   const cfg = await getCfg();
-  if (!H.hostAllowed(site, cfg.allowlist)) return; // ignore non-allowlisted hosts
+  if (!H.hostObservable(site, cfg.allowlist, cfg.pausedHosts)) return; // ignore unavailable hosts
   await withSeg(async () => {
     let seg = await getSeg();
     const day = Seg.dayKey(Date.now());
@@ -376,7 +501,7 @@ async function handleSkim(ctx, site, tabId, meta, blocks) {
   if (!ctx) return;
   const cfg = await getCfg();
   if (cfg.paused) return;
-  if (!H.hostAllowed(site, cfg.allowlist)) return; // only observe allowlisted host:port
+  if (!H.hostObservable(site, cfg.allowlist, cfg.pausedHosts)) return; // only read available allowlisted host:port
   if (!isRemotePaired(cfg)) ensureRegistered().catch(() => {}); // lazy; upload retries if not ready
   await withSeg(async () => {
     let seg = await getSeg();
@@ -539,7 +664,7 @@ async function recordHealth(res) {
 // only the observer's own health — never observed content.
 async function emitStatus() {
   const cfg = await getCfg();
-  if (cfg.paused || !cfg.allowlist.length) return;
+  if (cfg.paused || !hasObservableSites(cfg)) return;
   if (isRemotePaired(cfg)) return;
   let c;
   try {
@@ -772,7 +897,10 @@ async function updateBadge() {
   const cfg = await getCfg();
   const seg = await getSeg();
   const { summary } = await waitingSummary(seg);
-  const { prefix, title, badge } = globalThis.SolstoneStatus.iconState(Object.assign({}, cfg, { waiting: summary.waiting, dropped: summary.dropped }));
+  const { prefix, title, badge } = globalThis.SolstoneStatus.iconState(
+    Object.assign({}, cfg, { waiting: summary.waiting, dropped: summary.dropped }),
+    entryMatchHosts(cfg),
+  );
   try {
     await chrome.action.setIcon({ path: ICON_SET(prefix) });
     await chrome.action.setTitle({ title });
@@ -839,16 +967,19 @@ async function pairRemote(link) {
     if (!reply.home_attestation) throw new Error("pair reply missing home_attestation");
     const enrolled = await J.enrollDevice(parsed.relayOrigin, { instance_id: reply.instance_id, home_attestation: reply.home_attestation });
     if (!enrolled.device_token) throw new Error("enroll response missing device_token");
-    const next = await getCfg();
-    next.remote = {
-      instanceId: reply.instance_id,
-      deviceToken: enrolled.device_token,
-      homeSpki: identityMsg.pkH_spki,
-      relayOrigin: parsed.relayOrigin,
-      expiresAt: enrolled.expires_at || null,
-      pairedAt: Date.now(),
-    };
-    await setCfg(next);
+    await withLifecycle(async () => {
+      const next = await getCfg();
+      next.remote = {
+        instanceId: reply.instance_id,
+        deviceToken: enrolled.device_token,
+        homeSpki: identityMsg.pkH_spki,
+        relayOrigin: parsed.relayOrigin,
+        expiresAt: enrolled.expires_at || null,
+        pairedAt: Date.now(),
+      };
+      next.remotePending = null;
+      await setCfg(next);
+    });
     drainOutbox();
     return { ok: true, instanceId: reply.instance_id };
   } finally {
@@ -879,6 +1010,7 @@ async function handleCommand(msg, sendResponse) {
           paused: cfg.paused,
           showPageIndicator: cfg.showPageIndicator,
           allowlist: cfg.allowlist,
+          pausedHosts: cfg.pausedHosts,
           siteErrors: cfg.siteErrors,
           activeSites,
           activeContexts,
@@ -909,18 +1041,35 @@ async function handleCommand(msg, sendResponse) {
         sendResponse({ ok: !err, error: err || undefined });
         break;
       }
+      case "siteIntent": {
+        const added = await siteIntent(msg.host);
+        sendResponse({ ok: true, added });
+        break;
+      }
+      case "relayIntent":
+        await relayIntent(msg.relayOrigin);
+        sendResponse({ ok: true });
+        break;
+      case "relayIntentClear":
+        await relayIntent(null);
+        sendResponse({ ok: true });
+        break;
       case "pairRemote": {
         try {
           sendResponse(await pairRemote(msg.link));
         } catch (e) {
+          await relayIntent(null);
           sendResponse({ ok: false, error: String((e && e.message) || e || "pairing failed") });
         }
         break;
       }
       case "unpairRemote": {
-        const cfg = await getCfg();
-        cfg.remote = null;
-        await setCfg(cfg);
+        await withLifecycle(async () => {
+          const cfg = await getCfg();
+          cfg.remote = null;
+          cfg.remotePending = null;
+          await setCfg(cfg);
+        });
         await updateBadge();
         sendResponse({ ok: true });
         break;
@@ -1019,16 +1168,17 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ROTATE_ALARM) {
-    rotateIfDue().then(() => drainOutbox());
-    emitStatus();
+    rotateIfDue().then(() => drainOutbox()).catch((e) => console.warn("[solstone] rotation failed", e));
+    runReconcile().then(() => emitStatus()).catch((e) => console.warn("[solstone] reconciliation failed", e));
   }
 });
 
-chrome.permissions.onRemoved.addListener(async (perms) => {
-  for (const o of perms.origins || []) {
-    const host = hostFromOrigin(o);
-    if (host) await unregisterSite(host, { removePerm: false, byHostname: true });
-  }
+chrome.permissions.onRemoved.addListener(() => {
+  runReconcile().catch((e) => console.warn("[solstone] reconciliation failed after permission removal", e));
+});
+
+chrome.permissions.onAdded.addListener(() => {
+  runReconcile().catch((e) => console.warn("[solstone] reconciliation failed after permission addition", e));
 });
 
 async function migrateOutboxV1() {
@@ -1051,18 +1201,23 @@ async function migrateOutboxV1() {
 async function init() {
   await chrome.alarms.create(ROTATE_ALARM, { periodInMinutes: 1 });
   await migrateOutboxV1();
-  // Re-assert content-script registrations for the allowlist (idempotent).
-  const cfg = await getCfg();
-  for (const host of cfg.allowlist) {
-    try {
-      const granted = await chrome.permissions.contains({ origins: [`*://${host}/*`] });
-      if (granted) await registerSite(host);
-      else cfg.allowlist = cfg.allowlist.filter((h) => h !== host);
-    } catch (_e) {
-      /* ignore */
+  await runReconcile();
+  // Re-assert one content-script registration per available hostname so file-list
+  // changes take effect even though registrations persist across sessions.
+  await withLifecycle(async () => {
+    const cfg = await getCfg();
+    const registeredHosts = new Set();
+    for (const host of cfg.allowlist) {
+      const matchHost = H.matchHostFor(host);
+      if (cfg.pausedHosts[matchHost] || registeredHosts.has(matchHost)) continue;
+      registeredHosts.add(matchHost);
+      try {
+        await registerSite(host);
+      } catch (e) {
+        console.warn("[solstone] registerSite re-assertion failed for", matchHost, e);
+      }
     }
-  }
-  await setCfg(cfg);
+  });
   await updateBadge();
 }
 

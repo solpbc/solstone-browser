@@ -53,6 +53,23 @@ function permissionOriginForRelay(relayOrigin) {
   return `${u.origin}/*`;
 }
 
+async function requestSiteAccess(host) {
+  const intent = await cmd({ cmd: "siteIntent", host });
+  if (!intent.ok) return intent;
+  let granted = false;
+  try {
+    granted = await chrome.permissions.request({ origins: [globalThis.SolstoneHosts.matchPatternFor(host)] });
+  } catch (_e) {
+    /* handled as a declined grant */
+  }
+  if (!granted) {
+    if (intent.added) await cmd({ cmd: "removeSite", host });
+    return { ok: false, denied: true, added: intent.added, intentOk: true };
+  }
+  const res = await cmd({ cmd: "siteGranted", host });
+  return Object.assign({}, res, { added: intent.added, intentOk: true });
+}
+
 function renderRemoteState() {
   const remote = state.remote || {};
   $("unpairBtn").hidden = !remote.paired;
@@ -140,18 +157,35 @@ async function refresh() {
     list.innerHTML = state.allowlist
       .map((h) => {
         const host = esc(h);
+        const row = globalThis.SolstoneStatus.siteRowState(h, {
+          matchHost: globalThis.SolstoneHosts.matchHostFor(h),
+          pausedHosts: state.pausedHosts || {},
+          siteErrors: errs,
+          paused: state.paused,
+          activeSites: state.activeSites,
+          connected: state.registered && !(state.health && state.health.lastError),
+          pageHost: null,
+        });
         let status;
-        if (errs[h]) status = `<span style="color:var(--bad)" title="${esc(errs[h])}">⚠ ${esc(globalThis.SolstoneFailures.classify(errs[h]))}</span>`;
-        else if (state.paused) status = '<span class="muted">— paused</span>';
-        else if (state.activeSites.includes(h) && !(state.health && state.health.lastError)) status = '<span style="color:var(--ok)">● on now</span>';
-        else if (state.activeSites.includes(h)) status = "on — waiting to sync";
-        else status = '<span class="muted">added — open or reload a tab on this site</span>';
-        return `<div class="site"><span>${host} &nbsp; ${status}</span><button type="button" data-host="${host}">remove</button></div>`;
+        if (row.kind === "error") status = `<span style="color:var(--bad)" title="${esc(row.label)}">⚠ ${esc(globalThis.SolstoneFailures.classify(row.label))}</span>`;
+        else if (row.kind === "paused-browser" || row.kind === "paused" || row.kind === "idle") status = `<span class="muted">— ${esc(row.label)}</span>`;
+        else if (row.kind === "on") status = `<span style="color:var(--ok)">● ${esc(row.label)}</span>`;
+        else status = esc(row.label);
+        const allowAgain = row.kind === "paused-browser" ? `<button type="button" class="allow-site" data-host="${host}">allow again</button>` : "";
+        return `<div class="site"><span>${host} &nbsp; ${status}</span><span>${allowAgain}<button type="button" class="remove-site" data-host="${host}">remove</button></span></div>`;
       })
       .join("");
-    list.querySelectorAll("button[data-host]").forEach((b) =>
+    list.querySelectorAll("button.remove-site[data-host]").forEach((b) =>
       b.addEventListener("click", async () => {
         await cmd({ cmd: "removeSite", host: b.getAttribute("data-host") });
+        await refresh();
+      })
+    );
+    list.querySelectorAll("button.allow-site[data-host]").forEach((b) =>
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        const res = await requestSiteAccess(b.getAttribute("data-host"));
+        $("addStatus").textContent = res.denied ? "permission declined — site stays paused." : res.error ? "could not allow: " + res.error : "allowed again.";
         await refresh();
       })
     );
@@ -189,20 +223,12 @@ async function addSite() {
     return;
   }
   const host = normHost(raw);
-  const origin = `*://${globalThis.SolstoneHosts.matchHostFor(host)}/*`;
-  let granted;
-  try {
-    granted = await chrome.permissions.request({ origins: [origin] });
-  } catch (_e) {
-    $("addStatus").textContent = "enter a site like mail.google.com";
-    return;
-  }
-  if (!granted) {
+  const res = await requestSiteAccess(host);
+  if (res.intentOk) $("newHost").value = "";
+  if (res.denied) {
     $("addStatus").textContent = "permission declined — nothing added.";
     return;
   }
-  const res = await cmd({ cmd: "siteGranted", host });
-  $("newHost").value = "";
   $("addStatus").textContent = res && res.error ? "could not add: " + res.error : `added ${host}. open or reload a tab on it to begin.`;
   await refresh();
 }
@@ -217,14 +243,21 @@ async function pairRemote() {
     return;
   }
   const origin = permissionOriginForRelay(parsed.relayOrigin);
+  const intent = await cmd({ cmd: "relayIntent", relayOrigin: parsed.relayOrigin });
+  if (!intent.ok) {
+    $("pairStatus").textContent = "could not prepare relay permission.";
+    return;
+  }
   let granted;
   try {
     granted = await chrome.permissions.request({ origins: [origin] });
   } catch (_e) {
+    await cmd({ cmd: "relayIntentClear" });
     $("pairStatus").textContent = "could not request relay permission.";
     return;
   }
   if (!granted) {
+    await cmd({ cmd: "relayIntentClear" });
     $("pairStatus").textContent = "permission declined — remote home not paired.";
     return;
   }

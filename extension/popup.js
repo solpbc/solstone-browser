@@ -20,12 +20,27 @@ function originFor(url) {
   const u = new URL(url);
   // store the full host (with port) for precision; request a port-less origin
   // (Chrome match patterns / permission origins reject ports).
-  const matchHost = globalThis.SolstoneHosts.matchHostFor(u.host);
-  return { host: u.host, origin: `*://${matchHost}/*`, ok: u.protocol === "http:" || u.protocol === "https:" };
+  return { host: u.host, origin: globalThis.SolstoneHosts.matchPatternFor(u.host), ok: u.protocol === "http:" || u.protocol === "https:" };
 }
 
 let state = null;
 let pageHost = null;
+
+async function requestSiteAccess(host) {
+  const intent = await cmd({ cmd: "siteIntent", host });
+  if (!intent.ok) return intent;
+  let granted = false;
+  try {
+    granted = await chrome.permissions.request({ origins: [globalThis.SolstoneHosts.matchPatternFor(host)] });
+  } catch (_e) {
+    /* handled as a declined grant */
+  }
+  if (!granted) {
+    if (intent.added) await cmd({ cmd: "removeSite", host });
+    return { ok: false, denied: true, added: intent.added };
+  }
+  return cmd({ cmd: "siteGranted", host });
+}
 
 async function refresh() {
   state = await cmd({ cmd: "getState" });
@@ -72,7 +87,8 @@ async function refresh() {
       const { host, ok } = originFor(tab.url);
       pageHost = host;
       const observed = state.allowlist.includes(host);
-      $("pageState").textContent = observed ? `${host} · on` : ok ? host : "can't be added";
+      const pausedByBrowser = (state.pausedHosts || {})[globalThis.SolstoneHosts.matchHostFor(host)];
+      $("pageState").textContent = observed ? `${host} · ${pausedByBrowser ? "paused by browser" : "on"}` : ok ? host : "can't be added";
       canAdd = ok;
       if (observed) {
         addBtn.textContent = "remove this site";
@@ -103,25 +119,43 @@ async function refresh() {
       state.allowlist
         .map((h2) => {
           const host = esc(h2);
-          if (errs[h2]) {
-            const err = esc(errs[h2]);
-            const classified = esc(globalThis.SolstoneFailures.classify(errs[h2]));
+          const row = globalThis.SolstoneStatus.siteRowState(h2, {
+            matchHost: globalThis.SolstoneHosts.matchHostFor(h2),
+            pausedHosts: state.pausedHosts || {},
+            siteErrors: errs,
+            paused: state.paused,
+            activeSites: state.activeSites,
+            connected,
+            pageHost,
+          });
+          if (row.kind === "error") {
+            const err = esc(row.label);
+            const classified = esc(globalThis.SolstoneFailures.classify(row.label));
             return `<div class="s" style="color:var(--bad)" title="${err}">· ${host} — ${classified}</div>`;
           }
-          if (state.paused) return `<div class="s">· ${host} <span class="muted">— paused</span></div>`;
-          if (state.activeSites.includes(h2) && connected) return `<div class="s">· ${host} <span style="color:var(--ok)">● on</span></div>`;
-          if (state.activeSites.includes(h2)) return `<div class="s">· ${host} on — waiting to sync</div>`;
-          if (h2 === pageHost) return `<div class="s">· ${host} <button type="button" class="reload-site">reload this tab to begin</button></div>`;
-          return `<div class="s">· ${host} <span class="muted">— open/reload a tab</span></div>`;
+          if (row.kind === "paused-browser") return `<div class="s">· ${host} <span class="muted">— ${esc(row.label)}</span><button type="button" class="allow-site" data-host="${host}">allow again</button></div>`;
+          if (row.kind === "paused") return `<div class="s">· ${host} <span class="muted">— ${esc(row.label)}</span></div>`;
+          if (row.kind === "on") return `<div class="s">· ${host} <span style="color:var(--ok)">● ${esc(row.label)}</span></div>`;
+          if (row.kind === "waiting") return `<div class="s">· ${host} ${esc(row.label)}</div>`;
+          if (row.kind === "reload") return `<div class="s">· ${host} <button type="button" class="reload-site">${esc(row.label)}</button></div>`;
+          return `<div class="s">· ${host} <span class="muted">— ${esc(row.label)}</span></div>`;
         })
         .join("");
-    const reload = sites.querySelector(".reload-site");
-    if (reload) {
+    sites.querySelectorAll(".reload-site").forEach((reload) => {
       reload.addEventListener("click", async () => {
         const current = tab && tab.id != null ? tab : await currentTab();
         if (current && current.id != null) chrome.tabs.reload(current.id);
       });
-    }
+    });
+    sites.querySelectorAll(".allow-site[data-host]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        const res = await requestSiteAccess(button.getAttribute("data-host"));
+        if (res.denied) $("err").textContent = "permission declined — site stays paused.";
+        else if (res.error) $("err").textContent = res.error;
+        await refresh();
+      });
+    });
   } else {
     sites.innerHTML = '<div class="s muted" style="padding-top:6px">no sites yet — open any site and click “add this site”.</div>';
   }
@@ -151,14 +185,13 @@ $("addBtn").addEventListener("click", async () => {
   }
   const tab = await currentTab();
   if (!tab || !tab.url) return;
-  const { host, origin, ok } = originFor(tab.url);
+  const { host, ok } = originFor(tab.url);
   if (!ok) return;
-  const granted = await chrome.permissions.request({ origins: [origin] });
-  if (!granted) {
+  const res = await requestSiteAccess(host);
+  if (res.denied) {
     $("err").textContent = "permission declined — nothing added.";
     return;
   }
-  const res = await cmd({ cmd: "siteGranted", host });
   if (res && res.error) $("err").textContent = res.error;
   await refresh();
 });

@@ -41,10 +41,10 @@ streams).
    IP, or `host:port` too). **Then reload that tab** so the content script
    attaches on the next load.
 2. **The status light.** The toolbar icon is the visible status light: it
-   shows on, connecting, can't reach your journal, paused, or attention at
+   shows on, connecting, can't reach your journal, paused, paused by browser, or attention at
    a glance. Pin sol to keep that signal visible. If you want an in-page cue
    too, enable the optional on-page marker in **Options**. The Options page shows each site as
-   **● on now**, **added — open or reload a tab**, or **⚠ <error>** if
+   **● on now**, **paused by browser**, **added — open or reload a tab**, or **⚠ <error>** if
    something went wrong (errors are now surfaced, not swallowed).
 3. **Pause.** Click the icon → **pause all**. The toolbar icon switches to
    paused, and nothing is read until you resume. This is the one-tap kill switch.
@@ -68,9 +68,9 @@ streams).
 
 ## Removing / revoking
 
-- Remove a site in the options page (or click the icon → it reflects state). You
-  can also use Chrome's own per-site control at `chrome://extensions` (the
-  extension honors a browser-side revoke immediately).
+- Remove a site in the options page to forget it. If Chrome removes access in
+  its own per-site controls, sol pauses the retained site — allow again any time
+  in settings.
 - The whole thing is opt-in and local: no site is touched until you add it, and
   the content never leaves this computer — it goes only to your local journal.
 

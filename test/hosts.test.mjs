@@ -21,6 +21,19 @@ test("matchHostFor strips the port", () => {
   assert.equal(H.matchHostFor("localhost:5015"), "localhost");
   assert.equal(H.matchHostFor("mail.google.com"), "mail.google.com");
   assert.equal(H.matchHostFor("app.slack.com"), "app.slack.com");
+  assert.equal(H.matchHostFor("EXAMPLE.COM:443"), "example.com");
+});
+
+test("hostObservable combines port-safe membership with browser-paused host state", () => {
+  assert.equal(H.hostObservable("localhost:5015", ["localhost:5015"], {}), true);
+  assert.equal(H.hostObservable("localhost:3000", ["localhost:5015"], {}), false);
+  assert.equal(H.hostObservable("example.com:8080", ["example.com"], {}), true);
+  assert.equal(H.hostObservable("example.com:8080", ["example.com"], { "example.com": true }), false);
+  assert.equal(H.hostObservable("localhost:5015", ["localhost:5015", "localhost:3000"], { localhost: true }), false);
+  assert.equal(H.hostObservable("localhost:3000", ["localhost:5015", "localhost:3000"], { localhost: true }), false);
+  assert.equal(H.hostObservable("example.com", ["example.com"], { "other.example": true }), true);
+  assert.equal(H.hostObservable("example.com", [], {}), false);
+  assert.equal(H.hostObservable("", undefined, undefined), false);
 });
 
 test("matchPatternFor builds a VALID (port-less) match pattern", () => {

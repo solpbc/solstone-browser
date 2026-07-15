@@ -53,6 +53,11 @@
     return false;
   }
 
+  function hostObservable(locationHost, allowlist, pausedHosts) {
+    if (!hostAllowed(locationHost, allowlist)) return false;
+    return !((pausedHosts || {})[matchHostFor(locationHost)]);
+  }
+
   function isValidHostInput(input) {
     const raw = String(input || "").trim();
     if (!raw || /\s/.test(raw) || raw.includes("/")) return false;
@@ -61,5 +66,5 @@
     return /^[a-z0-9-]+(?:\.[a-z0-9-]+)*$/.test(host);
   }
 
-  globalThis.SolstoneHosts = { splitHost, matchHostFor, matchPatternFor, hostAllowed, isValidHostInput };
+  globalThis.SolstoneHosts = { splitHost, matchHostFor, matchPatternFor, hostAllowed, hostObservable, isValidHostInput };
 })();

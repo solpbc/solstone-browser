@@ -94,23 +94,31 @@ sibling of your other streams — never merged.
 Click the ☼ icon → **pause all**. The toolbar status icon switches to paused,
 and nothing is read until you resume. Confirm no new segments land while paused.
 
-## Step 5 — revoke (verify opt-out)
-Remove the site in Options, **or** use Chrome's own per-site control at
-`chrome://extensions` → the extension's **site access** — sol honors a
-browser-side revoke immediately.
+## Step 5 — remove access, allow again, then remove
+Use Chrome's own per-site control at `chrome://extensions` → the extension's
+**site access** to remove access. The site stays in sol as **paused by browser**,
+the toolbar points you to settings, and no new segments land. Click **allow
+again**, accept Chrome's prompt, and reload the tab if needed; the row returns
+to **● on now**.
+
+Then click **remove** in Options. The row disappears and sol releases access
+that no other added site needs.
 
 ## What "good" looks like
 - The toolbar status icon shows on, and Options shows **● on now**.
 - The SW console shows **registered** then **stored** segments.
 - The **`<host>.browser`** stream lands with clean, legible text (your content —
   no hidden/preheader junk, no full URLs).
-- Pause stops it; revoke stops it; a non-added site is never touched.
+- Pause stops it; Chrome-side access removal pauses it until you allow again;
+  remove forgets it; a non-added site is never touched.
 
 ## Troubleshooting
 - **Options does not show on now** → reload the tab (content script
   attaches on next load); confirm the site is listed in Options.
 - **Options shows `⚠ <error>`** → the surfaced registration error (errors
   are surfaced, not swallowed) tells you what failed.
+- **Options shows paused by browser** → click **allow again**, accept Chrome's
+  prompt, and reload the tab if it does not return to **● on now**.
 - **Nothing lands** → confirm the journal is up on `localhost:5015`, that a segment
   length elapsed, or click **send now**. If the journal is down, updates are
   kept in the offline outbox and sync when the journal returns; if it stays down

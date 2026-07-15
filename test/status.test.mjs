@@ -5,9 +5,15 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 
+await import(new URL("../extension/lib/hosts.js", import.meta.url));
 await import(new URL("../extension/lib/status.js", import.meta.url));
 
 const S = globalThis.SolstoneStatus;
+const H = globalThis.SolstoneHosts;
+
+function entryMatchHosts(cfg) {
+  return Object.fromEntries((cfg.allowlist || []).map((entry) => [entry, H.matchHostFor(entry)]));
+}
 
 const cells = [
   [{}, { prefix: "icon-paused-", title: "sol — add a site to begin", badge: "" }],
@@ -64,12 +70,50 @@ const cells = [
     { allowlist: ["x"], dropped: { segments: 1, lines: 8 } },
     { prefix: "icon-error-", title: "sol — some updates couldn't be kept — open settings", badge: "!" },
   ],
+  [
+    { allowlist: ["x"], key: "k", pausedHosts: { x: true } },
+    { prefix: "icon-paused-", title: "sol — paused by browser — allow again in settings", badge: "" },
+  ],
+  [
+    { allowlist: ["x"], key: "k", pausedHosts: { x: true }, siteErrors: { x: "boom" }, dropped: { segments: 1 } },
+    { prefix: "icon-paused-", title: "sol — paused by browser — allow again in settings", badge: "" },
+  ],
+  [
+    { allowlist: ["a", "b"], key: "k", pausedHosts: { a: true } },
+    { prefix: "icon", title: "sol — on 1 site · connected", badge: "" },
+  ],
+  [
+    { allowlist: ["localhost:5015", "localhost:3000"], pausedHosts: { localhost: true } },
+    { prefix: "icon-paused-", title: "sol — paused by browser — allow again in settings", badge: "" },
+  ],
+  [
+    { allowlist: ["a", "b"], paused: true, pausedHosts: { a: true } },
+    { prefix: "icon-paused-", title: "sol — paused", badge: "" },
+  ],
 ];
 
 test("iconState returns the accepted toolbar status cells", () => {
   for (const [cfg, expected] of cells) {
-    assert.deepEqual(S.iconState(cfg), expected);
+    assert.deepEqual(S.iconState(cfg, entryMatchHosts(cfg)), expected);
   }
+});
+
+const rowCells = [
+  [
+    "x",
+    { matchHost: "x", siteErrors: { x: "boom" }, pausedHosts: { x: true }, paused: true, activeSites: ["x"], connected: true, pageHost: "x" },
+    { kind: "error", label: "boom" },
+  ],
+  ["x:1", { matchHost: "x", pausedHosts: { x: true }, paused: true, activeSites: ["x:1"], connected: true, pageHost: "x:1" }, { kind: "paused-browser", label: "paused by browser" }],
+  ["x", { matchHost: "x", paused: true, activeSites: ["x"], connected: true, pageHost: "x" }, { kind: "paused", label: "paused" }],
+  ["x", { matchHost: "x", activeSites: ["x"], connected: true, pageHost: "x" }, { kind: "on", label: "on now" }],
+  ["x", { matchHost: "x", activeSites: ["x"], connected: false, pageHost: "x" }, { kind: "waiting", label: "on — waiting to sync" }],
+  ["x", { matchHost: "x", activeSites: [], connected: true, pageHost: "x" }, { kind: "reload", label: "reload this tab to begin" }],
+  ["x", { matchHost: "x", activeSites: [], connected: true, pageHost: null }, { kind: "idle", label: "added — open or reload a tab" }],
+];
+
+test("siteRowState returns every accepted row kind with fixed precedence", () => {
+  for (const [entry, state, expected] of rowCells) assert.deepEqual(S.siteRowState(entry, state), expected);
 });
 
 test("iconState handles sparse config defensively", () => {
@@ -102,8 +146,9 @@ test("updateHealth tracks consecutive journal failures without touching upload f
   assert.equal(h.consecutiveFailures, 1);
 });
 
-test("toolbar titles stay in observer voice", () => {
-  for (const title of cells.map(([, expected]) => expected.title)) {
-    assert.doesNotMatch(title, /captures|records|monitors|watches|tracks/i);
+test("toolbar titles and site labels stay in owner voice", () => {
+  const ownerStrings = cells.map(([, expected]) => expected.title).concat(rowCells.map(([, , expected]) => expected.label));
+  for (const value of ownerStrings) {
+    assert.doesNotMatch(value, /captures|records|monitors|watches|tracks|observ(?:e|es|ed|ing|ation|ations)/i);
   }
 });

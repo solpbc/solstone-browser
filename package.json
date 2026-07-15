@@ -1,12 +1,12 @@
 {
   "name": "solstone-browser",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "private": true,
   "type": "module",
   "description": "Prototype Chrome (MV3) semantic browser observer for solstone.",
   "license": "AGPL-3.0-only",
   "scripts": {
-    "test": "node --test test/segment.test.mjs test/blocks.test.mjs test/hosts.test.mjs test/adapters.test.mjs test/status.test.mjs test/failures.test.mjs test/escape.test.mjs test/buffered.test.mjs test/outbox.test.mjs test/pairlink.test.mjs test/uuid.test.mjs test/remote_blob.test.mjs test/hpke.test.mjs",
+    "test": "node --test test/segment.test.mjs test/blocks.test.mjs test/hosts.test.mjs test/adapters.test.mjs test/status.test.mjs test/failures.test.mjs test/escape.test.mjs test/buffered.test.mjs test/outbox.test.mjs test/pairlink.test.mjs test/uuid.test.mjs test/remote_blob.test.mjs test/hpke.test.mjs test/reconcile.test.mjs",
     "smoke": "node test/skim.cdp.mjs",
     "relay-check": "node test/relay_roundtrip.mjs",
     "e2e": "node test/e2e.mjs"

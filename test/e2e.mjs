@@ -663,7 +663,7 @@ async function main() {
       if (!drained) await sleep(250);
     }
     ok("recovered journal drains the offline outbox", drained);
-    ok("drain delivered the queued segment exactly once", stub.received.ingests.length === beforeOutageIngests + 1, `ingests=${stub.received.ingests.length}`);
+    ok("local drain delivered the queued segment after recovery", stub.received.ingests.length === beforeOutageIngests + 1, `ingests=${stub.received.ingests.length}`);
 
     // 7b. Live toggle: enabling the on-page marker mounts it on the already-open
     // observed tab (exercises setIndicatorAll -> the hostAllowed-gated content path).

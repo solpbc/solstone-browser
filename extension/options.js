@@ -100,6 +100,7 @@
     $("firstRunScope").textContent = copy.scope;
     $("firstRunWhat").textContent = copy.whatSolTakesIn;
     $("firstRunNever").textContent = copy.neverReceives;
+    $("firstRunAbsolutes").textContent = copy.absolutes;
     $("firstRunDestination").textContent = copy.destination.label;
     $("firstRunDestinationDetail").textContent = copy.destination.detail;
     $("firstRunNothingYet").textContent = copy.nothingYet;

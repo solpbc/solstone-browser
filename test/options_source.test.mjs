@@ -200,7 +200,7 @@ function descendantText(node) {
 test("the options binder drives disclosure, destinations, details, waiting, and loss", async () => {
   const ids = [
     "actionMessage", "firstRun", "firstRunHeading", "firstRunComposition", "firstRunCovenant",
-    "firstRunScope", "firstRunWhat", "firstRunNever", "firstRunDestination",
+    "firstRunScope", "firstRunWhat", "firstRunNever", "firstRunAbsolutes", "firstRunDestination",
     "firstRunDestinationDetail", "firstRunNothingYet", "firstRunChange", "journalCard",
     "journalLead", "journalStateChip", "destinationLocal", "destinationRemote",
     "localDestination", "remoteDestination", "connForm", "hostname", "segmentSec", "streamLabel",

@@ -49,7 +49,8 @@ const ORCH = `(async () => {
   out.flush = await send({cmd:'flushNow'});
   await sleep(1000);
   const st = await send({cmd:'getState'});
-  out.stream = st.stream; out.registered = st.registered; out.segmentsUploaded = st.health && st.health.segmentsUploaded;
+  const conn = globalThis.SolstoneStatus.connection(st);
+  out.stream = st.stream; out.connection = conn.kind; out.destination = conn.destination; out.segmentsUploaded = st.health && st.health.segmentsUploaded;
   out.lastStatus = st.health && st.health.lastStatus; out.lastError = st.health && st.health.lastError;
   out.siteErrors = st.siteErrors;
   return JSON.stringify(out, null, 2);

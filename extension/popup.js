@@ -45,22 +45,15 @@ async function refresh() {
   state = await cmd({ cmd: "getState" });
   const tab = await currentTab();
   const h = state.health || {};
+  const conn = globalThis.SolstoneStatus.connection(state);
 
   // journal
   const j = $("journalState");
-  if (state.registered && !h.lastError) {
-    j.textContent = "connected";
-    j.className = "pill ok";
-  } else if (h.lastError) {
-    j.textContent = "can't reach";
-    j.className = "pill bad";
-  } else {
-    j.textContent = "not connected yet";
-    j.className = "pill";
-  }
-  $("consequenceText").textContent = h.lastError ? "your journal isn't answering. what sol takes in is kept here, waiting to sync." : "";
+  j.textContent = `${conn.stateLabel} · ${conn.destination}`;
+  j.className = conn.connected ? "pill ok" : conn.kind.endsWith("-error") ? "pill bad" : "pill";
+  $("consequenceText").textContent = conn.consequence;
   $("consequence").title = h.lastError || "";
-  $("consequence").hidden = !h.lastError;
+  $("consequence").hidden = !conn.consequence;
   const dropped = state.dropped || {};
   const outbox = state.outbox || {};
   $("lossText").textContent = dropped.lines > 0 ? `offline too long — the oldest ${dropped.lines} updates couldn't be kept.` : "";
@@ -109,8 +102,6 @@ async function refresh() {
 
   // observed sites — show per-site state: observing / added (reload) / error
   const sites = $("sites");
-  const errs = state.siteErrors || {};
-  const connected = state.registered && !h.lastError;
   if (state.allowlist.length) {
     sites.innerHTML =
       '<div class="row" style="border-top:1px solid var(--line)"><span class="muted">added sites</span>' +
@@ -118,15 +109,10 @@ async function refresh() {
       state.allowlist
         .map((h2) => {
           const host = esc(h2);
-          const row = globalThis.SolstoneStatus.siteRowState(h2, {
+          const row = globalThis.SolstoneStatus.siteRowState(h2, Object.assign({}, state, {
             matchHost: globalThis.SolstoneHosts.matchHostFor(h2),
-            pausedHosts: state.pausedHosts || {},
-            siteErrors: errs,
-            paused: state.paused,
-            activeSites: state.activeSites,
-            connected,
             pageHost,
-          });
+          }));
           if (row.kind === "error") {
             const err = esc(row.label);
             const classified = esc(globalThis.SolstoneFailures.classify(row.label));
@@ -159,10 +145,10 @@ async function refresh() {
     sites.innerHTML = '<div class="s muted" style="padding-top:6px">no sites yet — open any site and click “add this site”.</div>';
   }
 
-  const streamText = state.stream || (state.hostname ? `${state.hostname}.browser` : "—");
+  const streamText = state.streamName;
   const streamLabel = $("streamLabel");
   streamLabel.textContent = "";
-  if (state.journalUrl) {
+  if (state.journalUrl && conn.kind.startsWith("local-")) {
     const a = document.createElement("a");
     a.href = state.journalUrl;
     a.target = "_blank";

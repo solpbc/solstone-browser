@@ -91,7 +91,7 @@ async function main() {
       const cfg = r.cfg || {}; const seg = r.seg || {};
       const sites = seg.sites || {};
       return JSON.stringify({
-        registered: !!cfg.key, stream: cfg.stream, hostname: cfg.hostname,
+        connection: globalThis.SolstoneStatus.connection(globalThis.SolstoneStatus.normalize(cfg)), stream: cfg.stream, hostname: cfg.hostname,
         journalUrl: cfg.journalUrl, segmentSec: cfg.segmentSec, paused: cfg.paused,
         allowlist: cfg.allowlist, health: cfg.health,
         seg_day: seg.day,

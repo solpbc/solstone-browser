@@ -114,7 +114,7 @@ async function waitingSummary(seg) {
 }
 
 function isRemotePaired(cfg) {
-  return !!(cfg.remote && cfg.remote.instanceId && cfg.remote.deviceToken && cfg.remote.homeSpki);
+  return globalThis.SolstoneStatus.remotePaired(cfg.remote);
 }
 
 function hex(bytes) {
@@ -922,8 +922,9 @@ async function updateBadge() {
   const cfg = await getCfg();
   const seg = await getSeg();
   const { summary } = await waitingSummary(seg);
+  const status = globalThis.SolstoneStatus.normalize(cfg, { waiting: summary.waiting, dropped: summary.dropped });
   const { prefix, title, badge } = globalThis.SolstoneStatus.iconState(
-    Object.assign({}, cfg, { waiting: summary.waiting, dropped: summary.dropped }),
+    status,
     entryMatchHosts(cfg),
   );
   try {
@@ -1025,28 +1026,16 @@ async function handleCommand(msg, sendResponse) {
         const activeContexts = ctxs.filter((e) => e.active).length;
         const pendingLines = ctxs.reduce((n, e) => n + (e.lines ? e.lines.length : 0), 0);
         const { summary, outboxInfo } = await waitingSummary(seg);
-        sendResponse({
+        sendResponse(Object.assign({
           ok: true,
-          journalUrl: cfg.journalUrl,
-          hostname: cfg.hostname,
-          stream: cfg.stream,
-          registered: !!cfg.key,
           segmentSec: cfg.segmentSec,
-          paused: cfg.paused,
           showPageIndicator: cfg.showPageIndicator,
-          allowlist: cfg.allowlist,
-          pausedHosts: cfg.pausedHosts,
-          siteErrors: cfg.siteErrors,
           activeSites,
           activeContexts,
           pendingLines,
           outbox: outboxInfo,
-          dropped: summary.dropped,
-          waiting: summary.waiting,
-          health: cfg.health,
-          remote: cfg.remote ? { paired: isRemotePaired(cfg), instanceId: cfg.remote.instanceId, relayOrigin: cfg.remote.relayOrigin } : { paired: false },
           version: VERSION,
-        });
+        }, globalThis.SolstoneStatus.normalize(cfg, { waiting: summary.waiting, dropped: summary.dropped })));
         break;
       }
       case "getBufferedPreview": {

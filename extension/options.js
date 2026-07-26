@@ -25,14 +25,18 @@ function normHost(input) {
 
 function renderConnStatus() {
   const h = state.health || {};
+  const conn = globalThis.SolstoneStatus.connection(state);
   const cs = $("connStatus");
-  if (state.registered && !h.lastError) {
+  const summary = `${esc(conn.stateLabel)} · ${esc(conn.destinationDetail)}`;
+  if (conn.connected) {
     const up = h.lastUploadAt ? new Date(h.lastUploadAt).toLocaleTimeString() : "none yet";
-    cs.innerHTML = `<span class="pill ok">connected as ${esc(state.stream)}</span> · ${h.segmentsUploaded || 0} sent · last ${esc(up)}`;
-  } else if (h.lastError) {
-    cs.innerHTML = `<span class="pill bad">can't reach</span> · <span title="${esc(h.lastError)}">your journal isn't answering. what sol takes in is kept here, waiting to sync.</span>`;
+    cs.innerHTML = `<span class="pill ok">${summary}</span> · ${h.segmentsUploaded || 0} sent · last ${esc(up)}`;
+  } else if (conn.kind.endsWith("-error")) {
+    cs.innerHTML = `<span class="pill bad">${summary}</span> · <span title="${esc(h.lastError)}">${esc(conn.consequence)}</span>`;
+  } else if (conn.kind === "local-pending") {
+    cs.innerHTML = `<span class="pill">${summary}</span> · add your journal address and save`;
   } else {
-    cs.innerHTML = '<span class="pill">not connected yet</span> · add your journal address and save';
+    cs.innerHTML = `<span class="pill">${summary}</span>`;
   }
 }
 
@@ -76,6 +80,8 @@ function renderRemoteState() {
   $("unpairBtn").hidden = !remote.paired;
   if (remote.paired) {
     $("remoteState").textContent = `paired to ${remote.instanceId || "remote home"} via ${remote.relayOrigin || "relay"}.`;
+  } else if (remote.pending) {
+    $("remoteState").textContent = `pairing via ${remote.relayOrigin || "relay"}.`;
   } else {
     $("remoteState").textContent = "not paired.";
   }
@@ -143,7 +149,7 @@ async function refresh() {
   $("segmentSec").value = state.segmentSec || 300;
   $("showPageIndicator").checked = !!state.showPageIndicator;
   $("ver").textContent = state.version ? "v" + state.version : "";
-  $("streamLabel").textContent = state.stream || (state.hostname ? state.hostname + ".browser" : "—");
+  $("streamLabel").textContent = state.streamName;
   loadedHostname = state.hostname || "";
   loadedJournalUrl = state.journalUrl || "";
 
@@ -153,20 +159,14 @@ async function refresh() {
   await renderWaiting();
 
   const list = $("siteList");
-  const errs = state.siteErrors || {};
   if (state.allowlist.length) {
     list.innerHTML = state.allowlist
       .map((h) => {
         const host = esc(h);
-        const row = globalThis.SolstoneStatus.siteRowState(h, {
+        const row = globalThis.SolstoneStatus.siteRowState(h, Object.assign({}, state, {
           matchHost: globalThis.SolstoneHosts.matchHostFor(h),
-          pausedHosts: state.pausedHosts || {},
-          siteErrors: errs,
-          paused: state.paused,
-          activeSites: state.activeSites,
-          connected: state.registered && !(state.health && state.health.lastError),
           pageHost: null,
-        });
+        }));
         let status;
         if (row.kind === "error") status = `<span style="color:var(--bad)" title="${esc(row.label)}">⚠ ${esc(globalThis.SolstoneFailures.classify(row.label))}</span>`;
         else if (row.kind === "paused-browser" || row.kind === "paused" || row.kind === "idle") status = `<span class="muted">— ${esc(row.label)}</span>`;
@@ -216,7 +216,6 @@ async function saveConfig() {
     await refresh();
   } else {
     await refresh();
-    $("connStatus").textContent = "saved.";
   }
 }
 
@@ -293,11 +292,9 @@ $("flushBtn").addEventListener("click", async () => {
   const res = await cmd({ cmd: "flushNow" });
   if (res.outcome === "failed") {
     await refresh();
-    renderConnStatus();
     return;
   }
   await refresh();
-  $("connStatus").textContent = res.outcome === "uploaded" ? "sent." : res.outcome === "queued" ? "can't reach your journal — kept here, waiting to sync." : "nothing waiting.";
 });
 
 $("showPageIndicator").addEventListener("change", async () => {

@@ -771,6 +771,13 @@ async function main() {
     ok("pairRemote succeeds against stub relay", pair.ok === true && pair.instanceId === stub.instanceId, JSON.stringify(pair));
     ok("pairing stores remote config", !!(remoteCfg && remoteCfg.instanceId === stub.instanceId && remoteCfg.deviceToken && remoteCfg.homeSpki && remoteCfg.relayOrigin === stub.url), JSON.stringify(remoteCfg));
     ok("stub saw PairHello and enroll", stub.received.pairs.length > 0 && !!stub.received.enroll, `pairs=${stub.received.pairs.length} enroll=${!!stub.received.enroll}`);
+    await sw.evaluate(async () => {
+      const r = await chrome.storage.local.get("cfg");
+      const cfg = r.cfg || {};
+      cfg.key = "";
+      await chrome.storage.local.set({ cfg });
+      globalThis.__icons = [];
+    });
 
     await sleep(1100);
     await sw.evaluate(async () => {
@@ -793,6 +800,17 @@ async function main() {
     ok("sealed uplink reaches stub and IDB outbox drains after valid ACK", remoteDelivered, `remoteBlobs=${stub.received.remoteBlobs.length}`);
     ok("sealed segment carries heading and excludes hidden content", !!firstRemote && /On structural trust/.test(firstRemote.segmentText) && !/SECRET-HIDDEN/.test(firstRemote.segmentText));
     ok("stub ACK for sealed blob was tag-valid", !!firstRemote && firstRemote.ackValid === true);
+    const remoteIcons = await sw.evaluate(() => globalThis.__icons || []);
+    ok("sealed delivery with no local key drives the toolbar icon to full sun",
+      remoteIcons.length > 0 && remoteIcons[remoteIcons.length - 1] === "icons/icon16.png", remoteIcons.slice(-4).join(",") || "no setIcon calls");
+    await popup.reload();
+    await popup.waitForFunction(() => document.getElementById("journalState")?.textContent !== "…");
+    const remotePopupState = await popup.evaluate(() => {
+      const el = document.getElementById("journalState");
+      return { text: el && el.textContent, className: el && el.className };
+    });
+    ok("sealed delivery with no local key gives the popup the same healthy state",
+      remotePopupState.text === "connected · your home" && remotePopupState.className === "pill ok", JSON.stringify(remotePopupState));
 
     stub.setDropRemoteAck(true);
     await sleep(1100);

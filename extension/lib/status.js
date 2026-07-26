@@ -46,7 +46,10 @@
     "no-journal": { prefix: "icon-paused-", badge: "" },
     "pairing-unfinished": { prefix: "icon-paused-", badge: "" },
     unreachable: { prefix: "icon-half-", badge: "" },
-    "permission-required": { prefix: "icon-half-", badge: "" },
+    // Same authorization axis as `browser-paused`, so the same treatment. Chrome
+    // has not granted the journal address and never will on its own, so the
+    // half-sun reads as "connecting", which is the one thing this is not doing.
+    "permission-required": { prefix: "icon-error-", badge: "!" },
     "first-sync-pending": { prefix: "icon-half-", badge: "" },
     unavailable: { prefix: "icon-half-", badge: "" },
     on: { prefix: "icon", badge: "" },
@@ -354,10 +357,10 @@
     const active = (state.activeSites || []).includes(entry);
     const conn = connection(state);
     if (active && conn.connected) return { kind: "on", label: "on now" };
-    if (active && conn.kind === "remote-ready") return { kind: "waiting", label: "on — waiting for first sync" };
-    if (active) return { kind: "waiting", label: "on — waiting to sync" };
+    if (active && conn.kind === "remote-ready") return { kind: "waiting", label: "on, waiting for first sync" };
+    if (active) return { kind: "waiting", label: "on, waiting to sync" };
     if (entry === state.pageHost) return { kind: "reload", label: "reload this tab to begin" };
-    return { kind: "idle", label: "added — open or reload a tab" };
+    return { kind: "idle", label: "added. open or reload a tab" };
   }
 
   function updateHealth(prev, res) {

@@ -54,12 +54,12 @@ const cells = [
   [
     { allowlist: ["x"], journalPermission: "missing", health: { lastError: "Failed to fetch" } },
     "permission-required",
-    { prefix: "icon-half-", title: "sol · your journal needs permission · kept here, going to your journal on this computer when it answers", badge: "" },
+    { prefix: "icon-error-", title: "sol · your journal needs permission · kept here, going to your journal on this computer when it answers", badge: "!" },
   ],
   [
     { journalPermission: "missing" },
     "permission-required",
-    { prefix: "icon-half-", title: "sol · your journal needs permission · kept here, going to your journal on this computer when it answers", badge: "" },
+    { prefix: "icon-error-", title: "sol · your journal needs permission · kept here, going to your journal on this computer when it answers", badge: "!" },
   ],
   [
     { allowlist: ["x"], key: "k", health: { lastError: "down" } },
@@ -192,7 +192,7 @@ test("iconState returns the accepted toolbar status cells", () => {
     "no-journal": { prefix: "icon-paused-", badge: "" },
     "pairing-unfinished": { prefix: "icon-paused-", badge: "" },
     unreachable: { prefix: "icon-half-", badge: "" },
-    "permission-required": { prefix: "icon-half-", badge: "" },
+    "permission-required": { prefix: "icon-error-", badge: "!" },
     "first-sync-pending": { prefix: "icon-half-", badge: "" },
     unavailable: { prefix: "icon-half-", badge: "" },
     on: { prefix: "icon", badge: "" },
@@ -620,14 +620,14 @@ const rowCells = [
   ["x:1", { matchHost: "x", pausedHosts: { x: true }, paused: true, activeSites: ["x:1"], pageHost: "x:1" }, { kind: "paused-browser", label: "paused by browser" }],
   ["x", { matchHost: "x", paused: true, activeSites: ["x"], pageHost: "x" }, { kind: "paused", label: "paused" }],
   ["x", { matchHost: "x", key: "k", activeSites: ["x"], pageHost: "x" }, { kind: "on", label: "on now" }],
-  ["x", { matchHost: "x", activeSites: ["x"], pageHost: "x" }, { kind: "waiting", label: "on — waiting to sync" }],
+  ["x", { matchHost: "x", activeSites: ["x"], pageHost: "x" }, { kind: "waiting", label: "on, waiting to sync" }],
   ["x", { matchHost: "x", key: "k", activeSites: [], pageHost: "x" }, { kind: "reload", label: "reload this tab to begin" }],
-  ["x", { matchHost: "x", key: "k", activeSites: [], pageHost: null }, { kind: "idle", label: "added — open or reload a tab" }],
+  ["x", { matchHost: "x", key: "k", activeSites: [], pageHost: null }, { kind: "idle", label: "added. open or reload a tab" }],
   ["x", Object.assign({}, pureRemoteSuccess, { matchHost: "x", activeSites: ["x"], pageHost: "x" }), { kind: "on", label: "on now" }],
   ["x", Object.assign({}, keyClearedRemoteSuccess, { matchHost: "x", activeSites: ["x"], pageHost: "x" }), { kind: "on", label: "on now" }],
-  ["x", { matchHost: "x", remote: pairedRemote, activeSites: ["x"], pageHost: "x" }, { kind: "waiting", label: "on — waiting for first sync" }],
-  ["x", { matchHost: "x", remotePending: { relayOrigin: pairedRemote.relayOrigin }, activeSites: ["x"], pageHost: "x" }, { kind: "waiting", label: "on — waiting to sync" }],
-  ["x", { matchHost: "x", remote: pairedRemote, health: { lastError: "relay down" }, activeSites: ["x"], pageHost: "x" }, { kind: "waiting", label: "on — waiting to sync" }],
+  ["x", { matchHost: "x", remote: pairedRemote, activeSites: ["x"], pageHost: "x" }, { kind: "waiting", label: "on, waiting for first sync" }],
+  ["x", { matchHost: "x", remotePending: { relayOrigin: pairedRemote.relayOrigin }, activeSites: ["x"], pageHost: "x" }, { kind: "waiting", label: "on, waiting to sync" }],
+  ["x", { matchHost: "x", remote: pairedRemote, health: { lastError: "relay down" }, activeSites: ["x"], pageHost: "x" }, { kind: "waiting", label: "on, waiting to sync" }],
 ];
 
 test("siteRowState returns every accepted row kind with fixed precedence", () => {

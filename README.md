@@ -1,10 +1,10 @@
 # solstone-browser
 
 A Chromium (Manifest V3) **semantic browser observer** for
-[solstone](https://solpbc.org). It experiences the web apps you choose along
-with you, reading their visible text and rough layout, **never screenshots**.
-It delivers what it reads to your journal on this computer or to your journal
-at your paired home as its own `browser` stream.
+[solstone](https://solpbc.org). It experiences the web apps you choose
+along with you, taking in their rendered text and rough layout. **Never pixels.
+Never raw HTML.** It delivers what it reads to your journal on this computer or
+to your journal at your paired home as its own `browser` stream.
 
 A browser extension isn't a new product; it's a new **observer surface**, and
 the most *semantic* one in the fleet. The OS screen observer already owns the
@@ -23,7 +23,7 @@ paired remote home. See [`INSTALL.md`](INSTALL.md) to install it.
   content script (per granted tab)          service worker (background)
   ───────────────────────────────           ──────────────────────────
   visibility-aware DOM "skim"   ── skim ──▶  diff vs last skim
-  (innerText oracle, ARIA roles,            snapshot at segment start +
+  (checkVisibility gate, ARIA roles,        snapshot at segment start +
    per-app adapters, MutationObserver        accumulate deltas in storage
    change-gating, debounced)                        │  every segment (5 min)
   optional on-page marker                          ▼
@@ -35,16 +35,22 @@ paired remote home. See [`INSTALL.md`](INSTALL.md) to install it.
                                                 browser_<site>.jsonl
 ```
 
-- **Opt-in per site.** Nothing is read until you add a site. Adding one asks for
-  a per-site Chrome permission grant (`optional_host_permissions` +
+- **Opt-in per site.** Nothing is taken in until you add a site. Adding one
+  asks for a per-site Chrome permission grant (`optional_host_permissions` +
   `permissions.request()`). If Chrome removes access, sol pauses the site but
   keeps your choice so you can allow it again; unused grants are released unless
   their hostname is also used by your configured journal or a paired or pending
   remote-home relay.
-- **Semantic-only.** It considers only elements that pass
-  `Element.checkVisibility()` (with a rendered-box fallback), reads their
-  immediate text-node children, and types them with ARIA roles and semantic
-  tags; it never calls `captureVisibleTab`.
+- **Semantic-only.** It gates elements with
+  `Element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })`
+  and a rendered-box fallback. There is no viewport or clip test, so rendered
+  text includes what you can see now and what you'd see by scrolling, including
+  in background tabs. It reads each element's immediate text-node children and
+  types them with ARIA roles and semantic tags, while `attrs.label` can promote
+  an `aria-label` or `title` to a boundary block's entire text, including the
+  labels pages hand to screen readers and tooltips, which sometimes aren't drawn
+  on screen. It never calls
+  `captureVisibleTab`. Never pixels. Never raw HTML.
 - **Self-contained observer.** In local mode, the worker registers as its own
   observer and uploads finished segments straight to the journal's localhost
   ingest API. In remote mode, the durable outbox keeps waiting entries locally,
@@ -61,9 +67,10 @@ paired remote home. See [`INSTALL.md`](INSTALL.md) to install it.
 
 ## The journal output (`browser.jsonl`)
 
-One file per site sol reads per segment. Each file opens with a snapshot, then
-accumulates deltas. Each page URL is reduced to its origin + path before it
-enters your journal; its query string, fragment, and credentials are left out:
+One file per site sol reads per segment. Each file opens with a snapshot that
+includes the page title, then accumulates deltas. Each page URL is reduced to
+its origin + path before it enters your journal; its query string, fragment,
+and credentials are left out:
 
 ```jsonl
 {"t":"segment_start","ts":…,"rel":0,"site":"mail.google.com","url":"https://mail.google.com/mail/u/0/","adapter":"gmail","n":3,"blocks":[ … ]}

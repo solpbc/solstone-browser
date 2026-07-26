@@ -13,8 +13,9 @@
 // A "block" is the unit of observed structure:
 //   { id, type, depth, text, attrs }
 // `type` is derived from ARIA role first, then semantic tag, then a heuristic.
-// `text` is the visible text (innerText oracle, capped). `attrs` carries a few
-// semantic attributes (aria-label, href host, level) — never raw HTML.
+// `text` is normalized direct text-node content (isVisible-gated, capped).
+// `attrs` carries a few semantic attributes (aria-label or title, href host,
+// level) — never raw HTML.
 
 (function () {
   "use strict";

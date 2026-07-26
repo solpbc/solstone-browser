@@ -60,7 +60,7 @@
   function scheduleSkim() {
     if (paused) return;
     clearTimeout(debounceTimer);
-    // requestIdleCallback keeps the reflow that innerText forces off the hot path
+    // requestIdleCallback keeps the walk's per-element checkVisibility/getClientRects layout work off the hot path
     debounceTimer = setTimeout(() => {
       if (typeof requestIdleCallback === "function") requestIdleCallback(() => doSkim("change"), { timeout: 1000 });
       else doSkim("change");

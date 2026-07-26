@@ -5,13 +5,13 @@ semantic browser observer for solstone.
 
 ## Project overview
 
-solstone-browser is one of the owner's observers. It experiences the web apps the
-owner explicitly chooses — reading their **visible text and rough layout**, never
-screenshots — and relays what it reads into a solstone journal as a distinct
-`<host>.browser` stream. It follows the same observer pattern as solstone-tmux
-and the screen/audio observers: register against the journal, accumulate into
-segments, sync. The difference is the source: semantic DOM content instead of
-pixels or terminal text.
+solstone-browser is one of the owner's observers. It experiences the web apps
+the owner explicitly chooses, taking in their **rendered text and rough
+layout**, and relays what it takes in to a solstone journal as a distinct
+`<host>.browser` stream. Never pixels. Never raw HTML. It follows the same
+observer pattern as solstone-tmux and the screen/audio observers: register
+against the journal, accumulate into segments, sync. The difference is the
+source: semantic DOM content instead of pixels or terminal text.
 
 This is a **Chromium Web Store candidate** for desktop Chromium. It is opt-in per
 site and delivers directly to the local journal by default, with an optional
@@ -24,8 +24,9 @@ Two halves, one substrate (the WebExtensions API):
 
 - **Content script** (`content.js` + `skim.js` + `adapters.js` + `indicator.js`)
   runs in each granted-origin tab. It picks an adapter, optionally shows the
-  on-page marker when the owner enables it, runs a **visibility-aware semantic
-  skim** of the app root, and relays the current block list to the worker on load
+  on-page marker when the owner enables it, runs a **semantic skim** of the app
+  root's rendered text and rough layout, gated by `checkVisibility` with a
+  rendered-box fallback, and relays the current block list to the worker on load
   and whenever the page settles after a mutation (debounced, change-gated). It is
   a thin producer — no segmenting, no diffing, no network.
 - **Service worker** (`background.js` + `journal.js` + `lib/*`) is the
@@ -54,13 +55,20 @@ A block is `{id, type, depth, text, attrs}`:
 
 - `type` is derived ARIA role first, then semantic tag, then a heuristic
   (`lib/blocks.js` `typeFromRoleTag`).
-- `text` is the **visible** text — `innerText` is the visibility oracle (respects
-  `display:none`/`visibility:hidden`), never `textContent`. Capped.
+- `text` comes from the normalized `nodeValue` of an element's immediate
+  text-node children, never `innerText` or `textContent`. The element is gated by
+  `checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })` with a
+  rendered-box fallback, but there is no viewport or clip test, so rendered text
+  below the fold and in background tabs is included. The source is capped by
+  `MAX_TEXT = 2000` before a truncation ellipsis is appended.
 - `id` prefers an app-stable id (`data-message-id`, `data-item-key`, …) read by
   the adapter, so deltas key to the right message across virtualized-list node
   recycling; otherwise a content hash.
-- `attrs` keeps a few semantic attributes only (aria-label, heading level, link
-  **host** — never full URLs / query strings).
+- `attrs` keeps `aria-label`, or fallback `title`, as `label`, plus `aria-level`
+  and the host of an absolute link. At an adapter boundary, `attrs.label` can
+  become the block's entire `text`, including the labels pages hand to screen
+  readers and tooltips, which sometimes aren't drawn on screen. The link target's
+  full URL, query string, fragment, and credentials are not kept.
 
 ## Source layout
 
@@ -150,9 +158,12 @@ it is not a runtime npm or CDN dependency.
 - **Visible + pausable.** The toolbar icon is the always-visible four-state
   observation signal; the on-page marker is opt-in and off by default. Pause-all
   is one tap. No silent observation.
-- **Privacy in the data.** Keep visible text + structure; reduce page URLs to
-  origin + path and link hrefs to host; never raw HTML, query strings, fragments,
-  credentials, or hidden content.
+- **Privacy in the data.** Keep rendered text + structure: what you can see now
+  and what you'd see by scrolling, including background tabs, plus the labels
+  pages hand to screen readers and tooltips, which sometimes aren't drawn on
+  screen. Reduce page URLs to origin + path and link hrefs to host; leave the
+  page address's query string, fragment, and credentials out. Never pixels.
+  Never raw HTML.
 - **Pure logic stays testable.** Diffing, serialization, and id/type derivation
   live in `lib/*` with no DOM or chrome APIs, so node tests cover them. DOM-bound
   behavior is validated in real Chrome.

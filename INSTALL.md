@@ -1,9 +1,10 @@
 # Install solstone browser
 
 sol is a Chromium desktop extension that experiences the sites you choose,
-reading their visible text and rough layout, never screenshots. It delivers a
-distinct `<hostname>.browser` stream to your journal on this computer or to your
-journal at a paired home. A paired remote home must run solstone 0.8.7 or newer.
+taking in their rendered text and rough layout. Never pixels. Never raw HTML.
+It delivers a distinct `<hostname>.browser` stream to your journal on this
+computer or to your journal at a paired home. A paired remote home must run
+solstone 0.8.7 or newer.
 
 ## Install
 
@@ -22,7 +23,7 @@ and choose `dist/current`. Pin sol so its status light stays visible. After a
 later `make dist`, click **reload** on the extension card. The self-distributed
 manifest identity keeps your added sites and permissions across rebuilds.
 
-Nothing is read until you add a site.
+Nothing is taken in until you add a site.
 
 ## Connect your journal
 
@@ -75,10 +76,10 @@ ls ~/journal/chronicle/$(date +%Y%m%d)/<hostname>.browser/
 cat ~/journal/chronicle/$(date +%Y%m%d)/<hostname>.browser/*/browser_*.jsonl | head
 ```
 
-Each file opens with a `segment_start` snapshot and then accumulates `delta`
-lines as the page changes. For a paired home, the popup becomes
-**connected · your home** after the first acknowledged delivery, and the waiting
-count drains.
+Each file opens with a `segment_start` snapshot that includes the page title
+and then accumulates `delta` lines as the page changes. For a paired home, the
+popup becomes **connected · your home** after the first acknowledged delivery,
+and the waiting count drains.
 
 ## Remove access and understand delivery
 
@@ -86,16 +87,19 @@ Remove a site in options to forget it. If Chrome removes access in its own
 per-site controls, sol pauses the retained site so you can allow it again. Use
 **unpair** to stop remote delivery to a paired home.
 
-Everything is opt-in. No site is read until you add it. In local mode, what sol
-takes in goes to your journal on this computer. In remote mode, it goes to your
-journal at your home, sealed on the way. Waiting entries are kept locally and
-sealed inside the browser immediately before each remote send. The relay carries
-the sealed bytes and cannot read them, but it can see the routing, offer, and
-delivery framing needed to carry them.
+Everything is opt-in. Nothing is taken in until you add a site. In local
+mode, what sol takes in goes to your journal on this computer. In remote mode,
+it goes to your journal at your home, sealed on the way. Waiting entries are
+kept locally and sealed inside the browser immediately before each remote
+send. The relay carries the sealed bytes and cannot read them, but it can see
+the routing, offer, and delivery framing needed to carry them.
 
 Each page URL is reduced to its origin + path before delivery. Its query string,
-fragment, and credentials are left out. Sol reads visible semantic text and
-structure, never pixels or raw HTML.
+fragment, and credentials are left out. On a site you add, sol takes in the
+page's rendered text and rough layout in foreground and background tabs: what
+you can see now and what you'd see by scrolling, plus the labels pages hand to
+screen readers and tooltips, which sometimes aren't drawn on screen. Never
+pixels. Never raw HTML.
 
 ## Current limits
 

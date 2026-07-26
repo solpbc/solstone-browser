@@ -1,352 +1,506 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
-//
-// options.js — full settings: journal connection, connect, and the opt-in
-// allowlist manager. Browser-side removal pauses a site as "paused by browser";
-// the remove button forgets it.
 
-const $ = (id) => document.getElementById(id);
-const cmd = (m) => new Promise((r) => chrome.runtime.sendMessage(m, (x) => r(x || {})));
-const esc = (s) => globalThis.SolstoneEscape.escapeHtml(s);
+(function () {
+  "use strict";
 
-let state = null;
+  const Hosts = globalThis.SolstoneHosts;
+  const Status = globalThis.SolstoneStatus;
+  const Pairlink = globalThis.SolstonePairlink;
+  const Failures = globalThis.SolstoneFailures;
+  const Disclosure = globalThis.SolstoneDisclosure;
+  const View = globalThis.SolstonePopupView;
+  const $ = (id) => document.getElementById(id);
+  const cmd = (message) => new Promise((resolve) => chrome.runtime.sendMessage(message, (response) => resolve(response || {})));
 
-function normHost(input) {
-  let h = input.trim();
-  try {
-    if (/^https?:\/\//.test(h)) h = new URL(h).host;
-  } catch (_e) {
-    /* leave as typed */
-  }
-  return h.replace(/\/.*$/, "").toLowerCase();
-}
+  let state = null;
+  let disclosureResolve = null;
+  let destinationOverride = null;
+  let lastConnectionSignature = null;
+  let renderedOnce = false;
 
-function renderConnStatus() {
-  const h = state.health || {};
-  const conn = globalThis.SolstoneStatus.connection(state);
-  const cs = $("connStatus");
-  const summary = `${esc(conn.stateLabel)} · ${esc(conn.destinationDetail)}`;
-  if (conn.connected) {
-    const up = h.lastUploadAt ? new Date(h.lastUploadAt).toLocaleTimeString() : "none yet";
-    cs.innerHTML = `<span class="pill ok">${summary}</span> · ${h.segmentsUploaded || 0} sent · last ${esc(up)}`;
-  } else if (conn.kind.endsWith("-error")) {
-    cs.innerHTML = `<span class="pill bad">${summary}</span> · <span title="${esc(h.lastError)}">${esc(conn.consequence)}</span>`;
-  } else if (conn.consequence) {
-    cs.innerHTML = `<span class="pill">${summary}</span> · <span>${esc(conn.consequence)}</span>`;
-  } else if (conn.kind === "local-pending") {
-    cs.innerHTML = `<span class="pill">${summary}</span> · add your journal address and save`;
-  } else {
-    cs.innerHTML = `<span class="pill">${summary}</span>`;
-  }
-}
-
-function renderJournalLink() {
-  const a = $("journalLink");
-  if (state.journalUrl) {
-    a.href = state.journalUrl;
-    a.className = "";
-    a.removeAttribute("aria-disabled");
-  } else {
-    a.removeAttribute("href");
-    a.className = "disabled-link";
-    a.setAttribute("aria-disabled", "true");
-  }
-}
-
-async function requestSiteAccess(host) {
-  const intent = await cmd({ cmd: "siteIntent", host });
-  if (!intent.ok) return { ok: false, error: "could not save the site" };
-  let granted = false;
-  try {
-    granted = await chrome.permissions.request({ origins: [globalThis.SolstoneHosts.matchPatternFor(host)] });
-  } catch (_e) {
-    /* handled as a declined grant */
-  }
-  if (!granted) {
-    if (intent.added) await cmd({ cmd: "removeSite", host });
-    return { ok: false, denied: true, added: intent.added, intentOk: true };
-  }
-  const res = await cmd({ cmd: "siteGranted", host });
-  return Object.assign({}, res, { added: intent.added, intentOk: true });
-}
-
-async function requestJournalAccess(journalUrl) {
-  const origin = globalThis.SolstoneHosts.permissionOriginForUrl(journalUrl);
-  if (!origin) return { ok: false, error: "enter a valid journal address" };
-  // The intent must land before request: permissions.onAdded can reconcile as
-  // soon as Chrome grants access and would otherwise see/release the old URL.
-  const intent = await cmd({ cmd: "journalIntent", journalUrl });
-  if (!intent.ok) return { ok: false, error: intent.error || "could not save the journal address" };
-
-  let requestError = false;
-  try {
-    await chrome.permissions.request({ origins: [origin] });
-  } catch (_e) {
-    requestError = true;
-  }
-  const resolved = await cmd({
-    cmd: "journalIntentResolve",
-    journalUrl: intent.journalUrl,
-    changed: intent.changed,
-    previous: intent.previous,
-  });
-  if (!resolved.ok) return { ok: false, error: resolved.error || "could not finish journal permission" };
-  if (!resolved.granted) {
-    return requestError
-      ? { ok: false, error: "could not request journal permission" }
-      : { ok: false, denied: true };
-  }
-  return { ok: true };
-}
-
-function renderRemoteState() {
-  const remote = state.remote || {};
-  $("unpairBtn").hidden = !remote.paired;
-  if (remote.paired) {
-    $("remoteState").textContent = `paired to ${remote.instanceId || "remote home"} via ${remote.relayOrigin || "relay"}.`;
-  } else if (remote.pending) {
-    $("remoteState").textContent = `pairing via ${remote.relayOrigin || "relay"}.`;
-  } else {
-    $("remoteState").textContent = "not paired.";
-  }
-}
-
-async function renderWaiting() {
-  const preview = await cmd({ cmd: "getBufferedPreview" });
-  const total = preview.waiting || 0;
-  const outbox = preview.outbox || {};
-  const dropped = preview.dropped || {};
-  $("waitingSummary").textContent = `waiting to send (${total} updates)`;
-  const body = $("waitingBody");
-  body.textContent = "";
-  if (dropped.segments > 0) {
-    const loss = document.createElement("div");
-    loss.className = "loss";
-    const text = document.createElement("span");
-    text.textContent = `offline too long — the oldest ${dropped.lines} updates couldn't be kept.`;
-    loss.appendChild(text);
-    if (!outbox.lines) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.textContent = "dismiss";
-      btn.addEventListener("click", async () => {
-        await cmd({ cmd: "clearDropped" });
-        await refresh();
-      });
-      loss.appendChild(btn);
+  function normHost(input) {
+    let host = input.trim();
+    try {
+      if (/^https?:\/\//.test(host)) host = new URL(host).host;
+    } catch (_error) {
+      // Leave the value as typed so the shared validation can reject it.
     }
-    body.appendChild(loss);
+    return host.replace(/\/.*$/, "").toLowerCase();
   }
-  if (outbox.lines > 0) {
-    const earlier = document.createElement("div");
-    earlier.className = "muted";
-    earlier.textContent = `${outbox.lines} updates from earlier are waiting to sync.`;
-    body.appendChild(earlier);
+
+  function announce(message) {
+    const next = message || "";
+    if ($("actionMessage").textContent !== next) $("actionMessage").textContent = next;
   }
-  if ((!total && !(dropped.segments > 0)) || (!(preview.perHost || []).length && !outbox.lines && !(dropped.segments > 0))) {
-    body.textContent = "nothing waiting.";
-    return;
+
+  function clearAnnouncement() {
+    announce("");
   }
-  for (const entry of preview.perHost || []) {
+
+  function showActionError(error, status) {
+    announce(Failures.classify(error, status));
+  }
+
+  function siteEffects() {
+    return {
+      cmd,
+      requestPermission: (request) => chrome.permissions.request(request),
+    };
+  }
+
+  async function requestJournalAccess(journalUrl) {
+    const origin = Hosts.permissionOriginForUrl(journalUrl);
+    if (!origin) return { ok: false, error: "enter a valid journal address" };
+    const intent = await cmd({ cmd: "journalIntent", journalUrl });
+    if (!intent.ok) {
+      return intent.error
+        ? { ok: false, workerError: intent.error }
+        : { ok: false, error: "could not save the journal address" };
+    }
+
+    let requestError = false;
+    try {
+      await chrome.permissions.request({ origins: [origin] });
+    } catch (_error) {
+      requestError = true;
+    }
+    const resolved = await cmd({
+      cmd: "journalIntentResolve",
+      journalUrl: intent.journalUrl,
+      changed: intent.changed,
+      previous: intent.previous,
+    });
+    if (!resolved.ok) {
+      return resolved.error
+        ? { ok: false, workerError: resolved.error }
+        : { ok: false, error: "could not finish journal permission" };
+    }
+    if (!resolved.granted) {
+      return requestError
+        ? { ok: false, error: "could not request journal permission" }
+        : { ok: false, denied: true };
+    }
+    return { ok: true };
+  }
+
+  function renderFirstRun() {
+    const allowlist = Array.isArray(state && state.allowlist) ? state.allowlist : null;
+    const firstRun = $("firstRun");
+    firstRun.hidden = !allowlist || allowlist.length !== 0;
+    if (firstRun.hidden) return;
+
+    const copy = Disclosure.firstRun(state);
+    $("firstRunHeading").textContent = copy.kinship[0];
+    $("firstRunComposition").textContent = copy.kinship[1];
+    $("firstRunCovenant").textContent = copy.kinship[2];
+    $("firstRunScope").textContent = copy.scope;
+    $("firstRunWhat").textContent = copy.whatSolTakesIn;
+    $("firstRunNever").textContent = copy.neverReceives;
+    $("firstRunDestination").textContent = copy.destination.label;
+    $("firstRunDestinationDetail").textContent = copy.destination.detail;
+    $("firstRunNothingYet").textContent = copy.nothingYet;
+  }
+
+  function selectedDestination() {
+    return $("destinationRemote").checked ? "remote" : "local";
+  }
+
+  function showDestination(selection) {
+    const remote = selection === "remote";
+    $("destinationLocal").checked = !remote;
+    $("destinationRemote").checked = remote;
+    $("localDestination").hidden = remote;
+    $("remoteDestination").hidden = !remote;
+  }
+
+  function renderDestination(connection) {
+    const derived = connection.kind.startsWith("remote-") ? "remote" : "local";
+    if (destinationOverride === derived) destinationOverride = null;
+    showDestination(destinationOverride || derived);
+  }
+
+  function replaceLabeledDetail(id, label, value) {
+    const row = $(id);
+    row.replaceChildren();
+    row.hidden = !value;
+    if (!value) return;
+    const key = document.createElement("span");
+    key.className = "key";
+    key.textContent = label;
+    const text = document.createElement("span");
+    text.textContent = value;
+    row.append(key, text);
+  }
+
+  function renderProvenance() {
+    const remote = (state && state.remote) || {};
+    const health = (state && state.health) || {};
+    replaceLabeledDetail("pairInstanceId", "paired home", remote.instanceId || "");
+    replaceLabeledDetail("pairRelayOrigin", "relay", remote.relayOrigin || "");
+    replaceLabeledDetail(
+      "journalError",
+      "last problem",
+      health.lastError ? Failures.classify(health.lastError, health.lastStatus) : "",
+    );
+
+    let lastSync = "";
+    if (health.lastUploadAt) lastSync = new Date(health.lastUploadAt).toLocaleString();
+    if (Number(health.segmentsUploaded || 0) > 0) {
+      const batches = `${health.segmentsUploaded} batch${health.segmentsUploaded === 1 ? "" : "es"} sent`;
+      lastSync = lastSync ? `${lastSync}. ${batches}.` : `${batches}.`;
+    }
+    replaceLabeledDetail("lastSyncDetail", "last sync", lastSync);
+  }
+
+  function appendWaitingHost(entry, body) {
+    if (Number(entry.count || 0) <= 0) return;
     const wrap = document.createElement("div");
     wrap.className = "waiting-host";
     const head = document.createElement("strong");
     head.textContent = `${entry.host} · ${entry.count} update${entry.count === 1 ? "" : "s"}`;
-    wrap.appendChild(head);
-    if ((entry.texts || []).length) {
-      const ul = document.createElement("ul");
-      for (const text of entry.texts) {
-        const li = document.createElement("li");
-        li.textContent = text;
-        ul.appendChild(li);
+    wrap.append(head);
+    if (Array.isArray(entry.texts) && entry.texts.length > 0) {
+      const list = document.createElement("ul");
+      for (const value of entry.texts) {
+        const item = document.createElement("li");
+        item.textContent = value;
+        list.append(item);
       }
-      wrap.appendChild(ul);
+      wrap.append(list);
     }
-    body.appendChild(wrap);
-  }
-}
-
-async function refresh() {
-  state = await cmd({ cmd: "getState" });
-  $("hostname").value = state.hostname || "";
-  $("journalUrl").value = state.journalUrl || "";
-  $("segmentSec").value = state.segmentSec || 300;
-  $("showPageIndicator").checked = !!state.showPageIndicator;
-  $("ver").textContent = state.version ? "v" + state.version : "";
-  $("streamLabel").textContent = state.streamName;
-  renderConnStatus();
-  renderJournalLink();
-  renderRemoteState();
-  await renderWaiting();
-
-  const list = $("siteList");
-  if (state.allowlist.length) {
-    list.innerHTML = state.allowlist
-      .map((h) => {
-        const host = esc(h);
-        const row = globalThis.SolstoneStatus.siteRowState(h, Object.assign({}, state, {
-          matchHost: globalThis.SolstoneHosts.matchHostFor(h),
-          pageHost: null,
-        }));
-        let status;
-        if (row.kind === "error") status = `<span style="color:var(--bad)" title="${esc(row.label)}">⚠ ${esc(globalThis.SolstoneFailures.classify(row.label))}</span>`;
-        else if (row.kind === "paused-browser" || row.kind === "paused" || row.kind === "idle") status = `<span class="muted">— ${esc(row.label)}</span>`;
-        else if (row.kind === "on") status = `<span style="color:var(--ok)">● ${esc(row.label)}</span>`;
-        else status = esc(row.label);
-        const allowAgain = row.kind === "paused-browser" ? `<button type="button" class="allow-site" data-host="${host}">allow again</button>` : "";
-        return `<div class="site"><span>${host} &nbsp; ${status}</span><span>${allowAgain}<button type="button" class="remove-site" data-host="${host}">remove</button></span></div>`;
-      })
-      .join("");
-    list.querySelectorAll("button.remove-site[data-host]").forEach((b) =>
-      b.addEventListener("click", async () => {
-        await cmd({ cmd: "removeSite", host: b.getAttribute("data-host") });
-        await refresh();
-      })
-    );
-    list.querySelectorAll("button.allow-site[data-host]").forEach((b) =>
-      b.addEventListener("click", async () => {
-        b.disabled = true;
-        const res = await requestSiteAccess(b.getAttribute("data-host"));
-        if (res.denied) $("addStatus").textContent = "permission declined — site stays paused.";
-        else if (res.error) $("addStatus").textContent = "could not allow: " + res.error;
-        else if (res.ok === true) $("addStatus").textContent = "allowed again.";
-        else $("addStatus").textContent = "could not allow the site.";
-        await refresh();
-      })
-    );
-  } else {
-    list.innerHTML = '<p class="muted">none yet.</p>';
-  }
-}
-
-async function saveConfig() {
-  const segmentSec = Number.parseInt($("segmentSec").value, 10);
-  if (Number.isNaN(segmentSec) || segmentSec < 30) {
-    $("connStatus").textContent = "minimum 30 seconds";
-    return;
+    body.append(wrap);
   }
 
-  const hostname = $("hostname").value;
-  const journalUrl = $("journalUrl").value;
-  const permission = await requestJournalAccess(journalUrl);
-  if (!permission.ok) {
-    await refresh();
-    $("connStatus").textContent = permission.denied
-      ? "permission declined. journal address unchanged."
-      : permission.error || "could not request journal permission";
-    return;
+  function renderWaiting(preview) {
+    preview = preview || {};
+    const total = Math.max(0, Number(preview.waiting || 0));
+    const row = $("waitingRow");
+    const body = $("waitingPreview");
+    body.replaceChildren();
+    row.hidden = total === 0;
+    if (total > 0) {
+      const summary = document.createElement("div");
+      summary.textContent = `${total} update${total === 1 ? "" : "s"} waiting to sync.`;
+      body.append(summary);
+      const outboxLines = Math.max(0, Number((preview.outbox && preview.outbox.lines) || 0));
+      if (outboxLines > 0) {
+        const earlier = document.createElement("div");
+        earlier.className = "muted";
+        earlier.textContent = `${outboxLines} update${outboxLines === 1 ? "" : "s"} from earlier.`;
+        body.append(earlier);
+      }
+      for (const entry of preview.perHost || []) appendWaitingHost(entry, body);
+    }
+
+    const dropped = preview.dropped || {};
+    const loss = $("lossDetail");
+    loss.replaceChildren();
+    loss.hidden = Number(dropped.segments || 0) <= 0;
+    if (!loss.hidden) {
+      const headline = document.createElement("strong");
+      headline.textContent = "some updates couldn't be kept";
+      const figure = document.createElement("div");
+      const lines = Math.max(0, Number(dropped.lines || 0));
+      figure.textContent = `${lines} update${lines === 1 ? "" : "s"}`;
+      loss.append(headline, figure);
+      if (!Number((preview.outbox && preview.outbox.lines) || 0)) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = "dismiss";
+        button.addEventListener("click", async () => {
+          clearAnnouncement();
+          await cmd({ cmd: "clearDropped" });
+          await refresh({ announceConnection: false });
+        });
+        loss.append(button);
+      }
+    }
   }
-  await cmd({ cmd: "setConfig", hostname, journalUrl, segmentSec });
-  $("connStatus").textContent = "connecting…";
-  await cmd({ cmd: "probe" });
-  await refresh();
-}
 
-async function addSite() {
-  const raw = $("newHost").value;
-  if (!globalThis.SolstoneHosts.isValidHostInput(raw)) {
-    $("addStatus").textContent = "enter a site like mail.google.com";
-    return;
+  function renderJournal(preview, announceConnection) {
+    const allowlist = Array.isArray(state && state.allowlist) ? state.allowlist : [];
+    const entryMatchHosts = Object.fromEntries(allowlist.map((host) => [host, Hosts.matchHostFor(host)]));
+    const verdict = Status.verdict(state, {
+      activeSites: state && state.activeSites,
+      outbox: state && state.outbox,
+      entryMatchHosts,
+    });
+    const connection = Status.connection(state);
+
+    $("journalLead").textContent = verdict.sub;
+    $("journalStateChip").textContent = verdict.headline;
+    $("journalStateChip").className = `state-chip ${verdict.tone}`;
+    renderDestination(connection);
+
+    const link = $("journalLink");
+    const showLink = !!(state && state.journalUrl) && connection.kind.startsWith("local-");
+    link.hidden = !showLink;
+    if (showLink) link.href = state.journalUrl;
+    else link.removeAttribute("href");
+    $("unpairBtn").hidden = !(state && state.remote && state.remote.paired);
+
+    renderProvenance();
+    renderWaiting(preview);
+
+    const signature = [connection.kind, verdict.headline, verdict.sub, verdict.reason].join("|");
+    if (renderedOnce && announceConnection && lastConnectionSignature !== signature) {
+      announce([verdict.headline, verdict.sub].filter(Boolean).join(". "));
+    }
+    lastConnectionSignature = signature;
+    return { connection, verdict };
   }
-  const host = normHost(raw);
-  const res = await requestSiteAccess(host);
-  if (res.intentOk) $("newHost").value = "";
-  if (res.denied) {
-    $("addStatus").textContent = "permission declined — nothing added.";
-    return;
+
+  async function runSiteAction(action) {
+    clearAnnouncement();
+    if (action.id === "remove-site") {
+      const result = await cmd({ cmd: "removeSite", host: action.host });
+      await refresh({ announceConnection: false });
+      if (result.error) showActionError(result.error);
+      else announce(`removed ${action.host}.`);
+      return;
+    }
+
+    const result = await View.grantSite(action.host, siteEffects());
+    await refresh({ announceConnection: false });
+    if (result.denied) announce("permission declined. this site stays paused.");
+    else if (result.error) showActionError(result.error);
+    else if (result.ok) announce("allowed again.");
+    else announce("could not allow the site.");
   }
-  if (res && res.error) $("addStatus").textContent = "could not add: " + res.error;
-  else if (res && res.ok === true) $("addStatus").textContent = `added ${host}. open or reload a tab on it to begin.`;
-  else $("addStatus").textContent = "could not add the site.";
-  await refresh();
-}
 
-async function pairRemote() {
-  const link = $("pairLink").value.trim();
-  let parsed;
-  try {
-    parsed = globalThis.SolstonePairlink.parseLink(link);
-  } catch (_e) {
-    $("pairStatus").textContent = "paste a valid pair link.";
-    return;
+  function renderSites() {
+    const list = $("siteList");
+    list.replaceChildren();
+    const allowlist = Array.isArray(state && state.allowlist) ? state.allowlist : [];
+    for (const entry of allowlist) {
+      const rowState = Status.siteRowState(entry, Object.assign({}, state, {
+        matchHost: Hosts.matchHostFor(entry),
+        pageHost: null,
+      }));
+      const row = document.createElement("div");
+      row.className = "site";
+      const copy = document.createElement("div");
+      copy.className = "site-copy";
+      const host = document.createElement("div");
+      host.className = "site-host";
+      host.textContent = entry;
+      const status = document.createElement("div");
+      status.className = `site-state${rowState.kind === "on" ? " ok" : rowState.kind === "error" ? " bad" : ""}`;
+      status.textContent = rowState.kind === "error" ? Failures.classify(rowState.label) : rowState.label;
+      copy.append(host, status);
+
+      const actions = document.createElement("div");
+      actions.className = "site-actions";
+      if (rowState.kind === "paused-browser") {
+        const allow = document.createElement("button");
+        allow.type = "button";
+        allow.textContent = "allow again";
+        allow.addEventListener("click", async () => {
+          allow.disabled = true;
+          await runSiteAction({ id: "allow-site", host: entry });
+        });
+        actions.append(allow);
+      }
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "remove";
+      remove.addEventListener("click", () => runSiteAction({ id: "remove-site", host: entry }));
+      actions.append(remove);
+      row.append(copy, actions);
+      list.append(row);
+    }
   }
-  const origin = globalThis.SolstoneHosts.permissionOriginForUrl(parsed.relayOrigin);
-  const intent = await cmd({ cmd: "relayIntent", relayOrigin: parsed.relayOrigin });
-  if (!intent.ok) {
-    $("pairStatus").textContent = "could not prepare relay permission.";
-    return;
+
+  function closeDisclosure(confirmed) {
+    if (!disclosureResolve) return;
+    $("siteDisclosure").hidden = true;
+    $("sitesMain").hidden = false;
+    const resolve = disclosureResolve;
+    disclosureResolve = null;
+    $("newHost").focus();
+    resolve(confirmed);
   }
-  let granted;
-  try {
-    granted = await chrome.permissions.request({ origins: [origin] });
-  } catch (_e) {
-    await cmd({ cmd: "relayIntentClear" });
-    $("pairStatus").textContent = "could not request relay permission.";
-    return;
+
+  function presentDisclosure(host) {
+    const copy = Disclosure.addSite(host, state);
+    $("siteDisclosureTitle").textContent = copy.title;
+    $("siteDisclosureWhat").textContent = copy.whatSolTakesIn;
+    $("siteDisclosureDestination").textContent = copy.destination.label;
+    $("siteDisclosureDestinationDetail").textContent = copy.destination.detail;
+    $("siteDisclosureChrome").textContent = copy.whatChromeDoes;
+    $("siteDisclosureConfirm").textContent = copy.confirmLabel;
+    $("siteDisclosureCancel").textContent = copy.cancelLabel;
+    $("sitesMain").hidden = true;
+    $("siteDisclosure").hidden = false;
+    $("siteDisclosureConfirm").focus();
+    return new Promise((resolve) => {
+      disclosureResolve = resolve;
+    });
   }
-  if (!granted) {
-    await cmd({ cmd: "relayIntentClear" });
-    $("pairStatus").textContent = "permission declined — remote home not paired.";
-    return;
+
+  async function refresh(options = {}) {
+    state = await cmd({ cmd: "getState" });
+    const preview = await cmd({ cmd: "getBufferedPreview" });
+    $("hostname").value = state.hostname || "";
+    $("journalUrl").value = state.journalUrl || "";
+    $("segmentSec").value = state.segmentSec || 300;
+    $("showPageIndicator").checked = !!state.showPageIndicator;
+    $("ver").textContent = state.version ? `v${state.version}` : "";
+    $("streamLabel").textContent = state.streamName || "browser";
+    renderFirstRun();
+    const rendered = renderJournal(preview, options.announceConnection !== false);
+    renderSites();
+    renderedOnce = true;
+    return rendered;
   }
-  $("pairStatus").textContent = "pairing…";
-  const res = await cmd({ cmd: "pairRemote", link });
-  if (res && res.ok) {
-    $("pairLink").value = "";
-    $("pairStatus").textContent = `paired to ${res.instanceId}.`;
-  } else {
-    $("pairStatus").textContent = "pairing failed: " + ((res && res.error) || "unknown error");
+
+  async function saveConfig() {
+    clearAnnouncement();
+    const segmentSec = Number.parseInt($("segmentSec").value, 10);
+    if (Number.isNaN(segmentSec) || segmentSec < 30) {
+      announce("minimum 30 seconds");
+      return;
+    }
+
+    const hostname = $("hostname").value;
+    const journalUrl = $("journalUrl").value;
+    const permission = await requestJournalAccess(journalUrl);
+    if (!permission.ok) {
+      await refresh({ announceConnection: false });
+      if (permission.denied) announce("permission declined. journal address unchanged.");
+      else if (permission.workerError) showActionError(permission.workerError);
+      else announce(permission.error || "could not request journal permission");
+      return;
+    }
+    await cmd({ cmd: "setConfig", hostname, journalUrl, segmentSec });
+    await cmd({ cmd: "probe" });
+    await refresh({ announceConnection: false });
+    announce("settings saved.");
   }
-  await refresh();
-}
 
-$("connForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  await saveConfig();
-});
-
-$("registerBtn").addEventListener("click", async () => {
-  const permission = await requestJournalAccess($("journalUrl").value);
-  if (!permission.ok) {
-    await refresh();
-    $("connStatus").textContent = permission.denied
-      ? "permission declined. journal address unchanged."
-      : permission.error || "could not request journal permission";
-    return;
+  async function addSite() {
+    clearAnnouncement();
+    const raw = $("newHost").value;
+    if (!Hosts.isValidHostInput(raw)) {
+      announce("enter a site like mail.google.com");
+      return;
+    }
+    const host = normHost(raw);
+    const result = await View.addSite(host, Object.assign(siteEffects(), { disclose: presentDisclosure }));
+    if (result.cancelled) return;
+    $("newHost").value = "";
+    await refresh({ announceConnection: false });
+    $("newHost").focus();
+    if (result.denied) announce("permission declined. nothing added.");
+    else if (result.error) showActionError(result.error);
+    else if (result.ok) announce(`added ${host}. open or reload a tab on it to begin.`);
+    else announce("could not add the site.");
   }
-  $("connStatus").textContent = "connecting…";
-  await cmd({ cmd: "probe" });
-  await refresh();
-});
 
-$("flushBtn").addEventListener("click", async () => {
-  const res = await cmd({ cmd: "flushNow" });
-  await refresh();
-  if (res.outcome === "failed") return;
-  const conn = globalThis.SolstoneStatus.connection(state);
-  if (res.outcome === "uploaded") $("connStatus").textContent = "sent.";
-  else if (res.outcome === "queued" && conn.consequence) $("connStatus").textContent = conn.consequence;
-  else if (res.outcome !== "queued") $("connStatus").textContent = "nothing waiting.";
-});
+  async function pairRemote() {
+    clearAnnouncement();
+    const link = $("pairLink").value.trim();
+    let parsed;
+    try {
+      parsed = Pairlink.parseLink(link);
+    } catch (_error) {
+      announce("paste a valid pair link.");
+      return;
+    }
+    const origin = Hosts.permissionOriginForUrl(parsed.relayOrigin);
+    const intent = await cmd({ cmd: "relayIntent", relayOrigin: parsed.relayOrigin });
+    if (!intent.ok) {
+      announce("could not prepare relay permission.");
+      return;
+    }
+    let granted;
+    try {
+      granted = await chrome.permissions.request({ origins: [origin] });
+    } catch (_error) {
+      await cmd({ cmd: "relayIntentClear" });
+      announce("could not request relay permission.");
+      return;
+    }
+    if (!granted) {
+      await cmd({ cmd: "relayIntentClear" });
+      announce("permission declined. your home was not paired.");
+      return;
+    }
+    const result = await cmd({ cmd: "pairRemote", link });
+    if (result.ok) $("pairLink").value = "";
+    await refresh({ announceConnection: false });
+    if (result.ok) announce("paired to your home.");
+    else showActionError(result.error || "pairing failed");
+  }
 
-$("showPageIndicator").addEventListener("change", async () => {
-  await cmd({ cmd: "setConfig", showPageIndicator: $("showPageIndicator").checked });
-});
+  $("destinationLocal").addEventListener("change", () => {
+    if (!$("destinationLocal").checked) return;
+    destinationOverride = "local";
+    showDestination("local");
+  });
+  $("destinationRemote").addEventListener("change", () => {
+    if (!$("destinationRemote").checked) return;
+    destinationOverride = "remote";
+    showDestination("remote");
+  });
+  $("firstRunChange").addEventListener("click", () => {
+    const selected = selectedDestination() === "remote" ? $("destinationRemote") : $("destinationLocal");
+    selected.focus();
+  });
 
-$("addForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  await addSite();
-});
+  $("connForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await saveConfig();
+  });
+  $("registerBtn").addEventListener("click", async () => {
+    clearAnnouncement();
+    const permission = await requestJournalAccess($("journalUrl").value);
+    if (!permission.ok) {
+      await refresh({ announceConnection: false });
+      if (permission.denied) announce("permission declined. journal address unchanged.");
+      else if (permission.workerError) showActionError(permission.workerError);
+      else announce(permission.error || "could not request journal permission");
+      return;
+    }
+    await cmd({ cmd: "probe" });
+    const rendered = await refresh({ announceConnection: false });
+    announce(rendered.connection.stateLabel);
+  });
+  $("flushBtn").addEventListener("click", async () => {
+    clearAnnouncement();
+    const result = await cmd({ cmd: "flushNow" });
+    const rendered = await refresh({ announceConnection: false });
+    if (result.outcome === "uploaded") announce("sent.");
+    else if (result.outcome === "queued" && rendered.connection.consequence) announce(rendered.connection.consequence);
+    else if (result.outcome === "queued") announce("kept here, waiting to sync.");
+    else if (result.outcome === "failed") showActionError((state.health && state.health.lastError) || result.error || "send failed");
+    else announce("nothing waiting.");
+  });
+  $("showPageIndicator").addEventListener("change", async () => {
+    await cmd({ cmd: "setConfig", showPageIndicator: $("showPageIndicator").checked });
+  });
+  $("addForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await addSite();
+  });
+  $("pairForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await pairRemote();
+  });
+  $("unpairBtn").addEventListener("click", async () => {
+    clearAnnouncement();
+    const result = await cmd({ cmd: "unpairRemote" });
+    await refresh({ announceConnection: false });
+    if (result.error) showActionError(result.error);
+    else announce("unpaired.");
+  });
+  $("siteDisclosureConfirm").addEventListener("click", () => closeDisclosure(true));
+  $("siteDisclosureCancel").addEventListener("click", () => closeDisclosure(false));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("siteDisclosure").hidden) closeDisclosure(false);
+  });
 
-$("pairForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  await pairRemote();
-});
-
-$("unpairBtn").addEventListener("click", async () => {
-  await cmd({ cmd: "unpairRemote" });
-  $("pairStatus").textContent = "unpaired.";
-  await refresh();
-});
-
-refresh();
+  globalThis.SolstoneOptions = { refresh };
+  refresh();
+})();

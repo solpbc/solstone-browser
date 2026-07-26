@@ -26,25 +26,26 @@ Nothing is read until you add a site.
 
 ## Connect your journal
 
-Open options by right-clicking the toolbar icon and choosing **Options**, or use
-the **settings ›** link in the popup.
+Settings opens when sol is first installed. To return later, right-click the
+toolbar icon and choose **Options**, or use the **settings ›** link in the popup.
 
-The short name you save labels the stream in both modes, so save it before
-pairing a remote home.
+Under **where your journal lives**, choose **this computer** or **somewhere
+else**. The **this computer's short name** labels the stream in both destinations,
+and **send to your journal every (seconds)** controls its batch interval, so both
+fields stay available whichever destination you choose.
 
-For **your journal on this computer**, leave the journal URL at
-`http://localhost:5015`, set **this computer's short name** to the name that
-should label the stream, then save or click **connect**. Chrome asks whether sol
-may reach that journal origin. The journal accepts registration from localhost.
+For **this computer**, leave **journal address** at `http://localhost:5015`, set
+the short name, then save or click **connect**. Chrome asks whether sol may reach
+that journal origin. The journal accepts registration from localhost.
 
-For **your home, reached over a sealed link**, get a pair link from your home.
-Paste it into the **pair link** field and click **pair**. Chrome asks whether sol
-may reach the relay origin. After you allow it, sol verifies the home fingerprint
-carried in the pair link before trusting the home, then reports the paired home
-and relay in settings.
+For **somewhere else**, get a pair link from your home, paste it into the **pair
+link** field, and click **pair**. Chrome asks whether sol may reach the relay
+origin. After you allow it, sol verifies the home fingerprint carried in the
+pair link before trusting the home, then shows the paired home and relay under
+**journal details**.
 
-Set **segment length** to `60` seconds for a quicker walkthrough. The default is
-300 seconds.
+Set **send to your journal every (seconds)** to `60` for a quicker walkthrough.
+The default is 300 seconds.
 
 ## Try it
 

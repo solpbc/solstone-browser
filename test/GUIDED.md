@@ -39,14 +39,17 @@ Test in a **fresh Chrome profile**, not your daily one:
    worker** link (that's leg 2's console — keep it handy). Nothing is read
    yet: the extension does nothing until you add a site.
 
-## Step 2 — point it at your journal (Options)
+## Step 2: point it at your journal (Options)
 
-Right-click the ☼ icon → **Options** (or "settings ›" in the popup):
+Settings opens when sol is first installed. To return later, right-click the ☼
+icon → **Options** (or "settings ›" in the popup):
 
-- **This computer's short name** — set it to the machine name (it labels the
-  stream, e.g. `suze` → the stream is `suze.browser`).
-- **Journal URL** — confirm `http://localhost:5015`.
-- **Segment length** — set to **60** seconds for a snappy demo (default 300).
+- Under **where your journal lives**, choose **this computer**.
+- Set **this computer's short name** to the machine name. It labels the stream;
+  for example, `suze` makes the stream `suze.browser`.
+- Under **journal address**, confirm `http://localhost:5015`.
+- Set **send to your journal every (seconds)** to **60** for a snappy demo
+  (default 300).
 - Click **connect**, allow access to the journal address when Chrome asks, and
   confirm the connection changes from **connecting** to **connected**.
 

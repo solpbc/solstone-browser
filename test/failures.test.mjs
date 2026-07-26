@@ -9,14 +9,14 @@ await import(new URL("../extension/lib/failures.js", import.meta.url));
 const F = globalThis.SolstoneFailures;
 
 test("classify maps network failures", () => {
-  const line = "your journal didn't answer — is your journal running on this computer?";
+  const line = "your journal didn't answer. is your journal running on this computer?";
   assert.equal(F.classify("TypeError: Failed to fetch", 0), line);
   assert.equal(F.classify("NetworkError when attempting to fetch", undefined), line);
 });
 
 test("classify maps HTTP failures", () => {
-  assert.equal(F.classify("register failed: HTTP 404 {}", undefined), "your journal said no (HTTP 404) — try again, or check settings");
-  assert.equal(F.classify("boom", 500), "your journal said no (HTTP 500) — try again, or check settings");
+  assert.equal(F.classify("register failed: HTTP 404 {}", undefined), "your journal said no (HTTP 404). try again, or check settings");
+  assert.equal(F.classify("boom", 500), "your journal said no (HTTP 500). try again, or check settings");
 });
 
 test("classify maps chrome-restricted failures", () => {
@@ -24,13 +24,13 @@ test("classify maps chrome-restricted failures", () => {
 });
 
 test("classify maps unmapped failures", () => {
-  assert.equal(F.classify("weird thing happened", undefined), "something went wrong — weird thing happened");
+  assert.equal(F.classify("weird thing happened", undefined), "something went wrong: weird thing happened");
 });
 
 test("classify truncates long unmapped failures", () => {
   const result = F.classify("x".repeat(100), undefined);
   assert.equal(result.endsWith("…"), true);
-  assert.ok(result.length <= "something went wrong — ".length + 81);
+  assert.ok(result.length <= "something went wrong: ".length + 81);
 });
 
 test("contentScriptRegistrationSatisfied absorbs only an existing requested id", () => {

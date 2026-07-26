@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
-export const BANNED_VOCABULARY = /\b(?:prototype|users?|captur(?:e|es|ed|ing)|record(?:s|ed|ing)?|monitor(?:s|ed|ing)?|watch(?:es|ed|ing)?|track(?:s|ed|ing)?|collect(?:s|ed|ing)?|observ(?:e|es|ed|ing|ation|ations))\b/i;
+export const BANNED_VOCABULARY = /(?:\b(?:prototype|users?|captur(?:e|es|ed|ing)|record(?:s|ed|ing)?|monitor(?:s|ed|ing)?|watch(?:es|ed|ing)?|track(?:s|ed|ing)?|collect(?:s|ed|ing)?|observ(?:e|es|ed|ing|ation|ations)|local\s+journal|local-relay|journal\s+service|journal\s+host|sol\s+browser|a\s+server)\b|—)/i;
 
 const FREE_STANDING_EDGE = /[-_/.]/;
 const TOKEN_CHAR = /[\w$]/;

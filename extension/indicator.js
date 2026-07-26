@@ -46,7 +46,7 @@
     labelEl.textContent = "on";
     pill.appendChild(mark);
     pill.appendChild(labelEl);
-    pill.title = "sol is experiencing this page with you — kept in your journal";
+    pill.title = "sol is experiencing this page with you, kept in your journal";
     root.appendChild(pill);
     (document.body || document.documentElement).appendChild(hostEl);
   }

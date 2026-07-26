@@ -729,7 +729,7 @@ async function flushSeg(seg, now, force = false) {
   try {
     cfg = await ensureRegistered();
   } catch (_e) {
-    console.warn("[solstone] cannot upload segment — journal unreachable; queued in offline outbox");
+    console.warn("[solstone] cannot upload segment: journal unreachable; queued in offline outbox");
     return { outcome: "queued", entry: Object.assign({ mode: "local" }, entry), nextSigs };
   }
   let res;
@@ -1398,5 +1398,8 @@ async function init() {
   await updateBadge();
 }
 
-chrome.runtime.onInstalled.addListener(init);
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === "install") chrome.runtime.openOptionsPage();
+  init();
+});
 chrome.runtime.onStartup.addListener(init);

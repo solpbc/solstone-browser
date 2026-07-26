@@ -4,7 +4,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>sol browser — settings</title>
+    <title>sol settings</title>
     <style>
       @font-face { font-family: "Comfortaa"; src: url("fonts/comfortaa.woff2") format("woff2"); font-weight: 700; font-display: swap; }
       @font-face { font-family: "InterBody"; src: url("fonts/inter.woff2") format("woff2"); font-weight: 400 600; font-display: swap; }
@@ -15,15 +15,18 @@
         --soft: #5b5246;
         --muted: #6e6453;
         --line: #ece3d0;
-        --line2: #e2d7bf;
+        --field-line: #96896F;
         --orange: #e8923a;
-        --orange-ink: #b06a1a;
         --orange-wash: #fbefdd;
-        --ok: #166534;
-        --ok-wash: #e7f1e9;
+        --focus: #B06A1A;
+        --success: #3F9D6A;
+        --success-ink: #166534;
+        --success-wash: #e7f1e9;
+        --warn: #C99A2E;
         --bad: #9f2d2d;
         --bad-wash: #f8e9e6;
       }
+      [hidden] { display: none !important; }
       body {
         font: 14px/1.5 "InterBody", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         background: var(--ground);
@@ -33,6 +36,7 @@
       }
       .wrap { max-width: 620px; margin: 0 auto; }
       h1 {
+        margin: 0;
         font-family: "Comfortaa", system-ui, sans-serif;
         font-weight: 700;
         font-size: 19px;
@@ -42,6 +46,9 @@
         letter-spacing: -0.3px;
       }
       h1 .desc { font-family: "InterBody", sans-serif; font-weight: 400; font-size: 13px; color: var(--muted); }
+      h2 { font-size: 15px; margin: 0 0 8px; }
+      h3 { font-size: 14px; margin: 16px 0 6px; }
+      p { margin: 8px 0 0; }
       .card {
         background: var(--surface);
         border: 1px solid var(--line);
@@ -49,150 +56,278 @@
         padding: 16px 18px;
         margin: 16px 0;
       }
-      h2 { font-size: 14px; margin: 0 0 8px; }
+      .first-run { background: var(--orange-wash); }
       .muted { color: var(--muted); font-size: 12px; }
+      .strongish { color: var(--ink); }
       label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; }
       input {
         font: inherit;
         width: 100%;
         box-sizing: border-box;
         padding: 9px 10px;
-        border: 1px solid var(--line2);
+        border: 1px solid var(--field-line);
         border-radius: 9px;
         background: #fff;
         color: var(--ink);
       }
-      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      input[type="radio"],
+      input[type="checkbox"] { width: auto; }
       button {
+        min-height: 34px;
         font: inherit;
-        border: 1px solid var(--line2);
-        background: #fff;
+        border: 1px solid var(--field-line);
+        background: var(--surface);
         color: var(--ink);
         border-radius: 9px;
-        padding: 9px 14px;
+        padding: 7px 12px;
         cursor: pointer;
-        margin-top: 12px;
       }
-      button.primary { background: var(--orange); border-color: var(--orange); color: #1a1a1a; font-weight: 600; }
+      button.primary { background: var(--orange); border-color: var(--orange); color: var(--ink); font-weight: 600; }
+      button:disabled { cursor: default; opacity: .5; }
+      button:focus-visible,
+      a:focus-visible,
+      input:focus-visible,
+      summary:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 2px;
+      }
+      a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+      code { background: var(--orange-wash); color: var(--ink); padding: 1px 6px; border-radius: 5px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+      .lead-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+      .journal-lead { color: var(--soft); }
+      .state-chip {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 24px;
+        box-sizing: border-box;
+        padding: 2px 9px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--ink);
+        font-size: 12px;
+      }
+      .state-chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+      .state-chip.ok { color: var(--success-ink); background: var(--success-wash); border-color: transparent; }
+      .state-chip.ok::before { background: var(--success); }
+      .state-chip.attention { color: var(--bad); background: var(--bad-wash); border-color: transparent; }
+      .state-chip.attention::before { background: var(--bad); }
+      .state-chip.unavailable { border-color: var(--warn); }
+      .state-chip.unavailable::before { background: var(--warn); }
+      fieldset {
+        margin: 14px 0 0;
+        padding: 0;
+        border: 0;
+      }
+      legend { padding: 0; color: var(--muted); font-size: 12px; }
+      .destination-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 5px; }
+      .destination-options label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 34px;
+        box-sizing: border-box;
+        margin: 0;
+        padding: 6px 10px;
+        border: 1px solid var(--field-line);
+        border-radius: 9px;
+        color: var(--ink);
+        background: #fff;
+      }
+      .branch { margin-top: 12px; padding-top: 2px; }
+      .stream-row { margin-top: 10px; color: var(--muted); font-size: 12px; }
+      .stream-row code { margin-left: 5px; }
+      .destination-box {
+        margin-top: 12px;
+        padding: 10px 11px;
+        border-radius: 10px;
+        background: var(--surface);
+      }
+      .destination-box .key { color: var(--muted); font-size: 11px; letter-spacing: .04em; }
+      .destination-box .value { margin-top: 3px; font-weight: 600; }
+      .destination-box .detail { margin-top: 2px; color: var(--soft); font-size: 12px; overflow-wrap: anywhere; }
+      details { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+      summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+      .detail-row { margin-top: 9px; overflow-wrap: anywhere; }
+      .detail-row .key { display: block; color: var(--muted); font-size: 11px; }
+      .waiting-host { margin-top: 8px; }
+      .waiting-host strong { font-size: 12px; }
+      .waiting-host ul { margin: 4px 0 0 18px; padding: 0; color: var(--soft); font-size: 12px; }
+      .loss-detail { color: var(--bad); }
+      .loss-detail button { margin-top: 8px; }
+      .addrow { display: flex; gap: 8px; align-items: flex-end; }
+      .addrow > div { flex: 1; }
       .site {
         display: flex;
         justify-content: space-between;
         align-items: center;
+        gap: 12px;
         padding: 9px 0;
         border-top: 1px solid var(--line);
       }
-      .site:first-child { border-top: none; }
-      .site button { margin: 0; padding: 4px 11px; font-size: 12px; }
-      .pill { font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); }
-      .pill.ok { color: var(--ok); background: var(--ok-wash); border-color: transparent; }
-      .pill.bad { color: var(--bad); background: var(--bad-wash); border-color: transparent; }
-      .addrow { display: flex; gap: 8px; align-items: flex-end; }
-      .addrow > div { flex: 1; }
-      .addrow button { margin: 0; }
-      .status { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 16px; }
-      details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
-      summary { cursor: pointer; color: var(--muted); font-size: 12px; }
-      .waiting-host { margin-top: 8px; }
-      .waiting-host strong { font-size: 12px; }
-      .waiting-host ul { margin: 4px 0 0 18px; padding: 0; color: var(--soft); font-size: 12px; }
-      .loss { color: var(--bad); font-size: 12px; margin-top: 8px; display: flex; gap: 8px; align-items: center; justify-content: space-between; }
-      .loss button { margin: 0; padding: 4px 10px; font-size: 12px; }
-      .disabled-link { color: var(--muted); text-decoration: none; pointer-events: none; }
-      code { background: var(--orange-wash); color: var(--orange-ink); padding: 1px 6px; border-radius: 5px; }
-      a { color: var(--orange-ink); }
+      .site:first-child { border-top: 0; }
+      .site-copy { min-width: 0; overflow-wrap: anywhere; }
+      .site-host { font-weight: 600; }
+      .site-state { color: var(--soft); font-size: 12px; }
+      .site-state.ok { color: var(--success-ink); }
+      .site-state.bad { color: var(--bad); }
+      .site-actions { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 6px; }
+      .site button { min-height: 24px; padding: 3px 10px; font-size: 12px; }
+      .marker-label { display: flex; align-items: center; gap: 8px; margin: 6px 0; color: var(--ink); }
+      .action-message { min-height: 0; margin: 12px 0; color: var(--bad); font-size: 12px; }
+      footer { color: var(--muted); font-size: 12px; }
+      @media (max-width: 620px) {
+        body { padding: 18px; }
+        .grid, .destination-options { grid-template-columns: 1fr; }
+        .site { align-items: flex-start; flex-direction: column; }
+      }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <h1>
-        <img src="brand/sol-ring.svg" width="24" height="24" alt="" />
-        sol <span class="desc">browser — settings</span>
-      </h1>
-      <p class="muted">
-        this prototype experiences only the web apps you add below — taking in their visible text, never screenshots — and
-        relays it into your local journal as its own <code>browser</code> stream. nothing is read until you add
-        a site. the toolbar icon is the always-on status light; the on-page marker is optional.
-      </p>
+      <header id="pageHeader">
+        <h1 id="pageTitle">
+          <img src="brand/sol-ring.svg" width="24" height="24" alt="" />
+          sol <span class="desc">settings</span>
+        </h1>
+      </header>
+      <p id="intro" class="muted">choose where your journal lives, manage your sites, and decide whether sol shows its on-page marker.</p>
 
-      <div class="card">
-        <h2>journal connection</h2>
+      <section id="firstRun" class="card first-run" hidden>
+        <h2 id="firstRunHeading"></h2>
+        <p id="firstRunComposition" class="strongish"></p>
+        <p id="firstRunCovenant" class="strongish"></p>
+        <h3 id="firstRunScope"></h3>
+        <p id="firstRunWhat"></p>
+        <p id="firstRunNever"></p>
+        <div class="destination-box">
+          <div class="key">it goes to</div>
+          <div id="firstRunDestination" class="value"></div>
+          <div id="firstRunDestinationDetail" class="detail"></div>
+          <button id="firstRunChange" type="button" aria-label="change where your journal lives">change</button>
+        </div>
+        <p id="firstRunNothingYet" class="muted"></p>
+      </section>
+
+      <section id="journalCard" class="card">
+        <h2>your journal</h2>
+        <div class="lead-row">
+          <div id="journalLead" class="journal-lead"></div>
+          <span id="journalStateChip" class="state-chip calm"></span>
+        </div>
+
+        <fieldset id="destinationChoice">
+          <legend>where your journal lives</legend>
+          <div class="destination-options">
+            <label><input id="destinationLocal" type="radio" name="journalDestination" value="local" /> this computer</label>
+            <label><input id="destinationRemote" type="radio" name="journalDestination" value="remote" /> somewhere else</label>
+          </div>
+        </fieldset>
+
         <form id="connForm" novalidate>
           <div class="grid">
             <div>
-              <label>this computer’s short name (labels the stream)</label>
+              <label for="hostname">this computer's short name</label>
               <input id="hostname" placeholder="e.g. laptop" />
+              <div class="muted">labels the browser stream in both destinations.</div>
+              <div class="stream-row">stream <code id="streamLabel"></code></div>
             </div>
             <div>
-              <label>journal url (local)</label>
-              <input id="journalUrl" placeholder="http://localhost:5015" />
+              <label for="segmentSec">send to your journal every (seconds)</label>
+              <input id="segmentSec" type="number" min="30" step="30" placeholder="300" />
+              <div class="muted">how often sol sends a batch to your journal. default 300.</div>
             </div>
           </div>
-          <label>send to your journal every (seconds)</label>
-          <input id="segmentSec" type="number" min="30" step="30" placeholder="300" />
-          <div class="muted">how often what sol takes in is batched and sent. default 300.</div>
-          <div>
-            <button id="saveBtn" class="primary" type="submit">save</button>
-            <button id="registerBtn" type="button">connect</button>
-            <button id="flushBtn" type="button">send now</button>
+          <div class="actions"><button id="saveBtn" class="primary" type="submit">save</button></div>
+          <div id="localDestination" class="branch">
+            <label for="journalUrl">journal address</label>
+            <input id="journalUrl" placeholder="http://localhost:5015" />
+            <div class="actions"><button id="registerBtn" type="button">connect</button></div>
           </div>
         </form>
-        <p class="muted"><a href="#" id="journalLink" target="_blank" rel="noopener">open your journal ↗</a></p>
-        <div class="status" id="connStatus"></div>
-        <details id="waitingDetails">
-          <summary id="waitingSummary">waiting to send (0 updates)</summary>
-          <div id="waitingBody" class="muted">nothing waiting.</div>
+
+        <div id="remoteDestination" class="branch" hidden>
+          <form id="pairForm" novalidate>
+            <label for="pairLink">pair link</label>
+            <input id="pairLink" placeholder="https://go.solstone.app/p#…" />
+            <div class="actions">
+              <button id="pairBtn" class="primary" type="submit">pair</button>
+              <button id="unpairBtn" type="button">unpair</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="actions">
+          <button id="flushBtn" type="button">send now</button>
+          <a id="journalLink" target="_blank" rel="noopener" hidden>open your journal ↗</a>
+        </div>
+
+        <details id="journalDetails">
+          <summary id="journalDetailsSummary">journal details</summary>
+          <div id="pairInstanceId" class="detail-row" hidden></div>
+          <div id="pairRelayOrigin" class="detail-row" hidden></div>
+          <div id="journalError" class="detail-row" hidden></div>
+          <div id="lastSyncDetail" class="detail-row" hidden></div>
+          <div id="waitingRow" class="detail-row" hidden>
+            <span class="key">waiting to sync</span>
+            <div id="waitingPreview"></div>
+          </div>
+          <div id="lossDetail" class="detail-row loss-detail" hidden></div>
         </details>
-      </div>
+      </section>
 
-      <div class="card">
-        <h2>remote home</h2>
-        <form id="pairForm" novalidate>
-          <label>pair link</label>
-          <input id="pairLink" placeholder="https://go.solstone.app/p#…" />
-          <div>
-            <button id="pairBtn" class="primary" type="submit">pair</button>
-            <button id="unpairBtn" type="button">unpair</button>
-          </div>
-        </form>
-        <div class="status" id="pairStatus"></div>
-        <div class="muted" id="remoteState">not paired.</div>
-      </div>
-
-      <div class="card">
-        <h2>added sites</h2>
-        <p class="muted">adding a site asks chrome for permission to read just that site. if chrome removes access, sol pauses it — allow again any time here; remove forgets it.</p>
-        <form id="addForm" novalidate>
-          <div class="addrow">
-            <div>
-              <label>add a site by host</label>
-              <input id="newHost" placeholder="mail.google.com" />
+      <section id="sitesCard" class="card">
+        <h2>your sites</h2>
+        <p class="muted">sol takes in the visible text and rough layout of only the sites you add, along with you, and keeps it in your journal. chrome asks before a site is added, and you can remove it any time.</p>
+        <div id="sitesMain">
+          <form id="addForm" novalidate>
+            <div class="addrow">
+              <div>
+                <label for="newHost">add a site by host</label>
+                <input id="newHost" placeholder="mail.google.com" />
+              </div>
+              <button id="addBtn" class="primary" type="submit">add</button>
             </div>
-            <button id="addBtn" class="primary" type="submit">add</button>
+          </form>
+          <div id="siteList"></div>
+        </div>
+        <section id="siteDisclosure" hidden>
+          <h3 id="siteDisclosureTitle"></h3>
+          <p id="siteDisclosureWhat" class="strongish"></p>
+          <div class="destination-box">
+            <div class="key">it goes to</div>
+            <div id="siteDisclosureDestination" class="value"></div>
+            <div id="siteDisclosureDestinationDetail" class="detail"></div>
           </div>
-        </form>
-        <div class="status" id="addStatus"></div>
-        <div id="siteList" style="margin-top: 12px"></div>
-      </div>
+          <p id="siteDisclosureChrome"></p>
+          <div class="actions">
+            <button id="siteDisclosureConfirm" class="primary" type="button"></button>
+            <button id="siteDisclosureCancel" type="button"></button>
+          </div>
+        </section>
+      </section>
 
-      <div class="card">
+      <section id="indicatorCard" class="card">
         <h2>on-page marker</h2>
-        <label style="display:flex;align-items:center;gap:8px;margin:6px 0;color:var(--ink)">
-          <input type="checkbox" id="showPageIndicator" style="width:auto" />
+        <label class="marker-label">
+          <input type="checkbox" id="showPageIndicator" />
           also show a floating sol-mark “on” marker on added pages
         </label>
-        <p class="muted">off by default. your always-on signal is the toolbar icon, which reads on / paused / needs attention at a glance. turn this on to add an on-page marker too.</p>
-      </div>
+        <p class="muted">off by default. the toolbar icon shows on, paused, or needs attention. turn this on to show an on-page marker too.</p>
+      </section>
 
-      <p class="muted">
-        prototype · solstone-browser <span id="ver"></span> · semantic-only, opt-in, local-relay · stream
-        <code id="streamLabel">—</code>
-      </p>
+      <div id="actionMessage" class="action-message" aria-live="polite"></div>
+      <footer id="pageFooter">solstone browser <span id="ver"></span> · semantic only · opt in</footer>
     </div>
     <script src="lib/hosts.js"></script>
     <script src="lib/status.js"></script>
     <script src="lib/pairlink.js"></script>
-    <script src="lib/escape.js"></script>
     <script src="lib/failures.js"></script>
+    <script src="lib/disclosure.js"></script>
+    <script src="lib/popup_view.js"></script>
     <script src="options.js"></script>
   </body>
 </html>

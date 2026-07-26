@@ -3,6 +3,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { BANNED_VOCABULARY } from "./vocabulary.mjs";
 
 await import(new URL("../extension/lib/disclosure.js", import.meta.url));
 
@@ -90,7 +91,7 @@ test("firstRun is complete and shares the live destination derivation", () => {
 
 function assertOwnerCopy(copy) {
   const text = JSON.stringify(copy);
-  assert.doesNotMatch(text, /\u2014|capture|record|monitor|watch|track|observ(?:e|es|ed|ing|ation)|\busers?\b|prototype/i);
+  assert.doesNotMatch(text, BANNED_VOCABULARY);
 }
 
 test("addSite copy obeys the owner-copy constraints", () => {

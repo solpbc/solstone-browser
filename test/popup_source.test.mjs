@@ -50,7 +50,6 @@ test("popup uses real DOM construction and removes all retired selectors", () =>
   assert.doesNotMatch(popupSource, /innerHTML/);
   assert.match(popupSource, /document\.createElement\(/);
   assert.match(popupSource, /\.textContent\s*=/);
-  assert.doesNotMatch(html, /lib\/escape\.js/);
 
   const retired = [
     "journalState", "pauseState", "pageState", "pinHint", "streamLabel",
@@ -83,23 +82,7 @@ test("popup color tokens keep orange out of normal-size text and strengthen cont
   assert.match(html, /button\.primary\s*\{[^}]*border-color:\s*var\(--orange\)/s);
 });
 
-function assertOwnerCopy(files) {
-  const joined = files.join("\n");
-  assert.doesNotMatch(joined, /\u2014|capture|record|monitor|watch|track|observ(?:e|es|ed|ing|ation)|\busers?\b|prototype/i);
-  assert.doesNotMatch(joined, /local journal|journal service|journal host|\ba server\b|sol browser/i);
-}
-
-test("the four A7-L2 owner-copy files obey the copy bans", async () => {
-  // L3 AC 14 owns the repository-wide sweep, including frozen failures.js.
-  const files = await Promise.all([
-    "extension/popup.html",
-    "extension/popup.js",
-    "extension/lib/disclosure.js",
-    "extension/lib/popup_view.js",
-  ].map((path) => readFile(new URL(path, root), "utf8")));
-  assertOwnerCopy(files);
-  assert.throws(() => assertOwnerCopy(["prototype users observe\u2014everything"]));
-});
+// test/vocabulary.test.mjs owns the repository-wide owner-copy guard.
 
 test("the empty loss block and its competing predicates are gone", () => {
   assert.doesNotMatch(`${html}\n${popupSource}`, /lossBtn|lossText|id=["']loss["']|dropped\.segments\s*>/);

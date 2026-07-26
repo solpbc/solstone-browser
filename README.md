@@ -6,16 +6,16 @@ with you, reading their visible text and rough layout, **never screenshots**.
 It delivers what it reads to your journal on this computer or to your journal
 at your paired home as its own `browser` stream.
 
-A browser extension isn't a new product; it's a new **observer surface** — and
+A browser extension isn't a new product; it's a new **observer surface**, and
 the most *semantic* one in the fleet. The OS screen observer already owns the
 pixels of the foreground tab. What only an extension can do is read the **text
-and structure of the apps you keep open** — a new email's sender/subject/body, a
-Slack message, a PR review request — as clean text, in background tabs, the
+and structure of the apps you keep open**: a new email's sender/subject/body, a
+Slack message, a PR review request, as clean text, in background tabs, the
 moment the page changes.
 
 This is a Chromium desktop Web Store candidate. It is opt-in per site and
-delivers directly to the local journal by default, with an optional paired
-remote home. See [`INSTALL.md`](INSTALL.md) to install it.
+delivers directly to your journal on this computer by default, with an optional
+paired remote home. See [`INSTALL.md`](INSTALL.md) to install it.
 
 ## How it works
 
@@ -87,7 +87,7 @@ extension/            the unpacked-loadable MV3 extension
   adapters.js         Gmail + Slack adapters + generic fallback (data, not code)
   indicator.js        optional on-page "on" / "paused" sol marker (closed shadow root)
   popup.html/.js      toolbar popup: verdict, add-this-site disclosure, pause-all
-  options.html/.js    settings + allowlist manager + remote pairing
+  options.html/.js    settings: first-run disclosure, journal card, sites, on-page marker
   lib/blocks.js       pure block helpers (role→type, id, normalize) — shared, tested
   lib/segment.js      pure snapshot/delta differ + JSONL serializer — shared, tested
   lib/reconcile.js    pure desired-site / Chrome-grant reconciliation
@@ -130,11 +130,11 @@ npm run e2e       # agentic integration: content script -> service worker -> jou
 
 Two ways to exercise the live path (content script → worker → journal/relay):
 
-- **Agentic** — `npm run e2e` (a.k.a. `make e2e`) drives it under headless
+- **Agentic:** `npm run e2e` (a.k.a. `make e2e`) drives it under headless
   automation against a stub journal/relay, including the dynamic
   `registerContentScripts` injection and the paired HPKE relay path. See
   [AGENTS.md](AGENTS.md) § agentic e2e.
-- **Guided** — [test/GUIDED.md](test/GUIDED.md) is the human-in-the-loop
+- **Guided:** [test/GUIDED.md](test/GUIDED.md) is the human-in-the-loop
   walkthrough you run in real Chrome (the one that proves the real per-site opt-in).
 
 ## Build & install a release

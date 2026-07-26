@@ -18,16 +18,14 @@ import {
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const EXTENSION = join(ROOT, "extension");
-const EXEMPTIONS = new Map([
-  ["extension/options.html", new Set(["prototype"])], // req_a6qkxcqo: byte-frozen owner copy, delete when the routed change lands.
-]);
+const EXEMPTIONS = new Map();
 
 function read(rel) {
   return readFileSync(join(ROOT, rel), "utf8");
 }
 
-function withoutExemptions(findings) {
-  return findings.filter((finding) => !EXEMPTIONS.get(finding.file)?.has(finding.word.toLowerCase()));
+function withoutExemptions(findings, exemptions = EXEMPTIONS) {
+  return findings.filter((finding) => !exemptions.get(finding.file)?.has(finding.word.toLowerCase()));
 }
 
 function extensionJavaScript(dir = EXTENSION) {
@@ -44,9 +42,32 @@ function extensionJavaScript(dir = EXTENSION) {
 
 test("shared vocabulary permits observer nouns and rejects retired owner words", () => {
   assert.doesNotMatch("observer observers", BANNED_VOCABULARY);
+  assert.doesNotMatch("solstone browser solstone-browser", BANNED_VOCABULARY);
+  assert.deepEqual(scanMarkdown("solstone browser", "listing.md"), []);
+  assert.deepEqual(scanMarkdown("solstone-browser", "listing.md"), []);
   for (const word of ["prototype", "user", "observed", "observing", "observation", "observations"]) {
     assert.match(word, BANNED_VOCABULARY);
   }
+});
+
+test("shared vocabulary rejects every phrase and punctuation addition", () => {
+  const fixtures = [
+    "text — text",
+    "your local\njournal",
+    "local-relay",
+    "the journal service answers",
+    "the journal host answers",
+    "sol browser settings",
+    "a server stores it",
+  ];
+  for (const fixture of fixtures) assert.match(fixture, BANNED_VOCABULARY, fixture);
+
+  assert.deepEqual(scanMarkdown("safe text — unsafe text", "copy.md"), [
+    { file: "copy.md", line: 1, word: "—", surface: "markdown-prose" },
+  ]);
+  assert.deepEqual(scanMarkdown("your local\njournal", "copy.md"), [
+    { file: "copy.md", line: 1, word: "local\njournal", surface: "markdown-prose" },
+  ]);
 });
 
 test("markdown scanner finds prose and ignores fenced and inline code", () => {
@@ -155,11 +176,14 @@ test("javascript free-standing rule does not hide sentence punctuation", () => {
   ]);
 });
 
-test("options exemption suppresses only prototype in the routed file", () => {
-  const findings = scanHtml("<p>prototype monitoring</p>", "extension/options.html");
-  assert.deepEqual(withoutExemptions(findings), [
-    { file: "extension/options.html", line: 1, word: "monitoring", surface: "html-text" },
+test("a synthetic exemption suppresses only its own token in its own file", () => {
+  const file = "synthetic/page.html";
+  const exemptions = new Map([[file, new Set(["prototype"])]]);
+  const findings = scanHtml("<p>prototype monitoring</p>", file);
+  assert.deepEqual(withoutExemptions(findings, exemptions), [
+    { file, line: 1, word: "monitoring", surface: "html-text" },
   ]);
+  assert.equal(withoutExemptions(findings, new Map()).length, 2);
 });
 
 test("changelog boundary keeps current entries and freezes shipped history", () => {

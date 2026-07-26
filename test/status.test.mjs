@@ -309,11 +309,27 @@ test("verdict returns the exact public shape and copy for all thirteen kinds", (
       },
     ],
     [
-      S.normalize({ allowlist: ["x"], key: "k", waiting: 1 }),
+      S.normalize({ allowlist: ["x"], key: "k", waiting: 1, outboxLines: 0 }),
       { activeSites: ["x"] },
       {
         kind: "on", tone: "ok", headline: "on", sub: "going to your journal on this computer",
-        reason: "waiting to sync", actions: [], also: [],
+        reason: "", actions: [], also: [],
+      },
+    ],
+    [
+      S.normalize({ allowlist: ["x"], key: "k", waiting: 3, outboxLines: 2 }),
+      { activeSites: ["x"] },
+      {
+        kind: "on", tone: "ok", headline: "on", sub: "going to your journal on this computer",
+        reason: "2 updates from earlier waiting to sync.", actions: [], also: [],
+      },
+    ],
+    [
+      S.normalize({ allowlist: ["x"], key: "k", waiting: 2, outboxLines: 1 }),
+      { activeSites: ["x"] },
+      {
+        kind: "on", tone: "ok", headline: "on", sub: "going to your journal on this computer",
+        reason: "1 update from earlier waiting to sync.", actions: [], also: [],
       },
     ],
     [
@@ -560,6 +576,7 @@ test("verdict and iconState owner strings obey the copy constraints", () => {
     [{ allowlist: ["a", "b"], key: "k", siteErrors: { a: "x", b: "y" } }, {}],
     [{ allowlist: ["x"], key: "k", paused: true, waiting: 2 }, {}],
     [{ allowlist: ["x"], key: "k", waiting: 2 }, {}],
+    [{ allowlist: ["x"], key: "k", waiting: 3, outboxLines: 2 }, {}],
     [{ allowlist: ["x"], key: "k", dropped: { segments: 1 } }, { outbox: { lines: 0 } }],
     [{ allowlist: ["x"], key: "k", dropped: { segments: 1 }, health: { lastError: "down" } }, { outbox: { lines: 0 } }],
     [{ allowlist: ["x"], remotePending: { relayOrigin: pairedRemote.relayOrigin }, health: { lastError: "down" } }, {}],

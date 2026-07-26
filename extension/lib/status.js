@@ -111,6 +111,7 @@
         pairedAt: (remote && remote.pairedAt) || null,
       },
       waiting: Math.max(0, Number(typeof extras.waiting === "undefined" ? cfg.waiting || 0 : extras.waiting)),
+      outboxLines: Math.max(0, Number(typeof extras.outboxLines === "undefined" ? cfg.outboxLines || 0 : extras.outboxLines)),
       dropped: {
         segments: Math.max(0, Number(dropped.segments || 0)),
         lines: Math.max(0, Number(dropped.lines || 0)),
@@ -322,7 +323,7 @@
         case "on":
           tone = "ok";
           headline = "on";
-          if (status.waiting > 0) reason = "waiting to sync";
+          if (status.outboxLines > 0) reason = `${status.outboxLines} update${status.outboxLines === 1 ? "" : "s"} from earlier waiting to sync.`;
           break;
         default:
           throw new Error(`unknown verdict kind: ${kind}`);

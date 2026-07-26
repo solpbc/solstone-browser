@@ -1051,7 +1051,7 @@ async function updateBadge() {
   const ctxs = seg ? Object.values(seg.ctxs) : [];
   const activeSites = [...new Set(ctxs.filter((e) => e.active).map((e) => e.host))];
   const { summary, outboxInfo } = await waitingSummary(seg);
-  const status = globalThis.SolstoneStatus.normalize(cfg, { waiting: summary.waiting, dropped: summary.dropped });
+  const status = globalThis.SolstoneStatus.normalize(cfg, { waiting: summary.waiting, outboxLines: summary.outboxLines, dropped: summary.dropped });
   const { prefix, title, badge } = globalThis.SolstoneStatus.iconState(
     status,
     {
@@ -1168,7 +1168,7 @@ async function handleCommand(msg, sendResponse) {
           pendingLines,
           outbox: outboxInfo,
           version: VERSION,
-        }, globalThis.SolstoneStatus.normalize(cfg, { waiting: summary.waiting, dropped: summary.dropped })));
+        }, globalThis.SolstoneStatus.normalize(cfg, { waiting: summary.waiting, outboxLines: summary.outboxLines, dropped: summary.dropped })));
         break;
       }
       case "getBufferedPreview": {

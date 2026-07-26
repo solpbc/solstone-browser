@@ -812,13 +812,17 @@ async function main() {
         className: verdict && verdict.className,
         headline: document.getElementById("verdictHeadline")?.textContent,
         sub: document.getElementById("verdictSub")?.textContent,
+        reason: document.getElementById("verdictReason")?.textContent,
+        reasonHidden: document.getElementById("verdictReason")?.hidden,
       };
     });
-    ok("sealed delivery with no local key gives the popup the same healthy state",
+    ok("sealed delivery with no local key gives the popup the same healthy state with no reason line",
       remotePopupState.role === "status"
         && (remotePopupState.className || "").split(/\s+/).includes("ok")
         && remotePopupState.headline === "on"
-        && remotePopupState.sub === "going to your journal at your home, sealed on the way",
+        && remotePopupState.sub === "going to your journal at your home, sealed on the way"
+        && remotePopupState.reason === ""
+        && remotePopupState.reasonHidden === true,
       JSON.stringify(remotePopupState));
 
     stub.setDropRemoteAck(true);

@@ -29,6 +29,9 @@ Nothing is read until you add a site.
 Open options by right-clicking the toolbar icon and choosing **Options**, or use
 the **settings ›** link in the popup.
 
+The short name you save labels the stream in both modes, so save it before
+pairing a remote home.
+
 For **your journal on this computer**, leave the journal URL at
 `http://localhost:5015`, set **this computer's short name** to the name that
 should label the stream, then save or click **connect**. Chrome asks whether sol

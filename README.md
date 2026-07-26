@@ -41,8 +41,10 @@ remote home. See [`INSTALL.md`](INSTALL.md) to install it.
   keeps your choice so you can allow it again; unused grants are released unless
   their hostname is also used by your configured journal or a paired or pending
   remote-home relay.
-- **Semantic-only.** It reads visible text via the `innerText` visibility
-  oracle + ARIA roles/semantic tags; it never calls `captureVisibleTab`.
+- **Semantic-only.** It considers only elements that pass
+  `Element.checkVisibility()` (with a rendered-box fallback), reads their
+  immediate text-node children, and types them with ARIA roles and semantic
+  tags; it never calls `captureVisibleTab`.
 - **Self-contained observer.** In local mode, the worker registers as its own
   observer and uploads finished segments straight to the journal's localhost
   ingest API. In remote mode, the durable outbox keeps waiting entries locally,
@@ -54,7 +56,7 @@ remote home. See [`INSTALL.md`](INSTALL.md) to install it.
   MV3 service-worker ephemerality is handled with `chrome.storage`, IndexedDB,
   and `chrome.alarms`.
 - **Trust controls.** The toolbar icon is a live status light for connected, connecting,
-  needs permission, paired · waiting for first sync, pairing not finished, can't reach, paused, paused by browser, and attention states. Pin solstone to
+  needs permission, paired · waiting for first sync, pairing not finished, can't reach, paused, paused by browser, and attention states. Pin sol to
   keep it visible; the on-page marker is an opt-in Options setting.
 
 ## The journal output (`browser.jsonl`)
@@ -83,8 +85,8 @@ extension/            the unpacked-loadable MV3 extension
   content.js          per-tab orchestrator: skim on load + on settled change, optional marker, relay
   skim.js             the visibility-aware semantic DOM walker
   adapters.js         Gmail + Slack adapters + generic fallback (data, not code)
-  indicator.js        optional on-page "☼ observing" marker (closed shadow root)
-  popup.html/.js      toolbar popup: status, observe-this-site, pause-all
+  indicator.js        optional on-page "on" / "paused" sol marker (closed shadow root)
+  popup.html/.js      toolbar popup: status, add-this-site, pause-all
   options.html/.js    settings + allowlist manager + remote pairing
   lib/blocks.js       pure block helpers (role→type, id, normalize) — shared, tested
   lib/segment.js      pure snapshot/delta differ + JSONL serializer — shared, tested
@@ -106,6 +108,8 @@ test/
   hpke.test.mjs       Section 10 HPKE interop vector equality
   remote_blob.test.mjs tar/blob/offer/ack pure tests
   uuid.test.mjs       UUIDv7 pure tests
+  vocabulary.mjs      shared owner-vocabulary regex + pure surface scanners
+  vocabulary.test.mjs scanner regressions + real-tree owner-copy guard
   skim.cdp.mjs        real-Chrome skim smoke over CDP (zero-dep)
   relay_roundtrip.mjs end-to-end register+ingest against a real local journal
 ```

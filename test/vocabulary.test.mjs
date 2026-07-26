@@ -90,6 +90,10 @@ test("html scanner covers visible text and owner-facing attributes only", () => 
       { file: "page.html", line: 1, word: "monitors", surface: `html-attribute:${attribute}` },
     ]);
   }
+
+  assert.deepEqual(scanHtml('<div title="sol monitors > this page">safe</div>', "page.html"), [
+    { file: "page.html", line: 1, word: "monitors", surface: "html-attribute:title" },
+  ]);
 });
 
 test("javascript scanner finds prose literals and scans strings inside template expressions", () => {
@@ -137,6 +141,17 @@ test("javascript free-standing rule protects the real indicator CSS hyphen", () 
   assert.deepEqual(scanJavaScript(source, "indicator.js"), []);
   assert.deepEqual(scanJavaScript(source.replace("user-select", "user select"), "indicator.js"), [
     { file: "indicator.js", line: 1, word: "user", surface: "javascript-prose-string" },
+  ]);
+});
+
+test("javascript free-standing rule does not hide sentence punctuation", () => {
+  const source = [
+    'const first = "ask the user. then continue";',
+    'const second = "one more note for the user.";',
+  ].join("\n");
+  assert.deepEqual(scanJavaScript(source, "copy.js"), [
+    { file: "copy.js", line: 1, word: "user", surface: "javascript-prose-string" },
+    { file: "copy.js", line: 2, word: "user", surface: "javascript-prose-string" },
   ]);
 });
 

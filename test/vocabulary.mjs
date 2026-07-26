@@ -4,6 +4,7 @@
 export const BANNED_VOCABULARY = /\b(?:prototype|users?|captur(?:e|es|ed|ing)|record(?:s|ed|ing)?|monitor(?:s|ed|ing)?|watch(?:es|ed|ing)?|track(?:s|ed|ing)?|collect(?:s|ed|ing)?|observ(?:e|es|ed|ing|ation|ations))\b/i;
 
 const FREE_STANDING_EDGE = /[-_/.]/;
+const TOKEN_CHAR = /[\w$]/;
 const OWNER_PROSE = /\w\s+\w/;
 
 function blank(text) {
@@ -15,8 +16,12 @@ function findingsIn(text, file, startLine, surface, freeStanding = false) {
   const findings = [];
   for (const match of text.matchAll(regex)) {
     const before = text[match.index - 1] || "";
+    const beforeFar = text[match.index - 2] || "";
     const after = text[match.index + match[0].length] || "";
-    if (freeStanding && (FREE_STANDING_EDGE.test(before) || FREE_STANDING_EDGE.test(after))) continue;
+    const afterFar = text[match.index + match[0].length + 1] || "";
+    const glued = (FREE_STANDING_EDGE.test(before) && TOKEN_CHAR.test(beforeFar))
+      || (FREE_STANDING_EDGE.test(after) && TOKEN_CHAR.test(afterFar));
+    if (freeStanding && glued) continue;
     const line = startLine + (text.slice(0, match.index).match(/\n/g) || []).length;
     findings.push({ file, line, word: match[0], surface });
   }
@@ -27,6 +32,7 @@ function stripMarkdown(source) {
   const chunks = source.match(/.*(?:\r?\n|$)/g) || [];
   let fence = null;
   let text = chunks.map((line) => {
+    // KISS boundary: fences nested under list markers fail closed as prose.
     const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line);
     if (!fence && marker) {
       fence = { char: marker[1][0], length: marker[1].length };
@@ -74,10 +80,35 @@ export function currentChangelogRegion(source) {
 
 const OWNER_ATTRIBUTES = "alt|title|placeholder|aria-label|aria-description|aria-placeholder|value";
 
+function stripHtmlTags(source, visit) {
+  const chars = source.split("");
+  for (let start = 0; start < source.length;) {
+    if (source[start] !== "<") { start++; continue; }
+    let quote = "";
+    let end = -1;
+    for (let i = start + 1; i < source.length; i++) {
+      const char = source[i];
+      if (quote) {
+        if (char === quote) quote = "";
+      } else if (char === '"' || char === "'") {
+        quote = char;
+      } else if (char === ">") {
+        end = i + 1;
+        break;
+      }
+    }
+    if (end < 0) { start++; continue; }
+    visit(source.slice(start, end), start);
+    for (let i = start; i < end; i++) if (chars[i] !== "\n" && chars[i] !== "\r") chars[i] = " ";
+    start = end;
+  }
+  return chars.join("");
+}
+
 export function scanHtml(source, file) {
   let visible = source.replace(/<!--[\s\S]*?-->/g, blank).replace(/<(script|style)\b[\s\S]*?<\/\1\s*>/gi, blank);
   const findings = [];
-  visible = visible.replace(/<[^>]*>/g, (tag, offset) => {
+  visible = stripHtmlTags(visible, (tag, offset) => {
     const attributes = new RegExp(`(?:^|\\s)(${OWNER_ATTRIBUTES})\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "gi");
     for (const match of tag.matchAll(attributes)) {
       const value = match[2] ?? match[3] ?? match[4] ?? "";
@@ -85,7 +116,6 @@ export function scanHtml(source, file) {
       const line = 1 + (source.slice(0, valueOffset).match(/\n/g) || []).length;
       findings.push(...findingsIn(value, file, line, `html-attribute:${match[1].toLowerCase()}`));
     }
-    return blank(tag);
   });
   return findings.concat(findingsIn(visible, file, 1, "html-text"));
 }

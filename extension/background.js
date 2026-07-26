@@ -22,6 +22,7 @@ const Seg = globalThis.SolstoneSegment;
 const H = globalThis.SolstoneHosts;
 const Failures = globalThis.SolstoneFailures;
 const Reconcile = globalThis.SolstoneReconcile;
+const Status = globalThis.SolstoneStatus;
 const J = globalThis.SolstoneJournal;
 const Outbox = globalThis.SolstoneOutbox;
 const DB = globalThis.SolstoneDB;
@@ -71,38 +72,34 @@ async function setCfg(cfg) {
   await chrome.storage.local.set({ cfg });
 }
 
-function normalizedJournalPermission(value) {
-  return ["unknown", "granted", "missing"].includes(value) ? value : "unknown";
-}
-
 async function refreshJournalPermission({ resolveMissing = false } = {}) {
-  const cfg = await getCfg();
-  const origin = H.permissionOriginForUrl(cfg.journalUrl);
-  let granted = false;
-  if (origin) {
-    try {
-      granted = await chrome.permissions.contains({ origins: [origin] });
-    } catch (_e) {
-      /* permission truth fails closed below */
+  return withLifecycle(async () => {
+    const queried = await getCfg();
+    const origin = H.permissionOriginForUrl(queried.journalUrl);
+    let granted = false;
+    if (origin) {
+      try {
+        granted = await chrome.permissions.contains({ origins: [origin] });
+      } catch (_e) {
+        granted = null;
+      }
     }
-  }
-  const prior = normalizedJournalPermission(cfg.journalPermission);
-  const next = granted
-    ? "granted"
-    : prior === "granted" || prior === "missing" || resolveMissing
-      ? "missing"
-      : "unknown";
-  if (cfg.journalPermission !== next) {
-    cfg.journalPermission = next;
-    await setCfg(cfg);
-  }
-  return cfg;
+
+    // Permission checks yield to Chrome. Re-read before the narrow mutation so
+    // a concurrent intent cannot be replaced by the pre-check cfg snapshot.
+    const current = await getCfg();
+    if (H.permissionOriginForUrl(current.journalUrl) !== origin) return current;
+    const next = Status.journalPermissionAfterCheck(current.journalPermission, granted, resolveMissing);
+    if (current.journalPermission !== next) {
+      current.journalPermission = next;
+      await setCfg(current);
+    }
+    return current;
+  });
 }
 
 function journalPermissionError() {
-  const error = new Error("journal permission required");
-  error.permissionRequired = true;
-  return error;
+  return new Error("journal permission required");
 }
 async function getSeg() {
   const r = await chrome.storage.local.get("seg");
@@ -232,6 +229,11 @@ async function ensureRegistered(knownCfg) {
     };
     const res = await J.register(cfg.journalUrl, descriptor);
     const next = await getCfg();
+    if (next.journalUrl !== cfg.journalUrl || next.hostname !== cfg.hostname) {
+      const error = new Error("journal registration was superseded by a configuration change");
+      error.registrationSuperseded = true;
+      throw error;
+    }
     next.key = res.key;
     next.stream = res.name;
     next.protocolVersion = res.protocol_version;
@@ -243,10 +245,12 @@ async function ensureRegistered(knownCfg) {
   try {
     return await registering;
   } catch (e) {
-    const next = await getCfg();
-    next.health = globalThis.SolstoneStatus.updateHealth(next.health, { ok: false, status: (e && e.status) || 0, error: String(e && e.message) });
-    await setCfg(next);
-    console.warn("[solstone] registration failed:", e);
+    if (!(e && e.registrationSuperseded)) {
+      const next = await getCfg();
+      next.health = Status.updateHealth(next.health, { ok: false, status: (e && e.status) || 0, error: String(e && e.message) });
+      await setCfg(next);
+      console.warn("[solstone] registration failed:", e);
+    }
     throw e;
   } finally {
     registering = null;
@@ -372,11 +376,18 @@ async function journalIntent(journalUrl) {
     const cfg = await getCfg();
     const previous = {
       journalUrl: cfg.journalUrl,
-      journalPermission: normalizedJournalPermission(cfg.journalPermission),
+      journalPermission: Status.normalizeJournalPermission(cfg.journalPermission),
     };
     const changed = requestedUrl !== cfg.journalUrl;
     cfg.journalUrl = requestedUrl;
-    if (changed) cfg.journalPermission = "unknown";
+    if (changed) {
+      cfg.journalPermission = "unknown";
+      // Registration credentials belong to the old URL. Clear them in the same
+      // intent write so an onAdded-triggered drain cannot send them to the new one.
+      cfg.key = "";
+      cfg.stream = "";
+      cfg.protocolVersion = null;
+    }
     // Persist before request so permissions.onAdded reconciliation protects the
     // origin Chrome is about to grant instead of releasing it as an orphan.
     await setCfg(cfg);
@@ -396,15 +407,15 @@ async function resolveJournalIntent(msg) {
       try {
         granted = await chrome.permissions.contains({ origins: [origin] });
       } catch (_e) {
-        /* resolve as a failed request */
+        if (msg.changed) {
+          cfg.journalUrl = String((msg.previous && msg.previous.journalUrl) || "").trim().replace(/\/+$/, "");
+          cfg.journalPermission = Status.normalizeJournalPermission(msg.previous && msg.previous.journalPermission);
+          await setCfg(cfg);
+        }
+        return { ok: false, error: "could not check journal permission" };
       }
     }
     if (granted) {
-      if (msg.changed) {
-        cfg.key = "";
-        cfg.stream = "";
-        cfg.protocolVersion = null;
-      }
       cfg.journalPermission = "granted";
       await setCfg(cfg);
       return { ok: true, granted: true };
@@ -412,7 +423,7 @@ async function resolveJournalIntent(msg) {
 
     if (msg.changed) {
       cfg.journalUrl = String((msg.previous && msg.previous.journalUrl) || "").trim().replace(/\/+$/, "");
-      cfg.journalPermission = normalizedJournalPermission(msg.previous && msg.previous.journalPermission);
+      cfg.journalPermission = Status.normalizeJournalPermission(msg.previous && msg.previous.journalPermission);
     } else {
       cfg.journalPermission = "missing";
     }
@@ -462,9 +473,13 @@ async function unregisterSite(host) {
 
     if (!siblingShares) await unregisterContentScript(matchHost);
     await stopHostTabs(matchHost, cfg.allowlist);
+    // Teardown yields to other work; permission removal must protect the
+    // destinations configured at the destructive step, not the entry snapshot.
+    const current = await getCfg();
+    const currentSiblingShares = current.allowlist.some((h) => H.matchHostFor(h) === matchHost);
     const removalPattern = H.matchPatternFor(matchHost);
-    const protectedOrigins = permissionExemptOrigins(cfg);
-    if (!siblingShares && !H.removalSubsumesProtectedOrigin(removalPattern, protectedOrigins)) {
+    const protectedOrigins = permissionExemptOrigins(current);
+    if (!currentSiblingShares && !H.removalSubsumesProtectedOrigin(removalPattern, protectedOrigins)) {
       try {
         await chrome.permissions.remove({ origins: [removalPattern] });
       } catch (_e) {
@@ -958,6 +973,13 @@ async function drainOutbox() {
 }
 
 async function probe() {
+  const mode = await getCfg();
+  if (isRemotePaired(mode)) {
+    await drainOutbox();
+    const current = await getCfg();
+    const lastError = current.health && current.health.lastError;
+    return { ok: !lastError, remote: true, error: lastError || null };
+  }
   const cfg = await refreshJournalPermission({ resolveMissing: true });
   if (cfg.journalPermission !== "granted") {
     await updateBadge();
@@ -1209,34 +1231,38 @@ async function handleCommand(msg, sendResponse) {
         sendResponse({ ok: true });
         break;
       case "setConfig": {
-        const cfg = await getCfg();
-        let reset = false;
         let indicatorChanged = false;
-        if (typeof msg.hostname === "string" && msg.hostname !== cfg.hostname) {
-          cfg.hostname = msg.hostname.trim();
-          reset = true; // hostname changes the stream identity -> re-register
-        }
-        if (typeof msg.journalUrl === "string") {
-          const journalUrl = msg.journalUrl.trim().replace(/\/+$/, "");
-          if (journalUrl !== cfg.journalUrl) {
-            cfg.journalUrl = journalUrl;
-            reset = true;
-            cfg.journalPermission = "unknown";
+        let indicatorShow = false;
+        await withLifecycle(async () => {
+          const cfg = await getCfg();
+          let reset = false;
+          if (typeof msg.hostname === "string" && msg.hostname !== cfg.hostname) {
+            cfg.hostname = msg.hostname.trim();
+            reset = true; // hostname changes the stream identity -> re-register
           }
-        }
-        if (typeof msg.segmentSec === "number" && msg.segmentSec >= 30) cfg.segmentSec = Math.floor(msg.segmentSec);
-        if (typeof msg.showPageIndicator === "boolean" && msg.showPageIndicator !== cfg.showPageIndicator) {
-          cfg.showPageIndicator = msg.showPageIndicator;
-          indicatorChanged = true;
-        }
-        if (reset) {
-          cfg.key = "";
-          cfg.stream = "";
-          cfg.protocolVersion = null;
-        }
-        await setCfg(cfg);
+          if (typeof msg.journalUrl === "string") {
+            const journalUrl = msg.journalUrl.trim().replace(/\/+$/, "");
+            if (journalUrl !== cfg.journalUrl) {
+              cfg.journalUrl = journalUrl;
+              reset = true;
+              cfg.journalPermission = "unknown";
+            }
+          }
+          if (typeof msg.segmentSec === "number" && msg.segmentSec >= 30) cfg.segmentSec = Math.floor(msg.segmentSec);
+          if (typeof msg.showPageIndicator === "boolean" && msg.showPageIndicator !== cfg.showPageIndicator) {
+            cfg.showPageIndicator = msg.showPageIndicator;
+            indicatorChanged = true;
+          }
+          indicatorShow = cfg.showPageIndicator;
+          if (reset) {
+            cfg.key = "";
+            cfg.stream = "";
+            cfg.protocolVersion = null;
+          }
+          await setCfg(cfg);
+        });
         await refreshJournalPermission();
-        if (indicatorChanged) await setIndicatorAll(cfg.showPageIndicator);
+        if (indicatorChanged) await setIndicatorAll(indicatorShow);
         sendResponse({ ok: true });
         break;
       }

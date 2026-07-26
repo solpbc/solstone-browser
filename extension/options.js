@@ -324,13 +324,9 @@ $("flushBtn").addEventListener("click", async () => {
   await refresh();
   if (res.outcome === "failed") return;
   const conn = globalThis.SolstoneStatus.connection(state);
-  $("connStatus").textContent = res.outcome === "uploaded"
-    ? "sent."
-    : res.outcome === "queued"
-      ? conn.kind === "local-permission-required"
-        ? conn.consequence
-        : `can't reach ${conn.destination} — kept here, waiting to sync.`
-      : "nothing waiting.";
+  if (res.outcome === "uploaded") $("connStatus").textContent = "sent.";
+  else if (res.outcome === "queued" && conn.consequence) $("connStatus").textContent = conn.consequence;
+  else if (res.outcome !== "queued") $("connStatus").textContent = "nothing waiting.";
 });
 
 $("showPageIndicator").addEventListener("change", async () => {

@@ -25,7 +25,7 @@
     return { hostname: h, port: "" };
   }
 
-  // The host to use in a Chrome match pattern / permission origin (no port).
+  // The port-less host used by content-script match patterns and per-site grants.
   function matchHostFor(host) {
     return splitHost(host).hostname;
   }

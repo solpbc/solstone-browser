@@ -103,7 +103,8 @@ again**, accept Chrome's prompt, and reload the tab if needed; the row returns
 to **● on now**.
 
 Then click **remove** in Options. The row disappears and sol releases access
-that no other added site needs, unless it shares a hostname with your journal.
+that no other added site, your configured journal, or a paired or pending
+remote-home relay needs.
 
 ## What "good" looks like
 - The toolbar status icon shows on, and Options shows **● on now**.

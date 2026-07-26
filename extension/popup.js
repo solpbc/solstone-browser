@@ -213,14 +213,17 @@ $("addBtn").addEventListener("click", async () => {
 $("tryBtn").addEventListener("click", async () => {
   const b = $("tryBtn");
   b.disabled = true;
-  const permission = await requestJournalAccess(state.journalUrl);
-  if (!permission.ok) {
-    $("err").textContent = permission.denied
-      ? "permission declined. journal address not allowed."
-      : permission.error || "could not request journal permission";
-    b.disabled = false;
-    await refresh();
-    return;
+  const conn = globalThis.SolstoneStatus.connection(state);
+  if (!conn.kind.startsWith("remote-")) {
+    const permission = await requestJournalAccess(state.journalUrl);
+    if (!permission.ok) {
+      $("err").textContent = permission.denied
+        ? "permission declined. journal address not allowed."
+        : permission.error || "could not request journal permission";
+      b.disabled = false;
+      await refresh();
+      return;
+    }
   }
   b.textContent = "checking…";
   await cmd({ cmd: "probe" });

@@ -922,9 +922,8 @@ async function main() {
     const after = await opts.evaluate(() => chrome.permissions.contains({ origins: ["*://example.test/*"] }));
     console.log(`  note optional_host_permissions grant under headless automation: request()=>${JSON.stringify(grant)} contains(after)=${after} => ${after ? "granted" : "not automatable (guided mode covers the live opt-in)"}`);
 
-    // 9. clean-load: the extension loaded + ran with no errors. Ignore the benign
-    // registration-race warning the SW logs when a skim arrives before the lazy
-    // ensureRegistered() resolves (expected, self-heals on the retry).
+    // 9. clean-load: the extension loaded + ran with no errors. Warnings are
+    // reported below as diagnostics; duplicate registration is no longer expected.
     console.log("\n  -- clean load (no errors / exceptions) --");
     const extErr = await sw.evaluate(async () => {
       const c = (await chrome.storage.local.get("cfg")).cfg || {};

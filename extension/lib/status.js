@@ -8,6 +8,17 @@
     return !!(remote && remote.instanceId && remote.deviceToken && remote.homeSpki);
   }
 
+  function normalizeJournalPermission(value) {
+    return ["unknown", "granted", "missing"].includes(value) ? value : "unknown";
+  }
+
+  function journalPermissionAfterCheck(value, granted, resolveMissing) {
+    const prior = normalizeJournalPermission(value);
+    if (granted === null) return prior;
+    if (granted) return "granted";
+    return prior === "granted" || prior === "missing" || resolveMissing ? "missing" : "unknown";
+  }
+
   function normalize(cfg, extras) {
     cfg = cfg || {};
     extras = extras || {};
@@ -18,9 +29,7 @@
     const pending = !paired && !!(remotePending || remote);
     const dropped = extras.dropped || cfg.dropped || {};
     const streamName = cfg.stream || (cfg.hostname ? `${cfg.hostname}.browser` : "browser");
-    const journalPermission = ["unknown", "granted", "missing"].includes(cfg.journalPermission)
-      ? cfg.journalPermission
-      : "unknown";
+    const journalPermission = normalizeJournalPermission(cfg.journalPermission);
 
     return {
       journalUrl: cfg.journalUrl || "",
@@ -183,5 +192,14 @@
     return h;
   }
 
-  globalThis.SolstoneStatus = { remotePaired, normalize, connection, iconState, siteRowState, updateHealth };
+  globalThis.SolstoneStatus = {
+    remotePaired,
+    normalizeJournalPermission,
+    journalPermissionAfterCheck,
+    normalize,
+    connection,
+    iconState,
+    siteRowState,
+    updateHealth,
+  };
 })();

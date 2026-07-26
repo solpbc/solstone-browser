@@ -39,7 +39,8 @@ See [`INSTALL.md`](INSTALL.md) to run it.
   a per-site Chrome permission grant (`optional_host_permissions` +
   `permissions.request()`). If Chrome removes access, sol pauses the site but
   keeps your choice so you can allow it again; unused grants are released unless
-  they share a hostname with the journal you're connected to.
+  their hostname is also used by your configured journal or a paired or pending
+  remote-home relay.
 - **Semantic-only.** It reads visible text via the `innerText` visibility
   oracle + ARIA roles/semantic tags; it never calls `captureVisibleTab`.
 - **Self-contained observer.** In local mode, the worker registers as its own

@@ -256,6 +256,18 @@ test("revoked journal permission is local-permission-required", () => {
   assert.equal(remote.kind, "remote-connected");
 });
 
+test("journal permission checks preserve unknown and distinguish a real revoke", () => {
+  assert.equal(S.journalPermissionAfterCheck("unknown", false, false), "unknown");
+  assert.equal(S.journalPermissionAfterCheck("unknown", false, true), "missing");
+  assert.equal(S.journalPermissionAfterCheck("granted", false, false), "missing");
+  assert.equal(S.journalPermissionAfterCheck("missing", true, false), "granted");
+});
+
+test("failed journal permission checks preserve prior truth", () => {
+  assert.equal(S.journalPermissionAfterCheck("granted", null, false), "granted");
+  assert.equal(S.journalPermissionAfterCheck("unknown", null, true), "unknown");
+});
+
 test("remote sealed delivery never renders as pending", () => {
   for (const cfg of remoteSuccessFixtures) {
     const status = S.normalize(cfg);

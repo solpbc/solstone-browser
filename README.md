@@ -48,8 +48,8 @@ See [`INSTALL.md`](INSTALL.md) to run it.
   tunnel; see the [release compatibility gate](RELEASE.md#cut-a-tagged-release-like-our-other-surfaces).
   MV3 service-worker ephemerality is handled with `chrome.storage`,
   IndexedDB, and `chrome.alarms`.
-- **Trust controls.** The toolbar icon is a live status light for on, connecting,
-  paired-first-sync, can't-reach, paused, paused by browser, and attention states. Pin solstone to
+- **Trust controls.** The toolbar icon is a live status light for connected, connecting,
+  paired · waiting for first sync, pairing not finished, can't reach, paused, paused by browser, and attention states. Pin solstone to
   keep it visible; the on-page marker is an opt-in Options setting.
 
 ## The journal output (`browser.jsonl`)

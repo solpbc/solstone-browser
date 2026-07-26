@@ -216,6 +216,7 @@ async function saveConfig() {
     await refresh();
   } else {
     await refresh();
+    $("connStatus").textContent = "saved.";
   }
 }
 
@@ -290,11 +291,10 @@ $("registerBtn").addEventListener("click", async () => {
 
 $("flushBtn").addEventListener("click", async () => {
   const res = await cmd({ cmd: "flushNow" });
-  if (res.outcome === "failed") {
-    await refresh();
-    return;
-  }
   await refresh();
+  if (res.outcome === "failed") return;
+  const conn = globalThis.SolstoneStatus.connection(state);
+  $("connStatus").textContent = res.outcome === "uploaded" ? "sent." : res.outcome === "queued" ? `can't reach ${conn.destination} — kept here, waiting to sync.` : "nothing waiting.";
 });
 
 $("showPageIndicator").addEventListener("change", async () => {

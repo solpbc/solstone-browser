@@ -41,7 +41,7 @@ streams).
    IP, or `host:port` too). **Then reload that tab** so the content script
    attaches on the next load.
 2. **The status light.** The toolbar icon is the visible status light: it
-   shows on, connecting, paired and waiting for its first sync, can't reach your journal or your home, paused, paused by browser, or attention at
+   shows on, connecting, paired and waiting for its first sync, pairing not finished, can't reach this computer or your home, paused, paused by browser, or attention at
    a glance. Pin sol to keep that signal visible. If you want an in-page cue
    too, enable the optional on-page marker in **Options**. The Options page shows each site as
    **● on now**, **on — waiting for first sync**, **paused by browser**, **added — open or reload a tab**, or **⚠ <error>** if

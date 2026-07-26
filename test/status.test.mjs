@@ -24,7 +24,6 @@ const pairedRemote = {
 };
 const pureRemoteSuccess = {
   allowlist: ["x"],
-  hostname: "remote-only",
   remote: pairedRemote,
   health: { lastUploadAt: 200 },
 };
@@ -242,7 +241,8 @@ test("normalize excludes remote secrets and provides one stream fallback", () =>
   assert.equal(status.remote.paired, true);
   assert.equal(status.remote.pending, false);
   assert.doesNotMatch(serialized, /deviceToken|homeSpki|secret-token|secret-spki/);
-  assert.equal(S.normalize({ hostname: "ignored", stream: "named.browser" }).streamName, "named.browser");
+  assert.equal(S.normalize(keyClearedRemoteSuccess).streamName, "renamed-after-pairing.browser");
+  assert.equal(S.normalize({ key: "local-key", hostname: "ignored", stream: "registered.browser" }).streamName, "registered.browser");
   assert.equal(S.normalize({}).streamName, "browser");
 });
 

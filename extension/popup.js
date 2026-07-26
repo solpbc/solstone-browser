@@ -41,6 +41,35 @@ async function requestSiteAccess(host) {
   return cmd({ cmd: "siteGranted", host });
 }
 
+async function requestJournalAccess(journalUrl) {
+  const origin = globalThis.SolstoneHosts.permissionOriginForUrl(journalUrl);
+  if (!origin) return { ok: false, error: "enter a valid journal address" };
+  // Keep the requested URL durable before Chrome emits onAdded, otherwise
+  // reconciliation can mistake the just-granted origin for an orphan.
+  const intent = await cmd({ cmd: "journalIntent", journalUrl });
+  if (!intent.ok) return { ok: false, error: intent.error || "could not save the journal address" };
+
+  let requestError = false;
+  try {
+    await chrome.permissions.request({ origins: [origin] });
+  } catch (_e) {
+    requestError = true;
+  }
+  const resolved = await cmd({
+    cmd: "journalIntentResolve",
+    journalUrl: intent.journalUrl,
+    changed: intent.changed,
+    previous: intent.previous,
+  });
+  if (!resolved.ok) return { ok: false, error: resolved.error || "could not finish journal permission" };
+  if (!resolved.granted) {
+    return requestError
+      ? { ok: false, error: "could not request journal permission" }
+      : { ok: false, denied: true };
+  }
+  return { ok: true };
+}
+
 async function refresh() {
   state = await cmd({ cmd: "getState" });
   const tab = await currentTab();
@@ -184,6 +213,15 @@ $("addBtn").addEventListener("click", async () => {
 $("tryBtn").addEventListener("click", async () => {
   const b = $("tryBtn");
   b.disabled = true;
+  const permission = await requestJournalAccess(state.journalUrl);
+  if (!permission.ok) {
+    $("err").textContent = permission.denied
+      ? "permission declined. journal address not allowed."
+      : permission.error || "could not request journal permission";
+    b.disabled = false;
+    await refresh();
+    return;
+  }
   b.textContent = "checking…";
   await cmd({ cmd: "probe" });
   b.disabled = false;

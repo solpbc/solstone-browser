@@ -82,7 +82,12 @@ The `.zip` is the downloadable artifact; `CHANGELOG.md` is the notes source.
 ## Future layers (not built — tracked in the browser-observer roadmap)
 
 - **Chrome Web Store** — the `dist/*.zip` is the upload artifact; store listing +
-  review is a separate, gated step (and re-keys the id to the store's).
+  review is a separate, gated step (and re-keys the id to the store's). The store
+  description is limited to 132 characters. Keep `minimum_chrome_version` at 120
+  while `scripts/vendor-hpke.mjs` targets `chrome120`; the API floor alone is 105
+  because `Element.checkVisibility` has no semantically equivalent skim fallback.
+  Do not lower either the vendor target or manifest floor without lowering and
+  revalidating the other.
 - **Firefox AMO + a self-hosted signed update channel** — the only sub-store-
   latency hotfix route across browsers.
 - **Cross-browser manifest build-abstraction** — one base manifest → per-browser

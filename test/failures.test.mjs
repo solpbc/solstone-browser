@@ -32,3 +32,13 @@ test("classify truncates long unmapped failures", () => {
   assert.equal(result.endsWith("…"), true);
   assert.ok(result.length <= "something went wrong — ".length + 81);
 });
+
+test("contentScriptRegistrationSatisfied absorbs only an existing requested id", () => {
+  assert.equal(F.contentScriptRegistrationSatisfied("cs-127.0.0.1", [
+    { id: "cs-other.test" },
+    { id: "cs-127.0.0.1" },
+  ]), true);
+  assert.equal(F.contentScriptRegistrationSatisfied("cs-127.0.0.1", []), false);
+  assert.equal(F.contentScriptRegistrationSatisfied("cs-127.0.0.1", [{ id: "cs-other.test" }]), false);
+  assert.equal(F.contentScriptRegistrationSatisfied("cs-127.0.0.1", null), false);
+});

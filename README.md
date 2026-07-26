@@ -38,7 +38,8 @@ See [`INSTALL.md`](INSTALL.md) to run it.
 - **Opt-in per site.** Nothing is read until you add a site. Adding one asks for
   a per-site Chrome permission grant (`optional_host_permissions` +
   `permissions.request()`). If Chrome removes access, sol pauses the site but
-  keeps your choice so you can allow it again; unused grants are released.
+  keeps your choice so you can allow it again; unused grants are released unless
+  they share a hostname with the journal you're connected to.
 - **Semantic-only.** It reads visible text via the `innerText` visibility
   oracle + ARIA roles/semantic tags; it never calls `captureVisibleTab`.
 - **Self-contained observer.** In local mode, the worker registers as its own
@@ -49,7 +50,7 @@ See [`INSTALL.md`](INSTALL.md) to run it.
   MV3 service-worker ephemerality is handled with `chrome.storage`,
   IndexedDB, and `chrome.alarms`.
 - **Trust controls.** The toolbar icon is a live status light for connected, connecting,
-  paired · waiting for first sync, pairing not finished, can't reach, paused, paused by browser, and attention states. Pin solstone to
+  needs permission, paired · waiting for first sync, pairing not finished, can't reach, paused, paused by browser, and attention states. Pin solstone to
   keep it visible; the on-page marker is an opt-in Options setting.
 
 ## The journal output (`browser.jsonl`)

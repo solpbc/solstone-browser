@@ -47,6 +47,24 @@ test("matchPatternFor builds a VALID (port-less) match pattern", () => {
   }
 });
 
+test("permissionOriginForUrl preserves the permission origin Chrome reports", () => {
+  assert.equal(H.permissionOriginForUrl("http://localhost:5015"), "http://localhost:5015/*");
+  assert.equal(H.permissionOriginForUrl("http://localhost:6123/app/observer"), "http://localhost:6123/*");
+  assert.equal(H.permissionOriginForUrl("https://relay.example.test/path?q=1"), "https://relay.example.test/*");
+  assert.equal(H.permissionOriginForUrl(""), "");
+  assert.equal(H.permissionOriginForUrl("not a url"), "");
+  assert.equal(H.permissionOriginForUrl("data:text/plain,nope"), "");
+});
+
+test("removalSubsumesProtectedOrigin guards port-bearing destinations by hostname", () => {
+  const protectedOrigins = ["http://localhost:5015/*", "https://relay.example.test:8443/*"];
+  assert.equal(H.removalSubsumesProtectedOrigin("*://localhost/*", protectedOrigins), true);
+  assert.equal(H.removalSubsumesProtectedOrigin("*://RELAY.EXAMPLE.TEST/*", protectedOrigins), true);
+  assert.equal(H.removalSubsumesProtectedOrigin("*://other.example/*", protectedOrigins), false);
+  assert.equal(H.removalSubsumesProtectedOrigin("not a pattern", protectedOrigins), false);
+  assert.equal(H.removalSubsumesProtectedOrigin("*://localhost/*", ["not a url"]), false);
+});
+
 test("hostAllowed: exact host:port is precise", () => {
   assert.equal(H.hostAllowed("localhost:5015", ["localhost:5015"]), true);
   assert.equal(H.hostAllowed("localhost:3000", ["localhost:5015"]), false); // other port not observed

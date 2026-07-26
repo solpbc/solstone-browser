@@ -8,6 +8,7 @@ await import(new URL("../extension/lib/hosts.js", import.meta.url));
 await import(new URL("../extension/lib/reconcile.js", import.meta.url));
 
 const R = globalThis.SolstoneReconcile;
+const H = globalThis.SolstoneHosts;
 
 test("missing grant pauses a group without deleting allowlist intent", () => {
   const allowlist = Object.freeze(["example.com"]);
@@ -39,15 +40,34 @@ test("orphan grants are released and claimed grants are retained", () => {
   assert.deepEqual(actions, [{ op: "release", origin: "*://orphan.test/*" }]);
 });
 
-test("manifest, paired relay, and pending relay origins are exempt", () => {
-  const actions = R.reconcile({
-    granted: ["http://localhost:5015/*", "https://relay.example/*", "https://pending.example/*"],
-    manifestOrigins: ["http://localhost:5015/*"],
-    exemptOrigins: ["https://relay.example/*", "https://pending.example/*"],
-    allowlist: [],
-    pausedHosts: {},
-  });
-  assert.deepEqual(actions, []);
+test("journal and relay exemptions are derived from their configured URLs", () => {
+  for (const [journalUrl, expected] of [
+    ["http://localhost:5015", "http://localhost:5015/*"],
+    ["http://localhost:6123/app/observer", "http://localhost:6123/*"],
+    ["https://relay.example/path", "https://relay.example/*"],
+  ]) {
+    const derived = H.permissionOriginForUrl(journalUrl);
+    assert.equal(derived, expected);
+    assert.deepEqual(R.reconcile({
+      granted: [expected],
+      manifestOrigins: [],
+      exemptOrigins: [derived].filter(Boolean),
+      allowlist: [],
+      pausedHosts: {},
+    }), []);
+  }
+
+  for (const journalUrl of ["", "not a url"]) {
+    const derived = H.permissionOriginForUrl(journalUrl);
+    assert.equal(derived, "");
+    assert.deepEqual(R.reconcile({
+      granted: ["http://localhost:5015/*"],
+      manifestOrigins: [],
+      exemptOrigins: [derived].filter(Boolean),
+      allowlist: [],
+      pausedHosts: {},
+    }), [{ op: "release", origin: "http://localhost:5015/*" }]);
+  }
 });
 
 test("port siblings form one normalized pause and resume group", () => {

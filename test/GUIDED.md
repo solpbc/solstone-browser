@@ -47,7 +47,8 @@ Right-click the ☼ icon → **Options** (or "settings ›" in the popup):
   stream, e.g. `suze` → the stream is `suze.browser`).
 - **Journal URL** — confirm `http://localhost:5015`.
 - **Segment length** — set to **60** seconds for a snappy demo (default 300).
-- Click **connect** to test the journal connection.
+- Click **connect**, allow access to the journal address when Chrome asks, and
+  confirm the connection changes from **connecting** to **connected**.
 
 ## Step 3 — opt in a site, then watch the three legs
 
@@ -102,7 +103,7 @@ again**, accept Chrome's prompt, and reload the tab if needed; the row returns
 to **● on now**.
 
 Then click **remove** in Options. The row disappears and sol releases access
-that no other added site needs.
+that no other added site needs, unless it shares a hostname with your journal.
 
 ## What "good" looks like
 - The toolbar status icon shows on, and Options shows **● on now**.
@@ -119,6 +120,8 @@ that no other added site needs.
   are surfaced, not swallowed) tells you what failed.
 - **Options shows paused by browser** → click **allow again**, accept Chrome's
   prompt, and reload the tab if it does not return to **● on now**.
+- **Options shows needs permission** → click **connect** and allow access to the
+  journal address when Chrome asks.
 - **Nothing lands** → confirm the journal is up on `localhost:5015`, that a segment
   length elapsed, or click **send now**. If the journal is down, updates are
   kept in the offline outbox and sync when the journal returns; if it stays down

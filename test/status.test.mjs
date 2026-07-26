@@ -52,6 +52,11 @@ const cells = [
   [{ allowlist: ["x"], siteErrors: { x: "boom" } }, { prefix: "icon-error-", title: "sol — boom", badge: "!" }],
   [{ allowlist: ["x"] }, { prefix: "icon-half-", title: "sol — on 1 site · connecting · this computer", badge: "" }],
   [
+    { allowlist: ["x"], journalPermission: "missing", health: { lastError: "Failed to fetch" } },
+    { prefix: "icon-half-", title: "sol — on 1 site · needs permission · this computer", badge: "" },
+  ],
+  [{ journalPermission: "missing" }, { prefix: "icon-paused-", title: "sol — add a site to begin", badge: "" }],
+  [
     { allowlist: ["x"], key: "k", health: { lastError: "down" } },
     { prefix: "icon-half-", title: "sol — on 1 site · can't reach · this computer", badge: "" },
   ],
@@ -204,6 +209,11 @@ test("connection returns the accepted owner-facing state fields", () => {
     destinationDetail: "your journal on this computer",
     consequence: "your journal isn't answering. what sol takes in is kept here, waiting to sync.",
   });
+  assert.deepEqual(S.connection(S.normalize({ journalPermission: "missing", health: { lastError: "Failed to fetch" } })), {
+    kind: "local-permission-required", connected: false, stateLabel: "needs permission", destination: "this computer",
+    destinationDetail: "your journal on this computer",
+    consequence: "your journal address isn't allowed yet. what sol takes in stays here until you allow it.",
+  });
   assert.deepEqual(S.connection(S.normalize(pureRemoteSuccess)), {
     kind: "remote-connected", connected: true, stateLabel: "connected", destination: "your home",
     destinationDetail: "your home, reached over a sealed link", consequence: "",
@@ -221,6 +231,29 @@ test("connection returns the accepted owner-facing state fields", () => {
     kind: "remote-pending", connected: false, stateLabel: "pairing not finished", destination: "your home",
     destinationDetail: "your home, once pairing finishes", consequence: "",
   });
+});
+
+test("fresh-install-never-attempted is not local-permission-required", () => {
+  const connection = S.connection(S.normalize({ journalPermission: "unknown" }));
+  assert.equal(connection.kind, "local-pending");
+  assert.notEqual(connection.kind, "local-permission-required");
+});
+
+test("revoked journal permission is local-permission-required", () => {
+  const connection = S.connection(S.normalize({
+    journalPermission: "missing",
+    key: "formerly-working",
+    health: { lastError: "Failed to fetch" },
+  }));
+  assert.equal(connection.kind, "local-permission-required");
+  assert.equal(connection.stateLabel, "needs permission");
+
+  const remote = S.connection(S.normalize({
+    journalPermission: "missing",
+    remote: pairedRemote,
+    health: { lastUploadAt: 201 },
+  }));
+  assert.equal(remote.kind, "remote-connected");
 });
 
 test("remote sealed delivery never renders as pending", () => {

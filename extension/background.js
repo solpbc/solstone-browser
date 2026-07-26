@@ -16,10 +16,11 @@
 // the relay. MV3 ephemerality is handled by persisting state to chrome.storage
 // and IndexedDB and waking on alarms.
 
-importScripts("vendor/hpke/hpke-core-1.9.0.iife.js", "lib/blocks.js", "lib/hosts.js", "lib/reconcile.js", "lib/segment.js", "lib/status.js", "lib/buffered.js", "lib/outbox.js", "lib/db.js", "lib/uuid.js", "lib/pairlink.js", "lib/remote_blob.js", "lib/identity.js", "lib/outbox_store.js", "lib/remote_tunnel.js", "journal.js");
+importScripts("vendor/hpke/hpke-core-1.9.0.iife.js", "lib/blocks.js", "lib/hosts.js", "lib/failures.js", "lib/reconcile.js", "lib/segment.js", "lib/status.js", "lib/buffered.js", "lib/outbox.js", "lib/db.js", "lib/uuid.js", "lib/pairlink.js", "lib/remote_blob.js", "lib/identity.js", "lib/outbox_store.js", "lib/remote_tunnel.js", "journal.js");
 
 const Seg = globalThis.SolstoneSegment;
 const H = globalThis.SolstoneHosts;
+const Failures = globalThis.SolstoneFailures;
 const Reconcile = globalThis.SolstoneReconcile;
 const J = globalThis.SolstoneJournal;
 const Outbox = globalThis.SolstoneOutbox;
@@ -44,6 +45,7 @@ const DEFAULT_CFG = {
   key: "",
   stream: "",
   protocolVersion: null,
+  journalPermission: "unknown",
   segmentSec: 300,
   paused: false,
   showPageIndicator: false,
@@ -67,6 +69,40 @@ async function getCfg() {
 }
 async function setCfg(cfg) {
   await chrome.storage.local.set({ cfg });
+}
+
+function normalizedJournalPermission(value) {
+  return ["unknown", "granted", "missing"].includes(value) ? value : "unknown";
+}
+
+async function refreshJournalPermission({ resolveMissing = false } = {}) {
+  const cfg = await getCfg();
+  const origin = H.permissionOriginForUrl(cfg.journalUrl);
+  let granted = false;
+  if (origin) {
+    try {
+      granted = await chrome.permissions.contains({ origins: [origin] });
+    } catch (_e) {
+      /* permission truth fails closed below */
+    }
+  }
+  const prior = normalizedJournalPermission(cfg.journalPermission);
+  const next = granted
+    ? "granted"
+    : prior === "granted" || prior === "missing" || resolveMissing
+      ? "missing"
+      : "unknown";
+  if (cfg.journalPermission !== next) {
+    cfg.journalPermission = next;
+    await setCfg(cfg);
+  }
+  return cfg;
+}
+
+function journalPermissionError() {
+  const error = new Error("journal permission required");
+  error.permissionRequired = true;
+  return error;
 }
 async function getSeg() {
   const r = await chrome.storage.local.get("seg");
@@ -181,8 +217,9 @@ let draining = false;
 // ---- registration ----------------------------------------------------------
 
 let registering = null;
-async function ensureRegistered() {
-  const cfg = await getCfg();
+async function ensureRegistered(knownCfg) {
+  const cfg = knownCfg || await refreshJournalPermission();
+  if (cfg.journalPermission !== "granted") throw journalPermissionError();
   if (cfg.key) return cfg;
   if (registering) return registering;
   registering = (async () => {
@@ -191,7 +228,7 @@ async function ensureRegistered() {
       hostname: cfg.hostname || "local",
       stream_type: "browser",
       version: VERSION,
-      label: "solstone browser observer (prototype)",
+      label: "solstone browser",
     };
     const res = await J.register(cfg.journalUrl, descriptor);
     const next = await getCfg();
@@ -230,16 +267,26 @@ async function registerSite(host) {
   } catch (_e) {
     /* not registered yet */
   }
-  await chrome.scripting.registerContentScripts([
-    {
-      id,
-      matches: [pattern],
-      js: CONTENT_SCRIPT_FILES,
-      runAt: "document_idle",
-      allFrames: true,
-      persistAcrossSessions: true,
-    },
-  ]);
+  try {
+    await chrome.scripting.registerContentScripts([
+      {
+        id,
+        matches: [pattern],
+        js: CONTENT_SCRIPT_FILES,
+        runAt: "document_idle",
+        allFrames: true,
+        persistAcrossSessions: true,
+      },
+    ]);
+  } catch (error) {
+    let registered = [];
+    try {
+      registered = await chrome.scripting.getRegisteredContentScripts({ ids: [id] });
+    } catch (_e) {
+      throw error;
+    }
+    if (!Failures.contentScriptRegistrationSatisfied(id, registered)) throw error;
+  }
   // Inject into already-open matching tabs (registration only affects future loads).
   try {
     const tabs = await chrome.tabs.query({ url: pattern });
@@ -318,6 +365,62 @@ async function relayIntent(relayOrigin) {
   });
 }
 
+async function journalIntent(journalUrl) {
+  return withLifecycle(async () => {
+    const requestedUrl = String(journalUrl || "").trim().replace(/\/+$/, "");
+    if (!H.permissionOriginForUrl(requestedUrl)) return { ok: false, error: "enter a valid journal address" };
+    const cfg = await getCfg();
+    const previous = {
+      journalUrl: cfg.journalUrl,
+      journalPermission: normalizedJournalPermission(cfg.journalPermission),
+    };
+    const changed = requestedUrl !== cfg.journalUrl;
+    cfg.journalUrl = requestedUrl;
+    if (changed) cfg.journalPermission = "unknown";
+    // Persist before request so permissions.onAdded reconciliation protects the
+    // origin Chrome is about to grant instead of releasing it as an orphan.
+    await setCfg(cfg);
+    return { ok: true, journalUrl: requestedUrl, changed, previous };
+  });
+}
+
+async function resolveJournalIntent(msg) {
+  return withLifecycle(async () => {
+    const expectedUrl = String(msg.journalUrl || "").trim().replace(/\/+$/, "");
+    const cfg = await getCfg();
+    if (cfg.journalUrl !== expectedUrl) return { ok: false, error: "journal address changed while permission was pending" };
+
+    const origin = H.permissionOriginForUrl(expectedUrl);
+    let granted = false;
+    if (origin) {
+      try {
+        granted = await chrome.permissions.contains({ origins: [origin] });
+      } catch (_e) {
+        /* resolve as a failed request */
+      }
+    }
+    if (granted) {
+      if (msg.changed) {
+        cfg.key = "";
+        cfg.stream = "";
+        cfg.protocolVersion = null;
+      }
+      cfg.journalPermission = "granted";
+      await setCfg(cfg);
+      return { ok: true, granted: true };
+    }
+
+    if (msg.changed) {
+      cfg.journalUrl = String((msg.previous && msg.previous.journalUrl) || "").trim().replace(/\/+$/, "");
+      cfg.journalPermission = normalizedJournalPermission(msg.previous && msg.previous.journalPermission);
+    } else {
+      cfg.journalPermission = "missing";
+    }
+    await setCfg(cfg);
+    return { ok: true, granted: false };
+  });
+}
+
 async function addSite(host) {
   return withLifecycle(async () => {
     let cfg = await getCfg();
@@ -359,9 +462,11 @@ async function unregisterSite(host) {
 
     if (!siblingShares) await unregisterContentScript(matchHost);
     await stopHostTabs(matchHost, cfg.allowlist);
-    if (!siblingShares) {
+    const removalPattern = H.matchPatternFor(matchHost);
+    const protectedOrigins = permissionExemptOrigins(cfg);
+    if (!siblingShares && !H.removalSubsumesProtectedOrigin(removalPattern, protectedOrigins)) {
       try {
-        await chrome.permissions.remove({ origins: [H.matchPatternFor(matchHost)] });
+        await chrome.permissions.remove({ origins: [removalPattern] });
       } catch (_e) {
         /* ignore */
       }
@@ -371,22 +476,18 @@ async function unregisterSite(host) {
   });
 }
 
-function permissionOriginForRelay(relayOrigin) {
-  const u = new URL(relayOrigin);
-  return `${u.origin}/*`;
-}
-
 function permissionExemptOrigins(cfg) {
-  const origins = [];
+  const origins = new Set();
+  // Reconcile uses exact pattern strings, so every protected destination must
+  // flow through the same port-preserving derivation used for permission asks.
+  const journalOrigin = H.permissionOriginForUrl(cfg.journalUrl);
+  if (journalOrigin) origins.add(journalOrigin);
   for (const remote of [cfg.remote, cfg.remotePending]) {
     if (!remote || !remote.relayOrigin) continue;
-    try {
-      origins.push(permissionOriginForRelay(remote.relayOrigin));
-    } catch (_e) {
-      /* invalid stale state cannot identify a permission origin */
-    }
+    const origin = H.permissionOriginForUrl(remote.relayOrigin);
+    if (origin) origins.add(origin);
   }
-  return origins;
+  return [...origins];
 }
 
 function hasObservableSites(cfg) {
@@ -407,10 +508,9 @@ async function runReconcile() {
     } catch (_e) {
       /* unknown grant state fails closed with no actions */
     }
-    const manifestOrigins = chrome.runtime.getManifest().host_permissions || [];
     const actions = Reconcile.reconcile({
       granted,
-      manifestOrigins,
+      manifestOrigins: [],
       exemptOrigins: permissionExemptOrigins(cfg),
       allowlist: cfg.allowlist,
       pausedHosts: cfg.pausedHosts,
@@ -440,8 +540,9 @@ async function runReconcile() {
       } else if (action.op === "release") {
         const current = await getCfg();
         const currentSites = new Set(current.allowlist.map((host) => H.matchPatternFor(host)));
-        const currentExempt = new Set(permissionExemptOrigins(current));
-        if (manifestOrigins.includes(action.origin) || currentSites.has(action.origin) || currentExempt.has(action.origin)) continue;
+        const protectedOrigins = permissionExemptOrigins(current);
+        const currentExempt = new Set(protectedOrigins);
+        if (currentSites.has(action.origin) || currentExempt.has(action.origin) || H.removalSubsumesProtectedOrigin(action.origin, protectedOrigins)) continue;
         try {
           await chrome.permissions.remove({ origins: [action.origin] });
         } catch (e) {
@@ -763,10 +864,10 @@ function recvRemoteFrame(ws, stage) {
   });
 }
 
-async function deliverLocalOutboxEntry(entry, cfg) {
-  let c = cfg;
+async function deliverLocalOutboxEntry(entry) {
+  let c;
   try {
-    c = c.key ? c : await ensureRegistered();
+    c = await ensureRegistered();
   } catch (e) {
     await markBackoff(entry, e);
     return false;
@@ -846,7 +947,7 @@ async function drainOutbox() {
       if (!entry) break;
       if (entry.nextAttemptAt && entry.nextAttemptAt > Date.now()) break;
       const cfg = await getCfg();
-      const delivered = entry.mode === "remote" ? await deliverRemoteOutboxEntry(entry, cfg) : await deliverLocalOutboxEntry(entry, cfg);
+      const delivered = entry.mode === "remote" ? await deliverRemoteOutboxEntry(entry, cfg) : await deliverLocalOutboxEntry(entry);
       if (!delivered) break;
       await OutboxStore.removeHeadIf(entry);
       await updateBadge();
@@ -857,10 +958,14 @@ async function drainOutbox() {
 }
 
 async function probe() {
-  const cfg = await getCfg();
+  const cfg = await refreshJournalPermission({ resolveMissing: true });
+  if (cfg.journalPermission !== "granted") {
+    await updateBadge();
+    return { ok: false, permissionRequired: true, error: "journal permission required" };
+  }
   if (!cfg.key) {
     try {
-      const c = await ensureRegistered();
+      const c = await ensureRegistered(cfg);
       drainOutbox();
       return { ok: true, stream: c.stream };
     } catch (e) {
@@ -1060,6 +1165,13 @@ async function handleCommand(msg, sendResponse) {
         sendResponse({ ok: true, added });
         break;
       }
+      case "journalIntent":
+        sendResponse(await journalIntent(msg.journalUrl));
+        break;
+      case "journalIntentResolve":
+        sendResponse(await resolveJournalIntent(msg));
+        await updateBadge();
+        break;
       case "relayIntent":
         await relayIntent(msg.relayOrigin);
         sendResponse({ ok: true });
@@ -1104,9 +1216,13 @@ async function handleCommand(msg, sendResponse) {
           cfg.hostname = msg.hostname.trim();
           reset = true; // hostname changes the stream identity -> re-register
         }
-        if (typeof msg.journalUrl === "string" && msg.journalUrl !== cfg.journalUrl) {
-          cfg.journalUrl = msg.journalUrl.trim().replace(/\/+$/, "");
-          reset = true;
+        if (typeof msg.journalUrl === "string") {
+          const journalUrl = msg.journalUrl.trim().replace(/\/+$/, "");
+          if (journalUrl !== cfg.journalUrl) {
+            cfg.journalUrl = journalUrl;
+            reset = true;
+            cfg.journalPermission = "unknown";
+          }
         }
         if (typeof msg.segmentSec === "number" && msg.segmentSec >= 30) cfg.segmentSec = Math.floor(msg.segmentSec);
         if (typeof msg.showPageIndicator === "boolean" && msg.showPageIndicator !== cfg.showPageIndicator) {
@@ -1116,8 +1232,10 @@ async function handleCommand(msg, sendResponse) {
         if (reset) {
           cfg.key = "";
           cfg.stream = "";
+          cfg.protocolVersion = null;
         }
         await setCfg(cfg);
+        await refreshJournalPermission();
         if (indicatorChanged) await setIndicatorAll(cfg.showPageIndicator);
         sendResponse({ ok: true });
         break;
@@ -1182,17 +1300,29 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ROTATE_ALARM) {
-    rotateIfDue().then(() => drainOutbox()).catch((e) => console.warn("[solstone] rotation failed", e));
-    runReconcile().then(() => emitStatus()).catch((e) => console.warn("[solstone] reconciliation failed", e));
+    (async () => {
+      await refreshJournalPermission();
+      await rotateIfDue();
+      await drainOutbox();
+      await runReconcile();
+      await emitStatus();
+    })().catch((e) => console.warn("[solstone] rotation/reconciliation failed", e));
   }
 });
 
+async function reconcileAfterPermissionChange() {
+  const cfg = await refreshJournalPermission();
+  await runReconcile();
+  await updateBadge();
+  if (cfg.journalPermission === "granted") drainOutbox();
+}
+
 chrome.permissions.onRemoved.addListener(() => {
-  runReconcile().catch((e) => console.warn("[solstone] reconciliation failed after permission removal", e));
+  reconcileAfterPermissionChange().catch((e) => console.warn("[solstone] reconciliation failed after permission removal", e));
 });
 
 chrome.permissions.onAdded.addListener(() => {
-  runReconcile().catch((e) => console.warn("[solstone] reconciliation failed after permission addition", e));
+  reconcileAfterPermissionChange().catch((e) => console.warn("[solstone] reconciliation failed after permission addition", e));
 });
 
 async function migrateOutboxV1() {
@@ -1215,6 +1345,7 @@ async function migrateOutboxV1() {
 async function init() {
   await chrome.alarms.create(ROTATE_ALARM, { periodInMinutes: 1 });
   await migrateOutboxV1();
+  await refreshJournalPermission();
   await runReconcile();
   // Re-assert one content-script registration per available hostname so file-list
   // changes take effect even though registrations persist across sessions.

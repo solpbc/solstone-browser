@@ -10,8 +10,6 @@ const cmd = (m) => new Promise((r) => chrome.runtime.sendMessage(m, (x) => r(x |
 const esc = (s) => globalThis.SolstoneEscape.escapeHtml(s);
 
 let state = null;
-let loadedHostname = "";
-let loadedJournalUrl = "";
 
 function normHost(input) {
   let h = input.trim();
@@ -33,6 +31,8 @@ function renderConnStatus() {
     cs.innerHTML = `<span class="pill ok">${summary}</span> · ${h.segmentsUploaded || 0} sent · last ${esc(up)}`;
   } else if (conn.kind.endsWith("-error")) {
     cs.innerHTML = `<span class="pill bad">${summary}</span> · <span title="${esc(h.lastError)}">${esc(conn.consequence)}</span>`;
+  } else if (conn.consequence) {
+    cs.innerHTML = `<span class="pill">${summary}</span> · <span>${esc(conn.consequence)}</span>`;
   } else if (conn.kind === "local-pending") {
     cs.innerHTML = `<span class="pill">${summary}</span> · add your journal address and save`;
   } else {
@@ -53,11 +53,6 @@ function renderJournalLink() {
   }
 }
 
-function permissionOriginForRelay(relayOrigin) {
-  const u = new URL(relayOrigin);
-  return `${u.origin}/*`;
-}
-
 async function requestSiteAccess(host) {
   const intent = await cmd({ cmd: "siteIntent", host });
   if (!intent.ok) return { ok: false, error: "could not save the site" };
@@ -73,6 +68,35 @@ async function requestSiteAccess(host) {
   }
   const res = await cmd({ cmd: "siteGranted", host });
   return Object.assign({}, res, { added: intent.added, intentOk: true });
+}
+
+async function requestJournalAccess(journalUrl) {
+  const origin = globalThis.SolstoneHosts.permissionOriginForUrl(journalUrl);
+  if (!origin) return { ok: false, error: "enter a valid journal address" };
+  // The intent must land before request: permissions.onAdded can reconcile as
+  // soon as Chrome grants access and would otherwise see/release the old URL.
+  const intent = await cmd({ cmd: "journalIntent", journalUrl });
+  if (!intent.ok) return { ok: false, error: intent.error || "could not save the journal address" };
+
+  let requestError = false;
+  try {
+    await chrome.permissions.request({ origins: [origin] });
+  } catch (_e) {
+    requestError = true;
+  }
+  const resolved = await cmd({
+    cmd: "journalIntentResolve",
+    journalUrl: intent.journalUrl,
+    changed: intent.changed,
+    previous: intent.previous,
+  });
+  if (!resolved.ok) return { ok: false, error: resolved.error || "could not finish journal permission" };
+  if (!resolved.granted) {
+    return requestError
+      ? { ok: false, error: "could not request journal permission" }
+      : { ok: false, denied: true };
+  }
+  return { ok: true };
 }
 
 function renderRemoteState() {
@@ -150,9 +174,6 @@ async function refresh() {
   $("showPageIndicator").checked = !!state.showPageIndicator;
   $("ver").textContent = state.version ? "v" + state.version : "";
   $("streamLabel").textContent = state.streamName;
-  loadedHostname = state.hostname || "";
-  loadedJournalUrl = state.journalUrl || "";
-
   renderConnStatus();
   renderJournalLink();
   renderRemoteState();
@@ -207,17 +228,18 @@ async function saveConfig() {
 
   const hostname = $("hostname").value;
   const journalUrl = $("journalUrl").value;
-  const connectionChanged = hostname.trim() !== loadedHostname || journalUrl.trim().replace(/\/+$/, "") !== loadedJournalUrl;
-  await cmd({ cmd: "setConfig", hostname, journalUrl, segmentSec });
-
-  if (connectionChanged) {
-    $("connStatus").textContent = "connecting…";
-    await cmd({ cmd: "probe" });
+  const permission = await requestJournalAccess(journalUrl);
+  if (!permission.ok) {
     await refresh();
-  } else {
-    await refresh();
-    $("connStatus").textContent = "saved.";
+    $("connStatus").textContent = permission.denied
+      ? "permission declined. journal address unchanged."
+      : permission.error || "could not request journal permission";
+    return;
   }
+  await cmd({ cmd: "setConfig", hostname, journalUrl, segmentSec });
+  $("connStatus").textContent = "connecting…";
+  await cmd({ cmd: "probe" });
+  await refresh();
 }
 
 async function addSite() {
@@ -248,7 +270,7 @@ async function pairRemote() {
     $("pairStatus").textContent = "paste a valid pair link.";
     return;
   }
-  const origin = permissionOriginForRelay(parsed.relayOrigin);
+  const origin = globalThis.SolstoneHosts.permissionOriginForUrl(parsed.relayOrigin);
   const intent = await cmd({ cmd: "relayIntent", relayOrigin: parsed.relayOrigin });
   if (!intent.ok) {
     $("pairStatus").textContent = "could not prepare relay permission.";
@@ -284,6 +306,14 @@ $("connForm").addEventListener("submit", async (e) => {
 });
 
 $("registerBtn").addEventListener("click", async () => {
+  const permission = await requestJournalAccess($("journalUrl").value);
+  if (!permission.ok) {
+    await refresh();
+    $("connStatus").textContent = permission.denied
+      ? "permission declined. journal address unchanged."
+      : permission.error || "could not request journal permission";
+    return;
+  }
   $("connStatus").textContent = "connecting…";
   await cmd({ cmd: "probe" });
   await refresh();
@@ -294,7 +324,13 @@ $("flushBtn").addEventListener("click", async () => {
   await refresh();
   if (res.outcome === "failed") return;
   const conn = globalThis.SolstoneStatus.connection(state);
-  $("connStatus").textContent = res.outcome === "uploaded" ? "sent." : res.outcome === "queued" ? `can't reach ${conn.destination} — kept here, waiting to sync.` : "nothing waiting.";
+  $("connStatus").textContent = res.outcome === "uploaded"
+    ? "sent."
+    : res.outcome === "queued"
+      ? conn.kind === "local-permission-required"
+        ? conn.consequence
+        : `can't reach ${conn.destination} — kept here, waiting to sync.`
+      : "nothing waiting.";
 });
 
 $("showPageIndicator").addEventListener("change", async () => {

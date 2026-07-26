@@ -24,5 +24,9 @@
     return `something went wrong — ${short}`;
   }
 
-  globalThis.SolstoneFailures = { classify };
+  function contentScriptRegistrationSatisfied(id, registeredScripts) {
+    return Array.isArray(registeredScripts) && registeredScripts.some((script) => script && script.id === id);
+  }
+
+  globalThis.SolstoneFailures = { classify, contentScriptRegistrationSatisfied };
 })();

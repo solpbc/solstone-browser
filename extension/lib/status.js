@@ -18,6 +18,9 @@
     const pending = !paired && !!(remotePending || remote);
     const dropped = extras.dropped || cfg.dropped || {};
     const streamName = cfg.stream || (cfg.hostname ? `${cfg.hostname}.browser` : "browser");
+    const journalPermission = ["unknown", "granted", "missing"].includes(cfg.journalPermission)
+      ? cfg.journalPermission
+      : "unknown";
 
     return {
       journalUrl: cfg.journalUrl || "",
@@ -25,6 +28,7 @@
       stream: cfg.stream || "",
       streamName,
       localRegistered: !!cfg.key,
+      journalPermission,
       paused: !!cfg.paused,
       allowlist: Array.isArray(cfg.allowlist) ? cfg.allowlist.slice() : [],
       pausedHosts: Object.assign({}, cfg.pausedHosts || {}),
@@ -65,6 +69,8 @@
       else kind = "remote-ready";
     } else if (remote.pending) {
       kind = "remote-pending";
+    } else if (status.journalPermission === "missing") {
+      kind = "local-permission-required";
     } else if (health.lastError) {
       kind = "local-error";
     } else if (status.localRegistered) {
@@ -78,24 +84,28 @@
     const error = kind.endsWith("-error");
     const stateLabel = connected
       ? "connected"
-      : error
-        ? "can't reach"
-        : kind === "remote-ready"
-          ? "paired · waiting for first sync"
-          : kind === "remote-pending"
-            ? "pairing not finished"
-            : "connecting";
+      : kind === "local-permission-required"
+        ? "needs permission"
+        : error
+          ? "can't reach"
+          : kind === "remote-ready"
+            ? "paired · waiting for first sync"
+            : kind === "remote-pending"
+              ? "pairing not finished"
+              : "connecting";
     const destination = remoteMode ? "your home" : "this computer";
     const destinationDetail = kind === "remote-pending"
       ? "your home, once pairing finishes"
       : remoteMode
         ? "your home, reached over a sealed link"
         : "your journal on this computer";
-    const consequence = kind === "local-error"
-      ? "your journal isn't answering. what sol takes in is kept here, waiting to sync."
-      : kind === "remote-error"
-        ? "your home isn't answering. what sol takes in is kept here, waiting to sync."
-        : "";
+    const consequence = kind === "local-permission-required"
+      ? "your journal address isn't allowed yet. what sol takes in stays here until you allow it."
+      : kind === "local-error"
+        ? "your journal isn't answering. what sol takes in is kept here, waiting to sync."
+        : kind === "remote-error"
+          ? "your home isn't answering. what sol takes in is kept here, waiting to sync."
+          : "";
 
     return { kind, connected, stateLabel, destination, destinationDetail, consequence };
   }

@@ -33,6 +33,10 @@ try {
     bundle: true,
     format: "iife",
     globalName: "SolstoneHpke",
+    // This target binds manifest minimum_chrome_version to 120. The API floor is
+    // 105: Element.checkVisibility has no semantically equivalent skim fallback.
+    // Do not lower either this target or the manifest floor without lowering and
+    // revalidating the other.
     target: "chrome120",
     outfile: bundle,
     absWorkingDir: ROOT,

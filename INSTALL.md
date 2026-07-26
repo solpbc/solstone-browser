@@ -49,9 +49,10 @@ Set **segment length** to `60` seconds for a quicker walkthrough. The default is
 ## Try it
 
 1. **Add any site.** Open Gmail at `mail.google.com`, Slack at `app.slack.com`,
-   or another site, then click the sol toolbar icon and **add this site**. Chrome
-   asks permission to read that site. You can also add a hostname, IP, or
-   `host:port` in options. Reload the tab after adding it.
+   or another site, then click the sol toolbar icon and **add this site**. Read
+   the in-popup disclosure, click **add this site** there, then allow Chrome's
+   prompt for that site. You can also add a hostname, IP, or `host:port` in
+   options. Reload the tab after adding it.
 2. **Read the status light.** The toolbar and popup distinguish connected,
    connecting, needs permission, waiting for first sync, pairing not finished,
    can't reach, paused, paused by browser, and attention states. The on-page

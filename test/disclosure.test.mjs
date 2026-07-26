@@ -39,6 +39,14 @@ test("addSite derives remote and unconfigured destinations from the passed statu
     detail: "sealed in this browser. https://link.solstone.app carries bytes it can't open.",
   });
 
+  const remoteWithoutOrigin = status({
+    remote: { paired: true, pending: false, relayOrigin: "" },
+  });
+  assert.deepEqual(Disclosure.addSite("example.com", remoteWithoutOrigin).destination, {
+    label: "your journal at your home",
+    detail: "sealed in this browser.",
+  });
+
   const unconfigured = status({ journalUrl: "", remote: { paired: false, pending: false, relayOrigin: "" } });
   assert.deepEqual(Disclosure.addSite("example.com", unconfigured).destination, {
     label: "nowhere yet",

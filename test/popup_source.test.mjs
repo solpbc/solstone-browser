@@ -24,7 +24,7 @@ test("popup HTML fixes the section order and heading contract", () => {
 
 test("popup consumes the upstream status derivations without recreating them", () => {
   assert.match(popupSource, /Status\.verdict\(state,/);
-  assert.match(popupSource, /SolstoneStatus\.connection\(state\)/);
+  assert.match(popupSource, /Status\.connection\(state\)/);
   assert.match(viewSource, /SolstoneStatus\.siteRowState\(entry,/);
   assert.doesNotMatch(popupSource, /cfg\.key|localRegistered/);
   assert.doesNotMatch(popupSource, /(?:allowlist\.length|sites)\s*>\s*0\s*&&\s*!\s*(?:state\.)?paused/);
@@ -105,6 +105,13 @@ test("the empty loss block and its competing predicates are gone", () => {
   assert.doesNotMatch(`${html}\n${popupSource}`, /lossBtn|lossText|id=["']loss["']|dropped\.segments\s*>/);
 });
 
+test("the page add binding routes through the disclosure-gated add flow", () => {
+  assert.match(
+    popupSource,
+    /View\.addSite\(page\.host,\s*Object\.assign\(siteEffects\(\),\s*\{\s*disclose:\s*presentDisclosure,/s,
+  );
+});
+
 class FakeNode {
   constructor(id = "") {
     this.id = id;
@@ -151,7 +158,7 @@ function popupState(overrides = {}) {
   }, overrides);
 }
 
-test("refresh preserves the verdict live-region node while changing its children", async () => {
+test("the popup binder keeps refresh and add-action failure paths honest", async () => {
   const ids = [
     "actionMessage", "verdict", "verdictDot", "verdictHeadline", "verdictSub",
     "verdictReason", "verdictActions", "siteIssues", "siteIssueRows", "pageHost",
@@ -162,22 +169,39 @@ test("refresh preserves the verdict live-region node while changing its children
   ];
   const nodes = Object.fromEntries(ids.map((id) => [id, new FakeNode(id)]));
   nodes.disclosure.hidden = true;
+  const documentListeners = {};
   globalThis.document = {
     getElementById: (id) => nodes[id],
     createElement: () => new FakeNode(),
-    addEventListener() {},
+    addEventListener(type, listener) {
+      documentListeners[type] = listener;
+    },
   };
 
   let liveState = popupState();
+  let tabQuery = async () => [{ id: 7, url: "https://mail.google.com/inbox" }];
+  let handleCommand = () => ({ ok: true });
+  let permissionRequests = 0;
+  const sent = [];
+  const mutationCommands = (messages) => messages.filter(
+    (message) => ["siteIntent", "siteGranted", "removeSite"].includes(message.cmd),
+  );
   globalThis.chrome = {
     runtime: {
       sendMessage(message, callback) {
-        callback(message.cmd === "getState" ? liveState : { ok: true });
+        sent.push(message);
+        callback(message.cmd === "getState" ? liveState : handleCommand(message));
       },
       openOptionsPage() {},
     },
-    tabs: { query: async () => [{ id: 7, url: "https://mail.google.com/inbox" }] },
-    permissions: { request: async () => true, contains: async () => true },
+    tabs: { query: (...args) => tabQuery(...args) },
+    permissions: {
+      request: async () => {
+        permissionRequests += 1;
+        return true;
+      },
+      contains: async () => true,
+    },
   };
 
   await import(new URL("../extension/lib/hosts.js", import.meta.url));
@@ -198,4 +222,75 @@ test("refresh preserves the verdict live-region node while changing its children
   assert.strictEqual(nodes.verdict, verdictNode);
   assert.equal(nodes.verdictHeadline.textContent, "paused");
   assert.equal(nodes.actionMessage.textContent, "previous action");
+
+  liveState = { ok: false, error: "worker state unavailable" };
+  tabQuery = async () => {
+    throw new Error("tab lookup failed");
+  };
+  await globalThis.SolstonePopup.refresh();
+  assert.strictEqual(nodes.verdict, verdictNode);
+  assert.equal(nodes.verdictHeadline.textContent, "status unavailable");
+  assert.equal(nodes.verdictActions.children.length, 1);
+  assert.equal(nodes.verdictActions.children[0].textContent, "open settings");
+  assert.equal(nodes.siteIssues.hidden, true);
+  assert.equal(nodes.siteCount.hidden, true);
+
+  tabQuery = async () => [{ id: 7, url: "https://mail.google.com/inbox" }];
+  liveState = popupState({ allowlist: [], activeSites: [] });
+  await globalThis.SolstonePopup.refresh();
+
+  let before = sent.length;
+  let permissionsBefore = permissionRequests;
+  const cancelled = nodes.pageSiteAction.onclick();
+  assert.equal(nodes.disclosure.hidden, false);
+  nodes.disclosureCancel.listeners.click();
+  await cancelled;
+  assert.deepEqual(mutationCommands(sent.slice(before)), []);
+  assert.equal(permissionRequests, permissionsBefore);
+
+  before = sent.length;
+  permissionsBefore = permissionRequests;
+  const escaped = nodes.pageSiteAction.onclick();
+  assert.equal(nodes.disclosure.hidden, false);
+  documentListeners.keydown({ key: "Escape" });
+  await escaped;
+  assert.deepEqual(mutationCommands(sent.slice(before)), []);
+  assert.equal(permissionRequests, permissionsBefore);
+
+  const rawRegistrationError = "Cannot access contents of url https://mail.google.com/";
+  let pauseError = "";
+  handleCommand = (message) => {
+    if (message.cmd === "siteIntent") {
+      liveState = popupState({ allowlist: [message.host], activeSites: [] });
+      return { ok: true, added: true };
+    }
+    if (message.cmd === "siteGranted") {
+      liveState.siteErrors[message.host] = rawRegistrationError;
+      return { ok: false, error: rawRegistrationError };
+    }
+    if (message.cmd === "setPaused") {
+      if (pauseError) return { ok: false, error: pauseError };
+      liveState.paused = message.paused;
+      return { ok: true };
+    }
+    return { ok: true };
+  };
+
+  const failedAdd = nodes.pageSiteAction.onclick();
+  nodes.disclosureConfirm.listeners.click();
+  await failedAdd;
+  const issueWhy = nodes.siteIssueRows.children[0].children[1];
+  assert.equal(nodes.actionMessage.textContent, "chrome doesn't allow extensions on this page");
+  assert.equal(issueWhy.textContent, "chrome doesn't allow extensions on this page");
+  for (const node of [nodes.actionMessage, nodes.currentPageState, issueWhy]) {
+    assert.equal(node.textContent.includes(rawRegistrationError), false);
+  }
+
+  await nodes.pauseAction.onclick();
+  assert.equal(nodes.actionMessage.textContent, "");
+
+  pauseError = "Cannot read properties of undefined (reading 'foo')";
+  await nodes.pauseAction.onclick();
+  assert.notEqual(nodes.actionMessage.textContent, pauseError);
+  assert.match(nodes.actionMessage.textContent, /^something went wrong/);
 });

@@ -91,12 +91,14 @@ npm run test:idb    # production IDB adapter tests (needs fake-indexeddb)
 make smoke          # (npm run smoke) headless Chrome over CDP: skim the Gmail/Slack/article fixtures
 make relay-check    # (npm run relay-check) ON the journal machine: register + multipart ingest + verify a segment landed
 make e2e-deps       # one-time: npm install + npx playwright install chromium (dev-only deps)
+make popup-check    # render popup states + enforce the 600px ceiling (needs make e2e-deps; outside make ci)
 make e2e            # (npm run e2e) agentic integration: content script -> SW -> relay, headless
 ```
 
 `make ci` is the CI-able gate and needs a locked dev install. `npm test` and
 `make test` remain dependency-free. The smoke needs a real Chrome; relay-check
-needs a live local journal; the e2e harness needs the Playwright chromium build.
+needs a live local journal; popup-check and the e2e harness need the Playwright
+chromium build. Popup-check is deliberately outside `make ci`.
 All dependencies are development-only: the shipped extension remains runtime-
 dependency-free and loads no code from npm or the network.
 

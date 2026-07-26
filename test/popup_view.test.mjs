@@ -138,21 +138,15 @@ test("addSite confirms before intent and permission in exact order", async () =>
   assert.deepEqual(result, { ok: true });
 });
 
-test("an unconfirmed add leaves state byte-identical and reaches no side effect", async () => {
-  const config = state({
-    allowlist: ["existing.example"],
-    pausedHosts: { "existing.example": true },
-  });
-  const before = JSON.stringify(config);
-  let sideEffects = 0;
+test("an unconfirmed add reaches no mutation or permission effect", async () => {
+  const calls = [];
   const result = await View.addSite("new.example", {
-    disclose: async () => false,
-    cmd: async () => { sideEffects += 1; },
-    requestPermission: async () => { sideEffects += 1; },
+    disclose: async () => { calls.push("disclose"); return false; },
+    cmd: async () => { calls.push("mutation"); },
+    requestPermission: async () => { calls.push("permission"); },
   });
   assert.deepEqual(result, { ok: false, cancelled: true });
-  assert.equal(sideEffects, 0);
-  assert.equal(JSON.stringify(config), before);
+  assert.deepEqual(calls, ["disclose"]);
 });
 
 test("a declined grant rolls back a newly added intent", async () => {

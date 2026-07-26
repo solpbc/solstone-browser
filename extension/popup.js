@@ -6,6 +6,7 @@
 
   const SolstoneHosts = globalThis.SolstoneHosts;
   const Status = globalThis.SolstoneStatus;
+  const Failures = globalThis.SolstoneFailures;
   const Disclosure = globalThis.SolstoneDisclosure;
   const View = globalThis.SolstonePopupView;
   const $ = (id) => document.getElementById(id);
@@ -22,8 +23,12 @@
   }
 
   async function currentTab() {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    return tab;
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      return tab;
+    } catch (_error) {
+      return undefined;
+    }
   }
 
   function originFor(url) {
@@ -39,14 +44,18 @@
   }
 
   let state = null;
-  let page = { host: "", ok: false, tabId: null };
+  let page = { host: "", ok: false };
   let disclosureResolve = null;
 
   async function requestJournalAccess(journalUrl) {
     const origin = SolstoneHosts.permissionOriginForUrl(journalUrl);
     if (!origin) return { ok: false, error: "enter a valid journal address" };
     const intent = await cmd({ cmd: "journalIntent", journalUrl });
-    if (!intent.ok) return { ok: false, error: intent.error || "could not save the journal address" };
+    if (!intent.ok) {
+      return intent.error
+        ? { ok: false, workerError: intent.error }
+        : { ok: false, error: "could not save the journal address" };
+    }
 
     let requestError = false;
     try {
@@ -60,7 +69,11 @@
       changed: intent.changed,
       previous: intent.previous,
     });
-    if (!resolved.ok) return { ok: false, error: resolved.error || "could not finish journal permission" };
+    if (!resolved.ok) {
+      return resolved.error
+        ? { ok: false, workerError: resolved.error }
+        : { ok: false, error: "could not finish journal permission" };
+    }
     if (!resolved.granted) {
       return requestError
         ? { ok: false, error: "could not request journal permission" }
@@ -73,27 +86,35 @@
     $("actionMessage").textContent = message || "";
   }
 
+  function showActionError(error) {
+    showActionMessage(Failures.classify(error));
+  }
+
   async function tryNow() {
+    showActionMessage("");
     await cmd({ cmd: "probe" });
     await refresh();
   }
 
   async function dismiss() {
+    showActionMessage("");
     await cmd({ cmd: "clearDropped" });
     await refresh();
   }
 
   function openSettings() {
+    showActionMessage("");
     chrome.runtime.openOptionsPage();
   }
 
   async function setUp() {
+    showActionMessage("");
     const origin = SolstoneHosts.permissionOriginForUrl(state.journalUrl);
     if (!origin) {
       openSettings();
       return;
     }
-    const connection = globalThis.SolstoneStatus.connection(state);
+    const connection = Status.connection(state);
     if (!connection.kind.startsWith("local-")) {
       openSettings();
       return;
@@ -113,9 +134,9 @@
 
     const result = await requestJournalAccess(state.journalUrl);
     if (!result.ok) {
-      showActionMessage(result.denied
-        ? "permission declined. journal address not allowed."
-        : result.error || "could not request journal permission");
+      if (result.denied) showActionMessage("permission declined. journal address not allowed.");
+      else if (result.workerError) showActionError(result.workerError);
+      else showActionMessage(result.error || "could not request journal permission");
     }
     await refresh();
   }
@@ -157,13 +178,14 @@
   }
 
   async function runSiteAction(action) {
+    showActionMessage("");
     if (action.id === "remove-site") {
       const result = await cmd({ cmd: "removeSite", host: action.host });
-      if (result.error) showActionMessage(result.error);
+      if (result.error) showActionError(result.error);
     } else if (action.id === "allow-site") {
       const result = await View.grantSite(action.host, siteEffects());
       if (result.denied) showActionMessage("permission declined. this site stays paused.");
-      else if (result.error) showActionMessage(result.error);
+      else if (result.error) showActionError(result.error);
     }
     await refresh();
   }
@@ -196,9 +218,10 @@
   }
 
   async function runPageSiteAction(action) {
+    showActionMessage("");
     if (action.id === "remove-site") {
       const result = await cmd({ cmd: "removeSite", host: page.host });
-      if (result.error) showActionMessage(result.error);
+      if (result.error) showActionError(result.error);
       await refresh();
       return;
     }
@@ -207,7 +230,7 @@
     }));
     if (result.cancelled) return;
     if (result.denied) showActionMessage("permission declined. nothing added.");
-    else if (result.error) showActionMessage(result.error);
+    else if (result.error) showActionError(result.error);
     await refresh();
   }
 
@@ -225,8 +248,9 @@
     pauseAction.textContent = section.pauseAction.label;
     pauseAction.className = section.pauseAction.primary ? "primary" : "";
     pauseAction.onclick = async () => {
+      showActionMessage("");
       const result = await cmd({ cmd: "setPaused", paused: !state.paused });
-      if (result.error) showActionMessage(result.error);
+      if (result.error) showActionError(result.error);
       await refresh();
     };
   }
@@ -268,8 +292,9 @@
     state = await cmd({ cmd: "getState" });
     const tab = await currentTab();
     const current = tab && tab.url ? originFor(tab.url) : { host: "", ok: false };
-    page = { host: current.host, ok: current.ok, tabId: tab && tab.id != null ? tab.id : null };
-    const entryMatchHosts = Object.fromEntries(state.allowlist.map((h) => [h, SolstoneHosts.matchHostFor(h)]));
+    page = { host: current.host, ok: current.ok };
+    const allowlist = Array.isArray(state.allowlist) ? state.allowlist : [];
+    const entryMatchHosts = Object.fromEntries(allowlist.map((h) => [h, SolstoneHosts.matchHostFor(h)]));
     const verdict = Status.verdict(state, {
       activeSites: state.activeSites,
       outbox: state.outbox,

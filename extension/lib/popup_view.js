@@ -30,9 +30,7 @@
       host: entry,
       kind: row.kind,
       label: row.label,
-      action: row.kind === "paused-browser"
-        ? { id: "allow-site", label: "allow again", host: entry }
-        : null,
+      action: { id: "allow-site", label: "allow again", host: entry },
     };
   }
 

@@ -10,7 +10,9 @@
     if (remote.paired) {
       return {
         label: "your journal at your home",
-        detail: `sealed in this browser. ${remote.relayOrigin || ""} carries bytes it can't open.`,
+        detail: remote.relayOrigin
+          ? `sealed in this browser. ${remote.relayOrigin} carries bytes it can't open.`
+          : "sealed in this browser.",
       };
     }
     if (!remote.pending && status.journalUrl) {

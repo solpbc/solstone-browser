@@ -200,14 +200,14 @@ function descendantText(node) {
 test("the options binder drives disclosure, destinations, details, waiting, and loss", async () => {
   const ids = [
     "actionMessage", "firstRun", "firstRunHeading", "firstRunComposition", "firstRunCovenant",
-    "firstRunScope", "firstRunWhat", "firstRunNever", "firstRunAbsolutes", "firstRunDestination",
+    "firstRunScope", "firstRunWhat", "firstRunUnsent", "firstRunNever", "firstRunAbsolutes", "firstRunDestination",
     "firstRunDestinationDetail", "firstRunNothingYet", "firstRunChange", "journalCard",
     "journalLead", "journalStateChip", "destinationLocal", "destinationRemote",
     "localDestination", "remoteDestination", "connForm", "hostname", "segmentSec", "streamLabel",
     "saveBtn", "journalUrl", "registerBtn", "pairForm", "pairLink", "pairBtn", "unpairBtn",
     "flushBtn", "journalLink", "journalDetails", "pairInstanceId", "pairRelayOrigin", "journalError",
     "lastSyncDetail", "waitingRow", "waitingPreview", "lossDetail", "sitesMain", "addForm", "newHost",
-    "addBtn", "siteList", "siteDisclosure", "siteDisclosureTitle", "siteDisclosureWhat",
+    "addBtn", "siteList", "siteDisclosure", "siteDisclosureTitle", "siteDisclosureWhat", "siteDisclosureUnsent",
     "siteDisclosureDestination", "siteDisclosureDestinationDetail", "siteDisclosureChrome",
     "siteDisclosureConfirm", "siteDisclosureCancel", "showPageIndicator", "ver",
   ];

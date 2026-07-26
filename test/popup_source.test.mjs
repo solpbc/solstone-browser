@@ -146,7 +146,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
     "actionMessage", "verdict", "verdictDot", "verdictHeadline", "verdictSub",
     "verdictReason", "verdictActions", "siteIssues", "siteIssueRows", "pageHost",
     "currentPageState", "pageSiteAction", "pauseAction", "siteCount", "siteCountText",
-    "disclosure", "disclosureTitle", "disclosureWhat", "disclosureDestination",
+    "disclosure", "disclosureTitle", "disclosureWhat", "disclosureUnsent", "disclosureDestination",
     "disclosureDestinationDetail", "disclosureChrome", "disclosureConfirm",
     "disclosureCancel", "popupMain", "popupFooter", "allSitesLink", "settingsLink",
   ];

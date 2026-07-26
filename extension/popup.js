@@ -277,6 +277,7 @@
     const copy = Disclosure.addSite(host, state);
     $("disclosureTitle").textContent = copy.title;
     $("disclosureWhat").textContent = copy.whatSolTakesIn;
+    $("disclosureUnsent").textContent = copy.unsentText;
     $("disclosureDestination").textContent = copy.destination.label;
     $("disclosureDestinationDetail").textContent = copy.destination.detail;
     $("disclosureChrome").textContent = copy.whatChromeDoes;

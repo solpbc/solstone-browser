@@ -51,6 +51,7 @@
     return {
       title: `add ${host}?`,
       whatSolTakesIn: "sol will take in the rendered text of this site, along with you, whenever a tab on it is open, and keep it in your journal. that includes background tabs, and text you'd only see by scrolling.",
+      unsentText: "if the site has a message box, that can include what you've typed but haven't sent. sol skips the compose box on gmail and slack, and nowhere else yet.",
       destination: destinationFor(status),
       whatChromeDoes: "chrome will ask you to allow this next. you can remove the site any time.",
       confirmLabel: "add this site",
@@ -67,6 +68,7 @@
       ],
       scope: "in your browser, sol takes in only the sites you add.",
       whatSolTakesIn: "on a site you add, sol takes in the page's rendered text and rough layout, along with you, and keeps it in your journal. that is the text the page has drawn, what you can see now and what you'd see by scrolling, plus the labels pages hand to screen readers and tooltips, which sometimes aren't drawn on screen. never pixels. never raw HTML. never a site you didn't add.",
+      unsentText: "on a site with a message box, that can include what you've typed but haven't sent. sol skips the compose box on gmail and slack, and nowhere else yet.",
       neverReceives: "sol pbc can never read it. on this computer it never leaves the computer at all. at your home it reaches us only sealed, and we hold no key.",
       absolutes: "no analytics. no telemetry. no phone home. nobody counted.",
       destination: destinationFor(status),

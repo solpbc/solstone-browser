@@ -99,6 +99,7 @@
     $("firstRunCovenant").textContent = copy.kinship[2];
     $("firstRunScope").textContent = copy.scope;
     $("firstRunWhat").textContent = copy.whatSolTakesIn;
+    $("firstRunUnsent").textContent = copy.unsentText;
     $("firstRunNever").textContent = copy.neverReceives;
     $("firstRunAbsolutes").textContent = copy.absolutes;
     $("firstRunDestination").textContent = copy.destination.label;
@@ -331,6 +332,7 @@
     const copy = Disclosure.addSite(host, state);
     $("siteDisclosureTitle").textContent = copy.title;
     $("siteDisclosureWhat").textContent = copy.whatSolTakesIn;
+    $("siteDisclosureUnsent").textContent = copy.unsentText;
     $("siteDisclosureDestination").textContent = copy.destination.label;
     $("siteDisclosureDestinationDetail").textContent = copy.destination.detail;
     $("siteDisclosureChrome").textContent = copy.whatChromeDoes;

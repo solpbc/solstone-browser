@@ -1,10 +1,10 @@
-# solstone-browser (prototype)
+# solstone-browser
 
-A Chrome (Manifest V3) **semantic browser observer** for
+A Chromium (Manifest V3) **semantic browser observer** for
 [solstone](https://solpbc.org). It experiences the web apps you choose along
-with you — reading their visible text and rough layout, **never screenshots** —
-and relays what it reads into your local solstone journal as its own `browser`
-stream.
+with you, reading their visible text and rough layout, **never screenshots**.
+It delivers what it reads to your journal on this computer or to your journal
+at your paired home as its own `browser` stream.
 
 A browser extension isn't a new product; it's a new **observer surface** — and
 the most *semantic* one in the fleet. The OS screen observer already owns the
@@ -13,9 +13,9 @@ and structure of the apps you keep open** — a new email's sender/subject/body,
 Slack message, a PR review request — as clean text, in background tabs, the
 moment the page changes.
 
-This is a **discovery prototype**: Chrome desktop only, opt-in per site, relaying
-directly to the local journal by default, with an optional paired remote home.
-See [`INSTALL.md`](INSTALL.md) to run it.
+This is a Chromium desktop Web Store candidate. It is opt-in per site and
+delivers directly to the local journal by default, with an optional paired
+remote home. See [`INSTALL.md`](INSTALL.md) to install it.
 
 ## How it works
 
@@ -45,11 +45,14 @@ See [`INSTALL.md`](INSTALL.md) to run it.
   oracle + ARIA roles/semantic tags; it never calls `captureVisibleTab`.
 - **Self-contained observer.** In local mode, the worker registers as its own
   observer and uploads finished segments straight to the journal's localhost
-  ingest API. In remote mode, a pasted pair link enrolls the extension with a
-  remote journal and sends finished segments as HPKE-sealed blobs over the relay
-  tunnel; see the [release compatibility gate](RELEASE.md#cut-a-tagged-release-like-our-other-surfaces).
-  MV3 service-worker ephemerality is handled with `chrome.storage`,
-  IndexedDB, and `chrome.alarms`.
+  ingest API. In remote mode, the durable outbox keeps waiting entries locally,
+  and the worker seals each entry with HPKE immediately before sending it through
+  the paired relay. The pair link carries the home's fingerprint, which sol
+  verifies before trusting the home. The relay carries sealed content bytes and
+  cannot read them, but it sees routing and authentication data, offer metadata,
+  and Ready/ACK framing. See the [release compatibility gate](RELEASE.md#cut-a-tagged-release-like-our-other-surfaces).
+  MV3 service-worker ephemerality is handled with `chrome.storage`, IndexedDB,
+  and `chrome.alarms`.
 - **Trust controls.** The toolbar icon is a live status light for connected, connecting,
   needs permission, paired · waiting for first sync, pairing not finished, can't reach, paused, paused by browser, and attention states. Pin solstone to
   keep it visible; the on-page marker is an opt-in Options setting.
@@ -134,13 +137,14 @@ Two ways to exercise the live path (content script → worker → journal/relay)
 make dist          # clean, versioned artifact in dist/ (gated on `make ci`)
 ```
 
-Produces `dist/solstone-browser-<version>/` + a `.zip`, and maintains a stable
-`dist/current` symlink. **Load unpacked `dist/current` once**, then after each
-`make dist` just hit **reload** on the extension card — the manifest `key` pins
-the extension id, so your granted sites persist across rebuilds. Bump with
-`make set-version V=x.y.z`. Full flow — the reload loop, version bumps, tagged
-releases, and the future store/signed-channel layers — in [RELEASE.md](RELEASE.md);
-history in [CHANGELOG.md](CHANGELOG.md).
+Produces `dist/solstone-browser-<version>/` plus a `.zip`, and maintains a stable
+`dist/current` symlink. The zip is the Chrome Web Store candidate and
+self-distribution artifact. **Load unpacked `dist/current` once**, then after
+each `make dist` click **reload** on the extension card. The manifest `key` pins
+the self-distributed extension id, so your granted sites persist across
+rebuilds. Bump with `make set-version V=x.y.z`. The reload loop, version bumps,
+tagged releases, and store channel details are in [RELEASE.md](RELEASE.md);
+history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

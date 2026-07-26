@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Development guidelines for solstone-browser, a prototype Chrome (Manifest V3)
+Development guidelines for solstone-browser, a Chromium desktop Manifest V3
 semantic browser observer for solstone.
 
 ## Project overview
@@ -13,10 +13,10 @@ and the screen/audio observers: register against the journal, accumulate into
 segments, sync. The difference is the source: semantic DOM content instead of
 pixels or terminal text.
 
-This is a **discovery prototype** — Chrome desktop only, opt-in per site,
-relaying directly to the local journal by default, with an optional paired
-remote home. Cross-browser (Firefox/Safari) packaging and the iOS Safari path
-are the eventual architecture, deliberately out of scope.
+This is a **Chromium Web Store candidate** for desktop Chromium. It is opt-in per
+site and delivers directly to the local journal by default, with an optional
+paired remote home. Cross-browser Firefox and Safari packaging, and the iOS
+Safari path, remain deliberately out of scope.
 
 ## Architecture
 
@@ -39,11 +39,11 @@ Two halves, one substrate (the WebExtensions API):
   service-worker ephemerality is handled by persisting state and waking on
   alarms.
 
-Why no separate native host for this prototype: in local mode, the journal runs
-on the same machine and exposes a localhost ingest API that segments on receipt,
-so the worker registers as its own observer and uploads directly. Remote mode
-uses the paired relay path without adding a native host. A native host may return
-for the cross-platform / iOS shape later.
+Why there is no separate native host: in local mode, the journal runs on the
+same machine and exposes a localhost ingest API that segments on receipt, so the
+worker registers as its own observer and uploads directly. Remote mode uses the
+paired relay path without adding a native host. A native host may return for the
+cross-platform and iOS shape later.
 
 Remote-mode releases must satisfy the compatibility precondition documented in
 the [release checklist](RELEASE.md#cut-a-tagged-release-like-our-other-surfaces).

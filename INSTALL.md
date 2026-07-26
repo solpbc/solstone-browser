@@ -1,120 +1,101 @@
-# Install — solstone browser (prototype)
+# Install solstone browser
 
-**This is a discovery prototype, not a finished product.** It's a Chrome
-extension that experiences a few web apps you choose — reading their visible
-text, never screenshots — and relays what it reads into your journal as
-its own `browser` stream.
+sol is a Chromium desktop extension that experiences the sites you choose,
+reading their visible text and rough layout, never screenshots. It delivers a
+distinct `<hostname>.browser` stream to your journal on this computer or to your
+journal at a paired home. A paired remote home must run solstone 0.8.7 or newer.
 
-## Prerequisites
+## Install
 
-- Chrome (desktop).
-- Your journal running locally on `http://localhost:5015`.
-  The extension registers itself as a `<hostname>.browser` stream over that
-  local link — the same way solstone's tmux and screen streams do. It only works on
-  the computer the journal runs on (the journal accepts registrations from
-  localhost only).
+If there is a Chrome Web Store listing for **solstone browser**, install from
+there. It updates itself and needs no developer mode. Otherwise, or if you are
+working on sol itself, use the developer path below.
 
-## Install (one paragraph)
+From a repository checkout, run:
 
-Open `chrome://extensions`, turn on **Developer mode** (top-right), click **Load
-unpacked**, and choose the `extension/` folder inside this repo. That's it — the ☼ sol mark appears in
-your toolbar. Pin sol so the status light stays visible. Nothing is read
-yet: the extension does nothing until you add a site. Open the options page
-(right-click the icon → **Options**, or the
-“settings ›” link in the popup) and confirm **this computer's short name** is set
-to your computer's name (it labels the stream — e.g. `laptop`) and the journal URL
-reads `http://localhost:5015`. For a snappy demo, set
-**segment length** to `60` seconds (default is 300, matching the other
-streams).
+```bash
+make dist
+```
 
-> **Reloading after an update?** If you already had `0.0.1` loaded, click the
-> **↻ reload** icon on the extension's card in `chrome://extensions` to pick up
-> `0.0.2`, then **reload any tabs** you want sol to read.
+Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**,
+and choose `dist/current`. Pin sol so its status light stays visible. After a
+later `make dist`, click **reload** on the extension card. The self-distributed
+manifest identity keeps your added sites and permissions across rebuilds.
 
-## What to look for
+Nothing is read until you add a site.
 
-1. **Add a site — any site.** Open the site you want (Gmail `mail.google.com`,
-   Slack `app.slack.com`, or *any* other site — there's a generic reader for
-   everything beyond the two tuned adapters), click the ☼ toolbar icon, and click
-   **add this site**. Chrome asks permission to read just that site — allow
-   it. You can also add a host by name in **Options** (works for `localhost`, an
-   IP, or `host:port` too). **Then reload that tab** so the content script
-   attaches on the next load.
-2. **The status light.** The toolbar icon is the visible status light: it
-   shows on, connecting, needs permission, paired and waiting for its first sync, pairing not finished, can't reach this computer or your home, paused, paused by browser, or attention at
-   a glance. Pin sol to keep that signal visible. If you want an in-page cue
-   too, enable the optional on-page marker in **Options**. The Options page shows each site as
-   **● on now**, **on — waiting for first sync**, **paused by browser**, **added — open or reload a tab**, or **⚠ <error>** if
-   something went wrong (errors are now surfaced, not swallowed).
-3. **Pause.** Click the icon → **pause all**. The toolbar icon switches to
-   paused, and nothing is read until you resume. This is the one-tap kill switch.
-4. **Watch it reach your journal.** Leave an added tab open for one segment
-   length (60s if you set that), or click **send now** in the options
-   page to send immediately. Your journal's devices page should also now
-   show `<hostname>.browser` as **connected** (a heartbeat fires every minute).
-   Then check the stream landed (substitute the short name you set above):
+## Connect your journal
 
-   ```bash
-   ls ~/journal/chronicle/$(date +%Y%m%d)/<hostname>.browser/
-   # -> a HHMMSS_LEN segment folder containing browser_mail-google-com.jsonl etc.
-   cat ~/journal/chronicle/$(date +%Y%m%d)/<hostname>.browser/*/browser_*.jsonl | head
-   ```
+Open options by right-clicking the toolbar icon and choosing **Options**, or use
+the **settings ›** link in the popup.
 
-   Each file opens with a `segment_start` snapshot of what was on the page, then
-   accumulates `delta` lines (new message added, unread count updated, …) as the
-   page changes. It's a **distinct `<hostname>.browser` stream**, a sibling of
-   your other streams (e.g. `iphone.mobile`) — never merged into another
-   stream.
+For **your journal on this computer**, leave the journal URL at
+`http://localhost:5015`, set **this computer's short name** to the name that
+should label the stream, then save or click **connect**. Chrome asks whether sol
+may reach that journal origin. The journal accepts registration from localhost.
 
-## Removing / revoking
+For **your home, reached over a sealed link**, get a pair link from your home.
+Paste it into the **pair link** field and click **pair**. Chrome asks whether sol
+may reach the relay origin. After you allow it, sol verifies the home fingerprint
+carried in the pair link before trusting the home, then reports the paired home
+and relay in settings.
 
-- Remove a site in the options page to forget it. If Chrome removes access in
-  its own per-site controls, sol pauses the retained site — allow again any time
-  in settings.
-- The whole thing is opt-in and local: no site is touched until you add it, and
-  the content never leaves this computer — it goes only to your local journal.
+Set **segment length** to `60` seconds for a quicker walkthrough. The default is
+300 seconds.
 
-## New in 0.0.3
+## Try it
 
-- **Official sol branding** — the real sol ring mark, Comfortaa/Inter type, the
-  cream/orange palette, and on-voice copy throughout (popup, options, the on-page
-  marker).
-- **Icon-as-status** — the toolbar icon is now a live status light using the
-  official sol ring-state marks: **on** (sun), **paused** (sun behind a
-  cloud), **error/disconnected** (sun + ✕).
-- **Lifecycle resilience** — flushes a final read before a tab is hidden/frozen
-  and re-reads on resume / back-forward-cache restore, so nothing is lost when
-  Chrome freezes a background tab.
+1. **Add any site.** Open Gmail at `mail.google.com`, Slack at `app.slack.com`,
+   or another site, then click the sol toolbar icon and **add this site**. Chrome
+   asks permission to read that site. You can also add a hostname, IP, or
+   `host:port` in options. Reload the tab after adding it.
+2. **Read the status light.** The toolbar and popup distinguish connected,
+   connecting, needs permission, waiting for first sync, pairing not finished,
+   can't reach, paused, paused by browser, and attention states. The on-page
+   marker is optional and off by default.
+3. **Pause and resume.** Click **pause all** to stop reading every added site.
+   Nothing new is read until you resume.
+4. **Send what is waiting.** Leave an added tab open for one segment, or click
+   **send now** in options. If the destination does not answer, the entry stays
+   in the local durable outbox and retries. If the bounded outbox fills, sol
+   drops the oldest entries and shows the loss.
 
-## Fixed in 0.0.2
+For a journal on this computer, verify the stream on disk using the short name
+you configured:
 
-- **Port-bearing sites no longer silently fail.** Adding `localhost:5015` (or any
-  `host:port`) used to build an invalid Chrome match pattern and quietly do
-  nothing. Now the content script registers on the port-less hostname and
-  self-gates to the exact `host:port` you added, so any site works.
-- **Errors surface in the UI** (popup + Options) instead of being swallowed.
-- **Heartbeat** so your journal's devices page reads "connected" honestly,
-  not only right after an upload.
-- **Any site** can be added — any normal website (the generic reader covers
-  everything beyond Gmail/Slack) **and** `localhost` / IPs / `host:port` dev
-  servers. (Chrome's match-pattern docs confirm a port-less pattern matches *all*
-  ports, so the journal dashboard `localhost:5015` works too — reading it just
-  isn't very useful; point it at a real site.)
+```bash
+ls ~/journal/chronicle/$(date +%Y%m%d)/<hostname>.browser/
+cat ~/journal/chronicle/$(date +%Y%m%d)/<hostname>.browser/*/browser_*.jsonl | head
+```
 
-## Known prototype edges (see the learnings writeup)
+Each file opens with a `segment_start` snapshot and then accumulates `delta`
+lines as the page changes. For a paired home, the popup becomes
+**connected · your home** after the first acknowledged delivery, and the waiting
+count drains.
 
-- Chrome desktop only (the cross-browser/iOS packaging is the eventual shape, out
-  of scope here).
-- Gmail + Slack have thin adapters; any other site uses a solid generic reader.
-- Browser segments land on disk and are queryable, but the journal doesn't yet
-  *render* a `browser` stream in the timeline the way it renders screen/audio —
-  that's a journal-side follow-up the spike surfaced, not a bug in the extension.
-- Offline outbox: if the journal is down when updates are ready to send,
-  they are kept locally and sync when the journal returns; if it stays down too
-  long, the oldest queued updates are counted and surfaced.
-- The live content-script → worker → relay path is now covered two ways: an
-  automated headless harness (`npm run e2e`, using Playwright's real new-headless
-  build, which *does* inject our dynamically-registered content scripts), and the
-  guided walkthrough you run in real Chrome (`test/GUIDED.md`) — the toolbar
-  status light and popup state are your proof it's working, and only real Chrome
-  exercises the per-site opt-in permission grant.
+## Remove access and understand delivery
+
+Remove a site in options to forget it. If Chrome removes access in its own
+per-site controls, sol pauses the retained site so you can allow it again. Use
+**unpair** to stop remote delivery to a paired home.
+
+Everything is opt-in. No site is read until you add it. In local mode, what sol
+takes in goes to your journal on this computer. In remote mode, it goes to your
+journal at your home, sealed on the way. Waiting entries are kept locally and
+sealed inside the browser immediately before each remote send. The relay carries
+the sealed bytes and cannot read them, but it can see the routing, offer, and
+delivery framing needed to carry them.
+
+Each page URL is reduced to its origin + path before delivery. Its query string,
+fragment, and credentials are left out. Sol reads visible semantic text and
+structure, never pixels or raw HTML.
+
+## Current limits
+
+- Chromium desktop is the supported surface. Firefox, Safari, and iOS packaging
+  remain outside this repository's current scope.
+- Gmail and Slack have tuned adapters. Other sites use the generic semantic
+  reader.
+- This extension produces and delivers queryable `browser` JSONL segments.
+  Whether a journal timeline renders that stream is journal-side behavior and is
+  not verified by this repository.

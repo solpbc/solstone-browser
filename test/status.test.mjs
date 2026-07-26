@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
+import { BANNED_VOCABULARY } from "./vocabulary.mjs";
 
 await import(new URL("../extension/lib/hosts.js", import.meta.url));
 await import(new URL("../extension/lib/status.js", import.meta.url));
@@ -572,7 +573,7 @@ test("verdict and iconState owner strings obey the copy constraints", () => {
   const assertAllowed = (value) => {
     for (const string of stringsIn(value)) {
       assert.doesNotMatch(string, /—/);
-      assert.doesNotMatch(string, /\busers?\b|captur(?:e|es|ed|ing)|record(?:s|ed|ing)?|monitor(?:s|ed|ing)?|watch(?:es|ed|ing)?|track(?:s|ed|ing)?|collect(?:s|ed|ing)?|observ(?:e|es|ed|ing|ation|ations)/i);
+      assert.doesNotMatch(string, BANNED_VOCABULARY);
     }
   };
 
@@ -773,6 +774,6 @@ test("toolbar titles and site labels stay in owner voice", () => {
   );
   const ownerStrings = cells.map(([, , expected]) => expected.title).concat(rowCells.map(([, , expected]) => expected.label), connectionStrings);
   for (const value of ownerStrings) {
-    assert.doesNotMatch(value, /\busers?\b|captur(?:e|es|ed|ing)|record(?:s|ed|ing)?|monitor(?:s|ed|ing)?|watch(?:es|ed|ing)?|track(?:s|ed|ing)?|collect(?:s|ed|ing)?|observ(?:e|es|ed|ing|ation|ations)/i);
+    assert.doesNotMatch(value, BANNED_VOCABULARY);
   }
 });

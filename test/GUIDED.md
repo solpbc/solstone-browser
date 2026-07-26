@@ -50,8 +50,11 @@ icon → **Options** (or "settings ›" in the popup):
 - Under **journal address**, confirm `http://localhost:5015`.
 - Set **send to your journal every (seconds)** to **60** for a snappy demo
   (default 300).
-- Click **connect**, allow access to the journal address when Chrome asks, and
-  confirm the connection changes from **connecting** to **connected**.
+- Click **save** to keep the short name and interval for either destination,
+  and allow access to the journal address when Chrome asks. Save these fields
+  before **pair** when following the remote path.
+- Click **connect** and confirm the connection changes from **connecting** to
+  **connected**.
 
 ## Step 3 — opt in a site, then check the three legs
 

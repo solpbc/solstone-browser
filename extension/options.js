@@ -29,9 +29,12 @@
     return host.replace(/\/.*$/, "").toLowerCase();
   }
 
-  function announce(message) {
+  function announce(message, tone = "") {
+    const region = $("actionMessage");
     const next = message || "";
-    if ($("actionMessage").textContent !== next) $("actionMessage").textContent = next;
+    const className = `action-message${next && tone ? ` ${tone}` : ""}`;
+    if (region.textContent !== next) region.textContent = next;
+    if (region.className !== className) region.className = className;
   }
 
   function clearAnnouncement() {
@@ -39,7 +42,7 @@
   }
 
   function showActionError(error, status) {
-    announce(Failures.classify(error, status));
+    announce(Failures.classify(error, status), "bad");
   }
 
   function siteEffects() {
@@ -245,7 +248,8 @@
 
     const signature = [connection.kind, verdict.headline, verdict.sub, verdict.reason].join("|");
     if (renderedOnce && announceConnection && lastConnectionSignature !== signature) {
-      announce([verdict.headline, verdict.sub].filter(Boolean).join(". "));
+      const tone = verdict.tone === "ok" ? "ok" : verdict.tone === "attention" ? "bad" : "";
+      announce([verdict.headline, verdict.sub].filter(Boolean).join(". "), tone);
     }
     lastConnectionSignature = signature;
     return { connection, verdict };
@@ -257,16 +261,16 @@
       const result = await cmd({ cmd: "removeSite", host: action.host });
       await refresh({ announceConnection: false });
       if (result.error) showActionError(result.error);
-      else announce(`removed ${action.host}.`);
+      else announce(`removed ${action.host}.`, "ok");
       return;
     }
 
     const result = await View.grantSite(action.host, siteEffects());
     await refresh({ announceConnection: false });
-    if (result.denied) announce("permission declined. this site stays paused.");
+    if (result.denied) announce("permission declined. this site stays paused.", "bad");
     else if (result.error) showActionError(result.error);
-    else if (result.ok) announce("allowed again.");
-    else announce("could not allow the site.");
+    else if (result.ok) announce("allowed again.", "ok");
+    else announce("could not allow the site.", "bad");
   }
 
   function renderSites() {
@@ -359,43 +363,46 @@
     clearAnnouncement();
     const segmentSec = Number.parseInt($("segmentSec").value, 10);
     if (Number.isNaN(segmentSec) || segmentSec < 30) {
-      announce("minimum 30 seconds");
+      announce("minimum 30 seconds", "bad");
       return;
     }
 
     const hostname = $("hostname").value;
-    const journalUrl = $("journalUrl").value;
-    const permission = await requestJournalAccess(journalUrl);
-    if (!permission.ok) {
-      await refresh({ announceConnection: false });
-      if (permission.denied) announce("permission declined. journal address unchanged.");
-      else if (permission.workerError) showActionError(permission.workerError);
-      else announce(permission.error || "could not request journal permission");
-      return;
+    const local = selectedDestination() === "local";
+    const journalUrl = local ? $("journalUrl").value : String((state && state.journalUrl) || "");
+    if (local) {
+      const permission = await requestJournalAccess(journalUrl);
+      if (!permission.ok) {
+        await refresh({ announceConnection: false });
+        if (permission.denied) announce("permission declined. journal address unchanged.", "bad");
+        else if (permission.workerError) showActionError(permission.workerError);
+        else announce(permission.error || "could not request journal permission", "bad");
+        return;
+      }
     }
     await cmd({ cmd: "setConfig", hostname, journalUrl, segmentSec });
     await cmd({ cmd: "probe" });
     await refresh({ announceConnection: false });
-    announce("settings saved.");
+    announce("settings saved.", "ok");
   }
 
   async function addSite() {
     clearAnnouncement();
     const raw = $("newHost").value;
     if (!Hosts.isValidHostInput(raw)) {
-      announce("enter a site like mail.google.com");
+      announce("enter a site like mail.google.com", "bad");
       return;
     }
     const host = normHost(raw);
     const result = await View.addSite(host, Object.assign(siteEffects(), { disclose: presentDisclosure }));
     if (result.cancelled) return;
-    $("newHost").value = "";
+    if (result.ok) $("newHost").value = "";
     await refresh({ announceConnection: false });
     $("newHost").focus();
-    if (result.denied) announce("permission declined. nothing added.");
+    if (result.denied) announce("permission declined. nothing added.", "bad");
     else if (result.error) showActionError(result.error);
-    else if (result.ok) announce(`added ${host}. open or reload a tab on it to begin.`);
-    else announce("could not add the site.");
+    else if (result.ok) announce(`added ${host}. open or reload a tab on it to begin.`, "ok");
+    else announce("could not add the site.", "bad");
   }
 
   async function pairRemote() {
@@ -405,13 +412,13 @@
     try {
       parsed = Pairlink.parseLink(link);
     } catch (_error) {
-      announce("paste a valid pair link.");
+      announce("paste a valid pair link.", "bad");
       return;
     }
     const origin = Hosts.permissionOriginForUrl(parsed.relayOrigin);
     const intent = await cmd({ cmd: "relayIntent", relayOrigin: parsed.relayOrigin });
     if (!intent.ok) {
-      announce("could not prepare relay permission.");
+      announce("could not prepare relay permission.", "bad");
       return;
     }
     let granted;
@@ -419,18 +426,18 @@
       granted = await chrome.permissions.request({ origins: [origin] });
     } catch (_error) {
       await cmd({ cmd: "relayIntentClear" });
-      announce("could not request relay permission.");
+      announce("could not request relay permission.", "bad");
       return;
     }
     if (!granted) {
       await cmd({ cmd: "relayIntentClear" });
-      announce("permission declined. your home was not paired.");
+      announce("permission declined. your home was not paired.", "bad");
       return;
     }
     const result = await cmd({ cmd: "pairRemote", link });
     if (result.ok) $("pairLink").value = "";
     await refresh({ announceConnection: false });
-    if (result.ok) announce("paired to your home.");
+    if (result.ok) announce("paired to your home.", "ok");
     else showActionError(result.error || "pairing failed");
   }
 
@@ -458,20 +465,23 @@
     const permission = await requestJournalAccess($("journalUrl").value);
     if (!permission.ok) {
       await refresh({ announceConnection: false });
-      if (permission.denied) announce("permission declined. journal address unchanged.");
+      if (permission.denied) announce("permission declined. journal address unchanged.", "bad");
       else if (permission.workerError) showActionError(permission.workerError);
-      else announce(permission.error || "could not request journal permission");
+      else announce(permission.error || "could not request journal permission", "bad");
       return;
     }
     await cmd({ cmd: "probe" });
     const rendered = await refresh({ announceConnection: false });
-    announce(rendered.connection.stateLabel);
+    const tone = rendered.connection.connected
+      ? "ok"
+      : rendered.connection.kind.endsWith("-error") ? "bad" : "";
+    announce(rendered.connection.stateLabel, tone);
   });
   $("flushBtn").addEventListener("click", async () => {
     clearAnnouncement();
     const result = await cmd({ cmd: "flushNow" });
     const rendered = await refresh({ announceConnection: false });
-    if (result.outcome === "uploaded") announce("sent.");
+    if (result.outcome === "uploaded") announce("sent.", "ok");
     else if (result.outcome === "queued" && rendered.connection.consequence) announce(rendered.connection.consequence);
     else if (result.outcome === "queued") announce("kept here, waiting to sync.");
     else if (result.outcome === "failed") showActionError((state.health && state.health.lastError) || result.error || "send failed");
@@ -493,7 +503,7 @@
     const result = await cmd({ cmd: "unpairRemote" });
     await refresh({ announceConnection: false });
     if (result.error) showActionError(result.error);
-    else announce("unpaired.");
+    else announce("unpaired.", "ok");
   });
   $("siteDisclosureConfirm").addEventListener("click", () => closeDisclosure(true));
   $("siteDisclosureCancel").addEventListener("click", () => closeDisclosure(false));

@@ -90,6 +90,8 @@ test("options applies the shared accessibility and color layer", () => {
   assert.doesNotMatch(html, /--orange-ink/);
   assert.equal((html.match(/#B06A1A/g) || []).length, 1);
   assert.match(html, /\.site button\s*\{[^}]*min-height:\s*24px[^}]*font-size:\s*12px/s);
+  assert.match(html, /\.action-message\.ok\s*\{[^}]*color:\s*var\(--success-ink\)/);
+  assert.match(html, /\.action-message\.bad\s*\{[^}]*color:\s*var\(--bad\)/);
 });
 
 test("options source fixes the predicates, destination state, and install opening", () => {
@@ -223,6 +225,7 @@ test("the options binder drives disclosure, destinations, details, waiting, and 
   let liveState = optionsState();
   let preview = bufferedPreview();
   let permissionRequests = 0;
+  let siteIntentResult = { ok: true, added: true };
   const sent = [];
   const actionOrder = [];
   globalThis.chrome = {
@@ -231,9 +234,28 @@ test("the options binder drives disclosure, destinations, details, waiting, and 
         sent.push(message);
         if (message.cmd === "getState") callback(liveState);
         else if (message.cmd === "getBufferedPreview") callback(preview);
-        else if (message.cmd === "siteIntent") {
+        else if (message.cmd === "journalIntent") {
+          callback({
+            ok: true,
+            journalUrl: message.journalUrl,
+            changed: message.journalUrl !== liveState.journalUrl,
+            previous: {
+              journalUrl: liveState.journalUrl,
+              journalPermission: liveState.journalPermission,
+            },
+          });
+        } else if (message.cmd === "journalIntentResolve") {
+          callback({ ok: true, granted: true });
+        } else if (message.cmd === "setConfig") {
+          liveState = optionsState(Object.assign({}, liveState, {
+            hostname: typeof message.hostname === "string" ? message.hostname : liveState.hostname,
+            journalUrl: typeof message.journalUrl === "string" ? message.journalUrl : liveState.journalUrl,
+            segmentSec: typeof message.segmentSec === "number" ? message.segmentSec : liveState.segmentSec,
+          }));
+          callback({ ok: true });
+        } else if (message.cmd === "siteIntent") {
           actionOrder.push("siteIntent");
-          callback({ ok: true, added: true });
+          callback(siteIntentResult);
         } else if (message.cmd === "siteGranted") {
           actionOrder.push("siteGranted");
           liveState = optionsState({ allowlist: [message.host], activeSites: [message.host] });
@@ -315,6 +337,47 @@ test("the options binder drives disclosure, destinations, details, waiting, and 
   assert.equal(nodes.localDestination.hidden, false);
   assert.equal(nodes.remoteDestination.hidden, true);
 
+  nodes.destinationRemote.checked = true;
+  nodes.destinationLocal.checked = false;
+  nodes.destinationRemote.listeners.change();
+  nodes.hostname.value = "remote-laptop";
+  nodes.segmentSec.value = "120";
+  nodes.journalUrl.value = "";
+  const preservedJournalUrl = liveState.journalUrl;
+  let permissionsBefore = permissionRequests;
+  let sentBefore = sent.length;
+  await nodes.connForm.listeners.submit({ preventDefault() {} });
+  assert.equal(permissionRequests, permissionsBefore, "remote save never requests permission for the hidden local address");
+  assert.deepEqual(
+    sent.slice(sentBefore).find((message) => message.cmd === "setConfig"),
+    { cmd: "setConfig", hostname: "remote-laptop", journalUrl: preservedJournalUrl, segmentSec: 120 },
+    "remote save persists shared fields and preserves the stored local address",
+  );
+  assert.equal(nodes.actionMessage.textContent, "settings saved.");
+  assert.equal(nodes.actionMessage.className, "action-message ok");
+
+  nodes.destinationLocal.checked = true;
+  nodes.destinationRemote.checked = false;
+  nodes.destinationLocal.listeners.change();
+  nodes.hostname.value = "local-laptop";
+  nodes.segmentSec.value = "90";
+  nodes.journalUrl.value = "http://localhost:6015";
+  permissionsBefore = permissionRequests;
+  sentBefore = sent.length;
+  await nodes.connForm.listeners.submit({ preventDefault() {} });
+  assert.equal(permissionRequests, permissionsBefore + 1, "local save keeps the journal permission flow");
+  assert.equal(sent.slice(sentBefore).some((message) => message.cmd === "journalIntent"), true);
+  assert.equal(sent.slice(sentBefore).some((message) => message.cmd === "journalIntentResolve"), true);
+  assert.deepEqual(
+    sent.slice(sentBefore).find((message) => message.cmd === "setConfig"),
+    { cmd: "setConfig", hostname: "local-laptop", journalUrl: "http://localhost:6015", segmentSec: 90 },
+  );
+
+  nodes.segmentSec.value = "29";
+  await nodes.connForm.listeners.submit({ preventDefault() {} });
+  assert.equal(nodes.actionMessage.textContent, "minimum 30 seconds");
+  assert.equal(nodes.actionMessage.className, "action-message bad", "failures use a distinct action-message tone");
+
   liveState = optionsState({ allowlist: ["mail.google.com"], activeSites: ["mail.google.com"] });
   await globalThis.SolstoneOptions.refresh();
   assert.equal(nodes.firstRun.hidden, true, "the allowlist alone ends first run");
@@ -345,8 +408,8 @@ test("the options binder drives disclosure, destinations, details, waiting, and 
   assert.equal(nodes.lossDetail.hidden, true);
 
   nodes.newHost.value = "mail.google.com";
-  let permissionsBefore = permissionRequests;
-  let sentBefore = sent.length;
+  permissionsBefore = permissionRequests;
+  sentBefore = sent.length;
   let pending = nodes.addForm.listeners.submit({ preventDefault() {} });
   assert.equal(nodes.siteDisclosure.hidden, false);
   nodes.siteDisclosureCancel.listeners.click();
@@ -373,6 +436,19 @@ test("the options binder drives disclosure, destinations, details, waiting, and 
   assert.deepEqual(actionOrder, ["siteIntent", "permission", "siteGranted"]);
   assert.equal(permissionRequests, permissionsBefore + 1);
   assert.equal(nodes.newHost.focusCount, 4, "confirmation restores focus before and after refresh");
+  assert.equal(nodes.newHost.value, "", "a successful add clears the host");
+
+  siteIntentResult = { ok: false };
+  nodes.newHost.value = "calendar.google.com";
+  permissionsBefore = permissionRequests;
+  actionOrder.length = 0;
+  pending = nodes.addForm.listeners.submit({ preventDefault() {} });
+  nodes.siteDisclosureConfirm.listeners.click();
+  await pending;
+  assert.deepEqual(actionOrder, ["siteIntent"]);
+  assert.equal(permissionRequests, permissionsBefore);
+  assert.equal(nodes.newHost.value, "calendar.google.com", "a failed add preserves the host");
+  assert.equal(nodes.actionMessage.className, "action-message bad");
 
   nodes.actionMessage.textContent = "";
   liveState = optionsState({

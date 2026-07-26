@@ -1048,11 +1048,17 @@ const ICON_SET = (prefix) => ({
 async function updateBadge() {
   const cfg = await getCfg();
   const seg = await getSeg();
-  const { summary } = await waitingSummary(seg);
+  const ctxs = seg ? Object.values(seg.ctxs) : [];
+  const activeSites = [...new Set(ctxs.filter((e) => e.active).map((e) => e.host))];
+  const { summary, outboxInfo } = await waitingSummary(seg);
   const status = globalThis.SolstoneStatus.normalize(cfg, { waiting: summary.waiting, dropped: summary.dropped });
   const { prefix, title, badge } = globalThis.SolstoneStatus.iconState(
     status,
-    entryMatchHosts(cfg),
+    {
+      activeSites,
+      outbox: outboxInfo,
+      entryMatchHosts: entryMatchHosts(cfg),
+    },
   );
   try {
     await chrome.action.setIcon({ path: ICON_SET(prefix) });

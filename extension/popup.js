@@ -245,14 +245,17 @@
     siteAction.onclick = () => runPageSiteAction(section.siteAction);
 
     const pauseAction = $("pauseAction");
-    pauseAction.textContent = section.pauseAction.label;
-    pauseAction.className = section.pauseAction.primary ? "primary" : "";
-    pauseAction.onclick = async () => {
-      showActionMessage("");
-      const result = await cmd({ cmd: "setPaused", paused: !state.paused });
-      if (result.error) showActionError(result.error);
-      await refresh();
-    };
+    pauseAction.hidden = !section.pauseAction;
+    if (section.pauseAction) {
+      pauseAction.textContent = section.pauseAction.label;
+      pauseAction.className = section.pauseAction.primary ? "primary" : "";
+      pauseAction.onclick = async () => {
+        showActionMessage("");
+        const result = await cmd({ cmd: "setPaused", paused: !state.paused });
+        if (result.error) showActionError(result.error);
+        await refresh();
+      };
+    }
   }
 
   function renderSiteCount(section) {

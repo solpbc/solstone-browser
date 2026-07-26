@@ -79,7 +79,10 @@
       host: page.host || "this page",
       state: pageState,
       siteAction,
-      pauseAction: {
+      // No sites means nothing to pause, and a fresh install's one job is
+      // adding the first one. Offering a control that acts on an empty set is
+      // scaffolding on the surface that can least afford it.
+      pauseAction: siteRows.length === 0 && !state.paused ? null : {
         id: "set-paused",
         label: state.paused ? "resume" : "pause all",
         primary: !!state.paused,

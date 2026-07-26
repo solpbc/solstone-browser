@@ -4,6 +4,17 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 `make set-version` keeps `manifest.json` / `package.json` / `background.js` in
 lockstep, and `make dist` refuses to build if they drift.
 
+## 0.1.0 (2026-07-26)
+
+sol now takes no access at install, says what it takes in and where it lands in your journal before you add a site, and gives every screen the same answer about where your pages go.
+
+- **access only when you ask for it.** sol used to hold access to your journal's address on this computer from the moment it was installed. it doesn't anymore: it asks Chrome for that address when you connect your journal, and for a site when you add that site. nothing is taken in until you add your first site.
+- **what sol takes in, before it takes anything in.** a fresh install now opens settings with a plain account of what sol takes in and where it goes, and adding a site shows the same before Chrome asks. on a site you add, sol takes in the page's rendered text and rough layout and keeps it in your journal: what you can see now, what you'd see by scrolling, background tabs, and the labels pages hand to screen readers and tooltips. never pixels, never raw HTML, never a site you didn't add. sol pbc can never read any of it. on this computer it never leaves the computer at all; at your home it reaches us only sealed, and we hold no key.
+- **shorter page addresses.** the address of a page is now reduced to the site and the path before it leaves the page. the query string, the fragment, and any sign-in credentials in the address are left behind, so they are never kept and never sent.
+- **one status, everywhere.** the popup, settings, the toolbar icon, and every site row now show the same reading instead of separate signals that could disagree with each other. it says where your pages are going, not only whether something is connected.
+- **a journal at your home reads as connected.** if your journal runs somewhere other than this computer, sol reported it as not connected in the popup, in settings, on the toolbar icon, and on every site row, and never stopped, even while everything was arriving. this resolves it, and **open your journal** no longer points at this computer when your journal isn't there.
+- **one journal card, and honest outcomes.** settings now has a single **your journal** card, this computer or somewhere else, in place of the two that competed. a declined Chrome prompt says the address wasn't allowed rather than that your journal can't be reached, a site you had already set up no longer reports an error, and saving tells you what it kept.
+
 ## 0.0.13 (2026-07-15)
 
 sol now keeps the sites you chose when Chrome changes their access, and makes getting them going again one tap.

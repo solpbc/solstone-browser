@@ -8,12 +8,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-// segment.js is a classic script that publishes globalThis.SolstoneSegment;
-// importing it for side effect sets the global.
+// blocks.js and segment.js are classic scripts; importing them for side effect
+// publishes their globals.
+await import(new URL("../extension/lib/blocks.js", import.meta.url));
 await import(new URL("../extension/lib/segment.js", import.meta.url));
+const B = globalThis.SolstoneBlocks;
 const S = globalThis.SolstoneSegment;
 
 const blk = (id, text, type = "text", depth = 1, attrs) => ({ id, type, depth, text, ...(attrs ? { attrs } : {}) });
+const privateHref = "https://app.example.com/inbox/thread/42?token=SEKRET-TOKEN&access_key=SEKRET-KEY#section";
+const jsonlForHref = (href) => S.serializeJsonl([
+  S.snapshotLine("app.example.com", { url: B.originPath(href), title: "Inbox", adapter: "generic" }, [], 1, 0),
+]);
 
 test("diffBlocks: add / update / remove keyed by id", () => {
   const prev = [blk("a", "hi"), blk("b", "Inbox", "heading", 0)];
@@ -54,6 +60,25 @@ test("snapshotLine shape", () => {
   assert.equal(line.n, 1);
   assert.equal(line.ts, 1000);
   assert.deepEqual(line.blocks, blocks);
+});
+
+test("originPath composition: serialized snapshot excludes query and fragment secrets", () => {
+  const text = jsonlForHref(privateHref);
+  for (const forbidden of ["SEKRET-TOKEN", "SEKRET-KEY", "section", "?", "#"]) {
+    assert.equal(text.includes(forbidden), false, `serialized JSONL must exclude ${forbidden}`);
+  }
+  assert.equal(S.parseJsonl(text)[0].url, "https://app.example.com/inbox/thread/42");
+});
+
+test("originPath composition: serialized snapshot excludes credentials", () => {
+  const text = jsonlForHref("https://user:pass@app.example.com/private");
+  assert.equal(text.includes("user"), false);
+  assert.equal(text.includes("pass"), false);
+});
+
+test("originPath composition: serialized snapshot retains a meaningful path", () => {
+  const text = jsonlForHref(privateHref);
+  assert.equal(text.includes("/inbox/thread/42"), true);
 });
 
 test("deltaLines orders add, update, remove and shapes remove as {id}", () => {

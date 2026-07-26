@@ -54,11 +54,12 @@ See [`INSTALL.md`](INSTALL.md) to run it.
 
 ## The journal output (`browser.jsonl`)
 
-One file per observed site per segment. Each file opens with a snapshot, then
-accumulates deltas:
+One file per site sol reads per segment. Each file opens with a snapshot, then
+accumulates deltas. Each page URL is reduced to its origin + path before it
+enters your journal; its query string, fragment, and credentials are left out:
 
 ```jsonl
-{"t":"segment_start","ts":…,"rel":0,"site":"mail.google.com","adapter":"gmail","n":3,"blocks":[ … ]}
+{"t":"segment_start","ts":…,"rel":0,"site":"mail.google.com","url":"https://mail.google.com/mail/u/0/","adapter":"gmail","n":3,"blocks":[ … ]}
 {"t":"delta","ts":…,"rel":12,"site":"mail.google.com","op":"add","block":{"id":"k:msg-ccc333","type":"row","depth":3,"text":"From Priya Nadkarni, subject lunch?","attrs":{…}}}
 {"t":"delta","ts":…,"rel":20,"site":"mail.google.com","op":"update","block":{"id":"h:inbox","type":"heading","text":"Inbox (3)", …}}
 ```

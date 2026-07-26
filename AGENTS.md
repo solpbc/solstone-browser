@@ -148,8 +148,9 @@ it is not a runtime npm or CDN dependency.
 - **Visible + pausable.** The toolbar icon is the always-visible four-state
   observation signal; the on-page marker is opt-in and off by default. Pause-all
   is one tap. No silent observation.
-- **Privacy in the data.** Keep visible text + structure; never raw HTML, never
-  full hrefs, never hidden content.
+- **Privacy in the data.** Keep visible text + structure; reduce page URLs to
+  origin + path and link hrefs to host; never raw HTML, query strings, fragments,
+  credentials, or hidden content.
 - **Pure logic stays testable.** Diffing, serialization, and id/type derivation
   live in `lib/*` with no DOM or chrome APIs, so node tests cover them. DOM-bound
   behavior is validated in real Chrome.

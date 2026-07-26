@@ -127,6 +127,21 @@
     return "h:" + hashStr(type + "|" + depth + "|" + text.slice(0, 200));
   }
 
+  // Pure: reduce the page address before it leaves the page, so query strings,
+  // fragments, and user:pass@ credentials never reach the worker, storage, or
+  // the wire. `.origin` drops credentials and keeps an explicit port, matching
+  // `site` = `location.host`.
+  function originPath(href) {
+    if (typeof href !== "string") return "";
+    try {
+      const u = new URL(href);
+      if (u.protocol !== "https:" && u.protocol !== "http:") return "";
+      return u.origin + u.pathname;
+    } catch (_e) {
+      return "";
+    }
+  }
+
   // DOM helper (browser-only): read the few semantic attrs worth keeping.
   function readAttrs(el) {
     const attrs = {};
@@ -156,6 +171,7 @@
     normalizeText,
     visibleLen,
     blockId,
+    originPath,
     readAttrs,
   };
 })();

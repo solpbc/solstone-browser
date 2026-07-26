@@ -13,6 +13,7 @@
 (function () {
   "use strict";
 
+  const B = globalThis.SolstoneBlocks;
   const A = globalThis.SolstoneAdapters;
   const Skim = globalThis.SolstoneSkim;
   const Indicator = globalThis.SolstoneIndicator;
@@ -33,7 +34,7 @@
   let started = false;
 
   function meta() {
-    return { url: location.href, title: document.title, adapter: adapter.name };
+    return { url: B.originPath(location.href), title: document.title, adapter: adapter.name };
   }
 
   function send(msg) {

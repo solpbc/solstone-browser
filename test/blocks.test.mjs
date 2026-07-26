@@ -86,3 +86,34 @@ test("blockId truncates very long stable ids", () => {
   const id = B.blockId("z".repeat(200), "x", 0, "");
   assert.ok(id.length <= 82); // "k:" + 80
 });
+
+test("originPath: keeps HTTP and HTTPS origin + path", () => {
+  assert.equal(B.originPath("http://h.example/inbox?q=1#top"), "http://h.example/inbox");
+  assert.equal(B.originPath("https://h.example/a/b?q=1#top"), "https://h.example/a/b");
+});
+
+test("originPath: keeps a root trailing slash and explicit non-default port", () => {
+  assert.equal(B.originPath("https://h.example/"), "https://h.example/");
+  assert.equal(B.originPath("https://h.example:8443/a"), "https://h.example:8443/a");
+});
+
+test("originPath: drops credentials, query, and fragment", () => {
+  assert.equal(B.originPath("https://user:pass@h.example:8443/a/b?q=1#top"), "https://h.example:8443/a/b");
+});
+
+test("originPath criterion-5 boundary: rejects non-HTTP(S) schemes", () => {
+  for (const href of [
+    "about:blank",
+    "chrome-extension://abcdefghijklmnopabcdefghijklmnop/options.html",
+    "file:///etc/passwd",
+    "data:text/html,x",
+  ]) {
+    assert.equal(B.originPath(href), "", href);
+  }
+});
+
+test("originPath criterion-5 boundary: rejects unparseable and non-string inputs", () => {
+  for (const href of ["not a url", "", null, undefined]) {
+    assert.equal(B.originPath(href), "", String(href));
+  }
+});

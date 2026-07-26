@@ -598,7 +598,8 @@ async function main() {
     // 4. Navigate a FRESH page — injection here is via the dynamic registration
     // (registration only affects future loads; no executeScript into open tabs).
     const page = await context.newPage();
-    await page.goto(`${stub.url}/observe-test`, { waitUntil: "domcontentloaded" });
+    const expectedPageUrl = `${stub.url}/observe-test`;
+    await page.goto(`${expectedPageUrl}?token=e2e-token&access_key=e2e-key#section`, { waitUntil: "domcontentloaded" });
 
     // 5. THE injection assertion under new-headless — independent of the (now
     // opt-in, off-by-default) on-page marker: the content script ran and skimmed
@@ -626,6 +627,8 @@ async function main() {
       const txt = JSON.stringify(snap.blocks);
       ok("observed text present (heading skimmed)", /On structural trust/.test(txt));
       ok("hidden content NOT observed (privacy oracle held)", !/SECRET-HIDDEN/.test(txt));
+      ok("buffered page URL is origin + path only (privacy boundary held)",
+        snap.url === expectedPageUrl && !/[?#@]/.test(snap.url) && !snap.url.includes("e2e-token") && !snap.url.includes("e2e-key"), snap.url || "none");
     }
 
     // 7. relay leg: force a flush from the popup (an extension page can message the
@@ -646,6 +649,15 @@ async function main() {
       ok("segment file opens with a segment_start line", !!bfile && /"t":"segment_start"/.test(bfile.text));
       ok("segment_start carries the skimmed heading", !!bfile && /On structural trust/.test(bfile.text));
       ok("relayed segment does NOT carry hidden content", !bfile || !/SECRET-HIDDEN/.test(bfile.text));
+      let relayedSnap = null;
+      try {
+        relayedSnap = bfile ? JSON.parse(bfile.text.split("\n")[0]) : null;
+      } catch (_e) {
+        /* the assertion below reports malformed JSONL */
+      }
+      ok("relayed page URL is origin + path only (privacy boundary held)",
+        !!relayedSnap && relayedSnap.url === expectedPageUrl && !/[?#@]/.test(relayedSnap.url)
+          && !bfile.text.includes("e2e-token") && !bfile.text.includes("e2e-key"), relayedSnap?.url || "none");
     }
 
     // 7a. Outage round-trip: a failed send is kept in the offline outbox; when

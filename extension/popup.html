@@ -8,21 +8,22 @@
       @font-face { font-family: "Comfortaa"; src: url("fonts/comfortaa.woff2") format("woff2"); font-weight: 700; font-display: swap; }
       @font-face { font-family: "InterBody"; src: url("fonts/inter.woff2") format("woff2"); font-weight: 400 600; font-display: swap; }
       :root {
-        --ground: #faf3e4;        /* surface.cream */
-        --surface: #fefcf8;       /* surface.cream.bright */
+        --ground: #faf3e4;
+        --surface: #fefcf8;
         --ink: #1a1a1a;
-        --soft: #5b5246;          /* warm secondary */
-        --muted: #6e6453;         /* warm meta */
-        --line: #ece3d0;          /* hairline */
-        --line2: #e2d7bf;
-        --orange: #e8923a;        /* decoration only */
-        --orange-ink: #b06a1a;    /* accessible orange — text/links */
+        --soft: #5b5246;
+        --muted: #6e6453;
+        --line: #ece3d0;
+        --field-line: #96896F;
+        --orange: #e8923a;
         --orange-wash: #fbefdd;
-        --ok: #166534;            /* success-ink */
-        --ok-wash: #e7f1e9;
-        --bad: #9f2d2d;           /* danger */
+        --focus: #B06A1A;
+        --success: #3F9D6A;
+        --warn: #C99A2E;
+        --bad: #9f2d2d;
         --bad-wash: #f8e9e6;
       }
+      [hidden] { display: none !important; }
       body {
         width: 300px;
         margin: 0;
@@ -37,125 +38,200 @@
         padding: 13px 14px 9px;
       }
       header img { display: block; }
-      header .word {
-        font-family: "Comfortaa", system-ui, sans-serif;
-        font-weight: 700;
-        font-size: 16px;
-        color: var(--ink);
+      .word {
+        font: 700 16px/1 "Comfortaa", system-ui, sans-serif;
         letter-spacing: -0.3px;
       }
-      header .desc { color: var(--muted); font-size: 12px; }
-      .body { padding: 0 14px 14px; }
-      .row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        padding: 7px 0;
+      .desc { color: var(--muted); font-size: 12px; }
+      main { padding: 0 14px 12px; }
+      .verdict {
+        display: grid;
+        grid-template-columns: 10px 1fr;
+        column-gap: 9px;
+        padding: 12px;
+        border-radius: 12px;
+        background: var(--surface);
+      }
+      .verdict.attention { background: var(--bad-wash); }
+      .verdict.ok,
+      .verdict.calm,
+      .verdict.unavailable { background: var(--surface); }
+      .dot {
+        width: 8px;
+        height: 8px;
+        margin-top: 5px;
+        border-radius: 50%;
+        background: var(--muted);
+      }
+      .dot.ok { background: var(--success); }
+      .dot.neutral { background: var(--muted); }
+      .dot.bad { background: var(--bad); }
+      .dot.warn { background: var(--warn); }
+      .v-copy { min-width: 0; }
+      .v-head {
+        margin: 0;
+        font: 700 15px/1.3 "Comfortaa", system-ui, sans-serif;
+        color: var(--ink);
+      }
+      .v-dest { margin-top: 3px; color: var(--soft); }
+      .v-why { margin: 7px 0 0; color: var(--soft); font-size: 12px; }
+      .v-act { margin-top: 9px; }
+      .blk {
+        padding: 11px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .blk-h {
+        margin: 0 0 7px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: .04em;
+        text-transform: uppercase;
+      }
+      .site-issue {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 3px 8px;
+        padding: 8px 0;
         border-top: 1px solid var(--line);
       }
-      .muted { color: var(--muted); }
-      .pill {
-        font-size: 12px;
-        padding: 2px 9px;
-        border-radius: 999px;
-        background: var(--surface);
-        border: 1px solid var(--line);
+      .site-issue:first-child { border-top: 0; padding-top: 0; }
+      .site-issue .h { font-weight: 600; overflow-wrap: anywhere; }
+      .site-issue .w { color: var(--soft); font-size: 12px; }
+      .site-issue button { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+      .page-line {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
       }
-      .pill.ok { color: var(--ok); background: var(--ok-wash); border-color: transparent; }
-      .pill.bad { color: var(--bad); background: var(--bad-wash); border-color: transparent; }
+      .page-host { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+      .page-state { color: var(--soft); font-size: 12px; text-align: right; }
+      .pact { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 9px; }
+      .site-count {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        color: var(--soft);
+        font-size: 12px;
+      }
       button {
-        font: inherit;
-        border: 1px solid var(--line2);
+        min-height: 34px;
+        padding: 7px 10px;
+        border: 1px solid var(--field-line);
+        border-radius: 9px;
         background: var(--surface);
         color: var(--ink);
-        border-radius: 9px;
-        padding: 9px 10px;
+        font: inherit;
         cursor: pointer;
       }
+      /* The primary is a filled control with 7.13:1 ink on its orange ground. */
       button.primary {
-        background: var(--orange);
         border-color: var(--orange);
-        color: #1a1a1a;
+        background: var(--orange);
+        color: var(--ink);
         font-weight: 600;
       }
-      button:disabled { opacity: 0.5; cursor: default; }
-      .actions { display: flex; gap: 8px; margin-top: 11px; }
-      .actions button { flex: 1; }
-      .sites { margin-top: 4px; font-size: 12px; }
-      .sites .s { color: var(--soft); padding-top: 2px; }
-      .sites .s button { margin: 0 0 0 4px; padding: 3px 8px; font-size: 12px; }
-      a { color: var(--orange-ink); text-decoration: none; }
+      button:disabled { cursor: default; opacity: .5; }
+      button:focus-visible,
+      a:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 2px;
+      }
+      a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+      .action-message { min-height: 0; margin-top: 7px; color: var(--bad); font-size: 12px; }
+      .sheet { padding: 0 14px 14px; }
+      .sheet h1 { margin: 0; font: 700 16px/1.3 "Comfortaa", system-ui, sans-serif; }
+      .sheet p { margin: 10px 0 0; color: var(--soft); }
+      .sheet .strongish { color: var(--ink); }
+      .destbox {
+        margin-top: 12px;
+        padding: 10px 11px;
+        border-radius: 10px;
+        background: var(--surface);
+      }
+      .destbox .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+      .destbox .v { margin-top: 3px; font-weight: 600; }
+      .destbox .u { margin-top: 2px; color: var(--soft); font-size: 12px; overflow-wrap: anywhere; }
+      .acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 13px; }
       footer {
         padding: 9px 14px 12px;
-        font-size: 12px;
-        color: var(--muted);
-        display: flex;
-        justify-content: space-between;
         border-top: 1px solid var(--line);
-      }
-      .err { color: var(--bad); font-size: 12px; margin-top: 6px; }
-      .consequence {
-        color: var(--muted);
         font-size: 12px;
-        margin-top: 6px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        justify-content: space-between;
+        text-align: right;
       }
-      .consequence button { margin: 0; padding: 4px 10px; font-size: 12px; white-space: nowrap; }
-      .consequence[hidden] { display: none; }
-      .loss { color: var(--bad); font-size: 12px; margin-top: 6px; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
-      .loss button { margin: 0; padding: 4px 10px; font-size: 12px; white-space: nowrap; }
-      .loss[hidden] { display: none; }
-      .pinhint { font-size: 12px; color: var(--muted); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
     </style>
   </head>
   <body>
     <header>
       <img src="brand/sol-ring.svg" width="20" height="20" alt="" />
       <span class="word">sol</span>
-      <span class="desc">browser</span>
+      <span class="desc">in your browser</span>
     </header>
-    <div class="body">
-      <div class="row">
-        <span>journal</span>
-        <span id="journalState" class="pill">…</span>
-      </div>
-      <div class="row">
-        <span>sol</span>
-        <span id="pauseState" class="pill">…</span>
-      </div>
-      <div class="row" style="border-bottom: 1px solid var(--line)">
-        <span>this page</span>
-        <span id="pageState" class="muted">…</span>
-      </div>
-      <div class="sites" id="sites"></div>
 
-      <div class="actions">
-        <button id="addBtn" class="primary">add this site</button>
-        <button id="pauseBtn">pause all</button>
+    <main id="popupMain">
+      <section id="verdict" class="verdict calm" role="status">
+        <span id="verdictDot" class="dot neutral" aria-hidden="true"></span>
+        <div class="v-copy">
+          <h1 id="verdictHeadline" class="v-head"></h1>
+          <div id="verdictSub" class="v-dest"></div>
+          <p id="verdictReason" class="v-why" hidden></p>
+          <div id="verdictActions" class="v-act"></div>
+        </div>
+      </section>
+
+      <section id="siteIssues" class="blk" hidden>
+        <h2 class="blk-h">sites that need attention</h2>
+        <div id="siteIssueRows"></div>
+      </section>
+
+      <section id="page" class="blk">
+        <h2 class="blk-h">this page</h2>
+        <div class="page-line">
+          <span id="pageHost" class="page-host"></span>
+          <span id="currentPageState" class="page-state"></span>
+        </div>
+        <div class="pact">
+          <button id="pageSiteAction" type="button"></button>
+          <button id="pauseAction" type="button"></button>
+        </div>
+      </section>
+
+      <section id="siteCount" class="blk" hidden>
+        <h2 class="blk-h">your sites</h2>
+        <div class="site-count">
+          <span id="siteCountText"></span>
+          <a id="allSitesLink" href="#">all sites ›</a>
+        </div>
+      </section>
+
+      <div id="actionMessage" class="action-message" aria-live="polite"></div>
+    </main>
+
+    <section id="disclosure" class="sheet" hidden>
+      <h1 id="disclosureTitle"></h1>
+      <p id="disclosureWhat" class="strongish"></p>
+      <div class="destbox">
+        <div class="k">it goes to</div>
+        <div id="disclosureDestination" class="v"></div>
+        <div id="disclosureDestinationDetail" class="u"></div>
       </div>
-      <div class="consequence" id="consequence" hidden>
-        <span id="consequenceText"></span>
-        <button id="tryBtn">try now</button>
+      <p id="disclosureChrome"></p>
+      <div class="acts">
+        <button id="disclosureConfirm" class="primary" type="button"></button>
+        <button id="disclosureCancel" type="button"></button>
       </div>
-      <div class="loss" id="loss" hidden>
-        <span id="lossText"></span>
-        <button id="lossBtn">dismiss</button>
-      </div>
-      <div class="err" id="err"></div>
-      <div class="pinhint" id="pinHint" hidden>pin sol to your toolbar so its status light stays visible.</div>
-    </div>
-    <footer>
-      <span id="streamLabel">—</span>
-      <a href="#" id="optsLink">settings ›</a>
+    </section>
+
+    <footer id="popupFooter">
+      <a href="#" id="settingsLink">settings ›</a>
     </footer>
+
     <script src="lib/hosts.js"></script>
     <script src="lib/status.js"></script>
-    <script src="lib/escape.js"></script>
     <script src="lib/failures.js"></script>
+    <script src="lib/disclosure.js"></script>
+    <script src="lib/popup_view.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

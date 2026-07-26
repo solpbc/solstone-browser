@@ -11,7 +11,7 @@
 # (dev-only dependency; the shipped extension stays dependency-free). See
 # INSTALL.md / test/GUIDED.md / AGENTS.md.
 
-.PHONY: install test test-idb verify-vendor-hpke ci format clean smoke relay-check e2e e2e-deps dist set-version
+.PHONY: install test test-idb verify-vendor-hpke ci format clean smoke relay-check popup-check e2e e2e-deps dist set-version
 
 # Install locked development tools. Nothing from node_modules ships in extension/.
 install:
@@ -46,6 +46,11 @@ smoke:
 # End-to-end register + ingest against a real local journal (run ON the journal machine).
 relay-check:
 	npm run relay-check
+
+# Popup content-height gate. The Playwright Chromium binary is not installed by
+# make ci; run make e2e-deps once before using this target.
+popup-check:
+	npm run popup-check
 
 # One-time browser download for the agentic e2e harness (the extension-capable
 # Chromium build Playwright's `channel:'chromium'` selects).

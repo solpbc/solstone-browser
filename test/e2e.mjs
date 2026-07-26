@@ -804,13 +804,22 @@ async function main() {
     ok("sealed delivery with no local key drives the toolbar icon to full sun",
       remoteIcons.length > 0 && remoteIcons[remoteIcons.length - 1] === "icons/icon16.png", remoteIcons.slice(-4).join(",") || "no setIcon calls");
     await popup.reload();
-    await popup.waitForFunction(() => document.getElementById("journalState")?.textContent !== "…");
+    await popup.waitForFunction(() => document.getElementById("verdictHeadline")?.textContent.trim().length > 0);
     const remotePopupState = await popup.evaluate(() => {
-      const el = document.getElementById("journalState");
-      return { text: el && el.textContent, className: el && el.className };
+      const verdict = document.getElementById("verdict");
+      return {
+        role: verdict && verdict.getAttribute("role"),
+        className: verdict && verdict.className,
+        headline: document.getElementById("verdictHeadline")?.textContent,
+        sub: document.getElementById("verdictSub")?.textContent,
+      };
     });
     ok("sealed delivery with no local key gives the popup the same healthy state",
-      remotePopupState.text === "connected · your home" && remotePopupState.className === "pill ok", JSON.stringify(remotePopupState));
+      remotePopupState.role === "status"
+        && (remotePopupState.className || "").split(/\s+/).includes("ok")
+        && remotePopupState.headline === "on"
+        && remotePopupState.sub === "going to your journal at your home, sealed on the way",
+      JSON.stringify(remotePopupState));
 
     stub.setDropRemoteAck(true);
     await sleep(1100);

@@ -86,11 +86,13 @@ extension/            the unpacked-loadable MV3 extension
   skim.js             the visibility-aware semantic DOM walker
   adapters.js         Gmail + Slack adapters + generic fallback (data, not code)
   indicator.js        optional on-page "on" / "paused" sol marker (closed shadow root)
-  popup.html/.js      toolbar popup: status, add-this-site, pause-all
+  popup.html/.js      toolbar popup: verdict, add-this-site disclosure, pause-all
   options.html/.js    settings + allowlist manager + remote pairing
   lib/blocks.js       pure block helpers (role→type, id, normalize) — shared, tested
   lib/segment.js      pure snapshot/delta differ + JSONL serializer — shared, tested
   lib/reconcile.js    pure desired-site / Chrome-grant reconciliation
+  lib/disclosure.js   pure live-destination disclosure copy, shared and tested
+  lib/popup_view.js   pure ordered popup arrangement and site-action flow
   lib/db.js           shared IndexedDB helper for identity + durable outbox
   lib/identity.js     non-extractable ECDH extension identity
   lib/outbox.js       pure FIFO/cap/loss accounting

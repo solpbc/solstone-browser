@@ -50,11 +50,12 @@ Right-click the ☼ icon → **Options** (or "settings ›" in the popup):
 - Click **connect**, allow access to the journal address when Chrome asks, and
   confirm the connection changes from **connecting** to **connected**.
 
-## Step 3 — opt in a site, then watch the three legs
+## Step 3 — opt in a site, then check the three legs
 
-Open a site (Gmail `mail.google.com`, or any site — there's a generic reader),
-click the ☼ icon → **add this site** → **allow** the per-site permission
-Chrome asks for → **reload that tab**. Now watch:
+Open a site (Gmail `mail.google.com`, or any site; there is a generic reader),
+click the ☼ icon → **add this site**. Read the disclosure and click
+**add this site** in it → choose **Allow** in Chrome's grant prompt →
+**reload that tab**. Now check:
 
 ### Leg 1 — the content script (on the page)
 The toolbar status icon shows the on state, and Options lists the site as

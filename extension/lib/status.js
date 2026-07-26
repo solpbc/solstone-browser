@@ -182,7 +182,7 @@
       kind: "unavailable",
       tone: "unavailable",
       headline: "status unavailable",
-      sub: "",
+      sub: SUB_BY_KIND.unavailable,
       reason: "",
       actions: [{ id: "open-settings", label: "open settings" }],
       also: [],

@@ -1,8 +1,8 @@
 # Changelog: solstone-browser
 
 Notable changes to the extension. The version is `manifest.json`'s `version`;
-`make set-version` keeps `manifest.json` / `package.json` / `background.js` in
-lockstep, and `make dist` refuses to build if they drift.
+`make set-version` keeps `manifest.json` / `package.json` / `package-lock.json` /
+`background.js` in lockstep, and `make dist` refuses to build if they drift.
 
 ## 0.1.0 (2026-07-26)
 

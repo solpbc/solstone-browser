@@ -11,7 +11,7 @@
 # (dev-only dependency; the shipped extension stays dependency-free). See
 # INSTALL.md / test/GUIDED.md / AGENTS.md.
 
-.PHONY: install test test-idb verify-vendor-hpke ci format clean smoke relay-check popup-check e2e e2e-deps dist set-version
+.PHONY: install test test-idb verify-vendor-hpke ci format clean smoke relay-check popup-check e2e e2e-deps dist cws package-check set-version
 
 # Install locked development tools. Nothing from node_modules ships in extension/.
 install:
@@ -63,14 +63,22 @@ e2e-deps:
 e2e:
 	npm run e2e
 
-# Build a clean, versioned, installable artifact into dist/ (gated on the unit
-# suite). Produces dist/solstone-browser-<version>/ (Load unpacked this) and a
-# matching .zip. See RELEASE.md.
+# Build a clean, versioned, installable artifact into dist/ (gated on make ci).
+# Produces the Load-unpacked directory plus unmistakable -dev.zip and -cws.zip
+# release assets, then reopens and validates both archives. See RELEASE.md.
 dist: ci
 	node scripts/build.mjs
 
-# Stamp a new version across manifest.json, package.json, and background.js so
-# they never drift. Usage: make set-version V=0.0.8
+# Store-specific spelling for operators preparing a dashboard upload. This runs
+# the same full gate as make dist; only the resulting -cws.zip is Store-ready.
+cws: dist
+
+# Reopen already-built release ZIPs and verify their package-level contracts.
+package-check:
+	node scripts/verify-package.mjs
+
+# Stamp a new version across manifest.json, package.json, package-lock.json, and
+# background.js so they never drift. Usage: make set-version V=0.0.8
 set-version:
 	node scripts/set-version.mjs $(V)
 

@@ -4,17 +4,18 @@
 // build.mjs — produce a clean, versioned, installable artifact in dist/.
 //
 // The extension has no compile step (classic scripts, loaded unpacked), so a
-// "build" is: (1) verify the version agrees across the three places it lives,
+// "build" is: (1) verify the version agrees across the four places it lives,
 // (2) copy extension/ to a versioned staging dir with nothing but runtime files,
-// (3) zip it (Web-Store-ready; also handy to attach to a release). The staged
-// folder is what you Load-unpacked; the zip is the portable/store artifact.
+// (3) produce separate development and Chrome Web Store ZIPs, and (4) reopen
+// and validate both archives. The staged folder is what you Load unpacked.
 //
 // Run: `make dist` (gated on `make ci`) or `node scripts/build.mjs`.
 
-import { cpSync, rmSync, mkdirSync, readFileSync, existsSync, readdirSync, statSync, unlinkSync, symlinkSync } from "node:fs";
+import { cpSync, rmSync, mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, statSync, unlinkSync, symlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { verifyReleaseArtifacts } from "./verify-package.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const NAME = "solstone-browser";
@@ -33,15 +34,17 @@ function fail(msg) {
 function versions() {
   const manifest = JSON.parse(readFileSync(join(EXT, "manifest.json"), "utf8")).version;
   const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
+  const lock = JSON.parse(readFileSync(join(ROOT, "package-lock.json"), "utf8"));
   const bg = (readFileSync(join(EXT, "background.js"), "utf8").match(/const VERSION = "([^"]+)"/) || [])[1];
-  return { manifest, pkg, bg };
+  return { manifest, pkg, lock: lock.version, lockPackage: lock.packages?.[""]?.version, bg };
 }
 const v = versions();
 if (!v.manifest) fail("no version in extension/manifest.json");
-if (v.pkg !== v.manifest || v.bg !== v.manifest) {
+if (v.pkg !== v.manifest || v.lock !== v.manifest || v.lockPackage !== v.manifest || v.bg !== v.manifest) {
   fail(
-    `version drift — align all three, then rebuild (try: make set-version V=${v.manifest}):\n` +
-      `  extension/manifest.json : ${v.manifest}\n  package.json            : ${v.pkg}\n  extension/background.js : ${v.bg}`
+    `version drift — align all four files, then rebuild (try: make set-version V=${v.manifest}):\n` +
+      `  extension/manifest.json : ${v.manifest}\n  package.json            : ${v.pkg}\n` +
+      `  package-lock.json       : ${v.lock} / ${v.lockPackage}\n  extension/background.js : ${v.bg}`
   );
 }
 const VERSION = v.manifest;
@@ -65,21 +68,54 @@ let files = 0;
 
 if (!existsSync(join(stage, "manifest.json"))) fail("staged copy is missing manifest.json");
 
-// ---- 3. zip (manifest.json at the archive root). Prefer python3 (present on the
-// journal host, where `zip` may not be); fall back to `zip`; else folder-only. ----
-const zipPath = join(DIST, `${NAME}-${VERSION}.zip`);
-const PY = `import sys,zipfile,os
-stage,zp=sys.argv[1],sys.argv[2]
-with zipfile.ZipFile(zp,'w',zipfile.ZIP_DEFLATED) as z:
-  for r,_,fs in os.walk(stage):
-    for f in fs:
-      full=os.path.join(r,f); z.write(full,os.path.relpath(full,stage))`;
-let zipped = null;
-function tryRun(cmd, args) { try { execFileSync(cmd, args, { stdio: "ignore" }); return true; } catch (_e) { return false; } }
-if (tryRun("python3", ["-c", PY, stage, zipPath])) zipped = "python3";
-else if (tryRun("bash", ["-c", `cd ${JSON.stringify(stage)} && zip -qr ${JSON.stringify(zipPath)} .`])) zipped = "zip";
+// ---- 3. create distinct, deterministic development and Store ZIPs. The source
+// and load-unpacked package retain the key; only the Store staging copy omits
+// development/distribution fields that the dashboard rejects. ----
+const devZipPath = join(DIST, `${NAME}-${VERSION}-dev.zip`);
+const cwsZipPath = join(DIST, `${NAME}-${VERSION}-cws.zip`);
+const cwsStage = join(DIST, `.${NAME}-${VERSION}-cws`);
+const PY = String.raw`import pathlib,sys,zipfile
+stage=pathlib.Path(sys.argv[1])
+destination=sys.argv[2]
+with zipfile.ZipFile(destination,"w",zipfile.ZIP_DEFLATED,compresslevel=9) as archive:
+  for source in sorted(path for path in stage.rglob("*") if path.is_file()):
+    relative=source.relative_to(stage).as_posix()
+    info=zipfile.ZipInfo(relative,(1980,1,1,0,0,0))
+    info.compress_type=zipfile.ZIP_DEFLATED
+    info.external_attr=(0o100644 & 0xffff) << 16
+    archive.writestr(info,source.read_bytes(),compress_type=zipfile.ZIP_DEFLATED,compresslevel=9)`;
 
-// ---- 4. the stable reload target: dist/current -> the version just built.
+function zipTree(source, destination) {
+  try {
+    execFileSync("python3", ["-c", PY, source, destination], {
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 30_000,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+  } catch (error) {
+    throw new Error(`python3 could not create ${destination}: ${error.message}`);
+  }
+}
+
+let packageError = null;
+try {
+  cpSync(stage, cwsStage, { recursive: true });
+  const cwsManifestPath = join(cwsStage, "manifest.json");
+  const cwsManifest = JSON.parse(readFileSync(cwsManifestPath, "utf8"));
+  delete cwsManifest.key;
+  delete cwsManifest.update_url;
+  writeFileSync(cwsManifestPath, `${JSON.stringify(cwsManifest, null, 2)}\n`);
+  zipTree(stage, devZipPath);
+  zipTree(cwsStage, cwsZipPath);
+  verifyReleaseArtifacts({ root: ROOT, version: VERSION, stagePath: stage, devZipPath, cwsZipPath });
+} catch (error) {
+  packageError = error;
+} finally {
+  rmSync(cwsStage, { recursive: true, force: true });
+}
+if (packageError) fail(packageError.message);
+
+// ---- 4. the stable reload target: dist/current -> the validated version.
 // Load unpacked dist/current ONCE; every `make dist` re-points it and you just
 // hit reload in Chrome. The manifest `key` pins the extension id, so the id (and
 // your granted sites / allowlist) survive across reloads and version bumps.
@@ -88,11 +124,13 @@ symlinkSync(`${NAME}-${VERSION}`, current); // relative target inside dist/ (DIS
 
 // ---- summary ----
 console.log(`\nsolstone-browser ${VERSION} — release build`);
-console.log(`  version agrees across manifest.json / package.json / background.js`);
+console.log(`  version agrees across manifest.json / package.json / package-lock.json / background.js`);
 console.log(`  staged ${files} runtime files`);
+console.log(`  package checks passed by reopening both ZIPs`);
 console.log(`\n  Load unpacked THIS once, then just hit reload after each build:`);
 console.log(`    ${current}   ->   ${NAME}-${VERSION}`);
 console.log(`\n  versioned build: ${stage}`);
-if (zipped) console.log(`  zip (Web-Store / release artifact, via ${zipped}): ${zipPath}`);
-else console.log(`  (no zipper found — folder only)`);
+console.log(`  development ZIP (retains pinned id): ${devZipPath}`);
+console.log(`  Chrome Web Store upload candidate (no key/update_url): ${cwsZipPath}`);
+console.log(`  dashboard upload remains the authoritative Store validation`);
 console.log(`\nrelease build OK`);

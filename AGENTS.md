@@ -101,6 +101,9 @@ make relay-check    # (npm run relay-check) ON the journal machine: register + m
 make e2e-deps       # one-time: npm install + npx playwright install chromium (dev-only deps)
 make popup-check    # render popup states + enforce the 600px ceiling (needs make e2e-deps; outside make ci)
 make e2e            # (npm run e2e) agentic integration: content script -> SW -> relay, headless
+make dist           # full gate + load-unpacked directory + separate dev and Store ZIPs
+make cws            # Store-upload spelling of the same full, package-checked build
+make package-check  # reopen and verify already-built dev and Store ZIPs
 ```
 
 `make ci` is the CI-able gate and needs a locked dev install. `npm test` and

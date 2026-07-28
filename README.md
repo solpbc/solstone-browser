@@ -150,14 +150,16 @@ Two ways to exercise the live path (content script → worker → journal/relay)
 make dist          # clean, versioned artifact in dist/ (gated on `make ci`)
 ```
 
-Produces `dist/solstone-browser-<version>/` plus a `.zip`, and maintains a stable
-`dist/current` symlink. The zip is the Chrome Web Store candidate and
-self-distribution artifact. **Load unpacked `dist/current` once**, then after
-each `make dist` click **reload** on the extension card. The manifest `key` pins
-the self-distributed extension id, so your granted sites persist across
-rebuilds. Bump with `make set-version V=x.y.z`. The reload loop, version bumps,
-tagged releases, and store channel details are in [RELEASE.md](RELEASE.md);
-history is in [CHANGELOG.md](CHANGELOG.md).
+Produces `dist/solstone-browser-<version>/` plus clearly named `-dev.zip` and
+`-cws.zip` archives, and maintains a stable `dist/current` symlink. The
+development directory and ZIP retain the pinned extension id so granted sites
+persist across rebuilds; the separately validated `-cws.zip` omits development
+identity fields for Chrome Web Store upload. **Load unpacked `dist/current`
+once**, then after each `make dist` click **reload** on the extension card.
+`make cws` is the Store-upload spelling of the same full build gate. Bump with
+`make set-version V=x.y.z`. The reload loop, version bumps, tagged releases, and
+channel-specific assets are in [RELEASE.md](RELEASE.md); history is in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

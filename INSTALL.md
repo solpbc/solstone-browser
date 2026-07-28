@@ -22,6 +22,8 @@ Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**,
 and choose `dist/current`. Pin sol so its status light stays visible. After a
 later `make dist`, click **reload** on the extension card. The self-distributed
 manifest identity keeps your added sites and permissions across rebuilds.
+`dist/current` is the development install; the separately named `-cws.zip` is
+only for a Chrome Web Store dashboard upload.
 
 Nothing is taken in until you add a site.
 

@@ -4,6 +4,10 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 `make set-version` keeps `manifest.json` / `package.json` / `package-lock.json` /
 `background.js` in lockstep, and `make dist` refuses to build if they drift.
 
+## 0.1.1 (2026-07-27)
+
+- development and Chrome Web Store packages are now built and checked separately. sol in the browser itself is unchanged.
+
 ## 0.1.0 (2026-07-26)
 
 sol now takes no access at install, says what it takes in and where it lands in your journal before you add a site, and gives every screen the same answer about where your pages go.

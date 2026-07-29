@@ -1,0 +1,108 @@
+name: Chrome Web Store
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Store operation
+        required: true
+        type: choice
+        options:
+          - status
+          - stage-release
+          - publish-staged
+          - cancel
+      release_tag:
+        description: Immutable release tag to build (required for stage-release)
+        required: false
+        type: string
+      confirm_version:
+        description: Exact extension version (required for every mutation)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: chrome-web-store
+  cancel-in-progress: false
+
+jobs:
+  chrome-web-store:
+    name: ${{ inputs.action }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: chrome-web-store
+    steps:
+      - name: Validate workflow inputs
+        env:
+          CWS_ACTION: ${{ inputs.action }}
+          CWS_RELEASE_TAG: ${{ inputs.release_tag }}
+          CWS_CONFIRM_VERSION: ${{ inputs.confirm_version }}
+        run: |
+          set -euo pipefail
+          if [[ "$CWS_ACTION" == "stage-release" && -z "$CWS_RELEASE_TAG" ]]; then
+            echo "stage-release requires release_tag" >&2
+            exit 1
+          fi
+          if [[ "$CWS_ACTION" != "status" && -z "$CWS_CONFIRM_VERSION" ]]; then
+            echo "$CWS_ACTION requires confirm_version" >&2
+            exit 1
+          fi
+          if [[ "$CWS_ACTION" == "stage-release" && "$CWS_RELEASE_TAG" != "v$CWS_CONFIRM_VERSION" ]]; then
+            echo "release_tag must exactly equal v<confirm_version>" >&2
+            exit 1
+          fi
+
+      - name: Check out release source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.action == 'stage-release' && inputs.release_tag || github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - id: google-auth
+        name: Mint short-lived Chrome Web Store token
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: extro-mail
+          workload_identity_provider: projects/161174958415/locations/global/workloadIdentityPools/github-actions/providers/solstone-browser
+          service_account: chrome-web-store-publisher@extro-mail.iam.gserviceaccount.com
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+
+      - name: Build and validate the Store package
+        if: inputs.action == 'stage-release'
+        run: make cws
+
+      - name: Run the founder-approved Store operation
+        env:
+          CWS_ACCESS_TOKEN: ${{ steps.google-auth.outputs.access_token }}
+          CWS_ACTION: ${{ inputs.action }}
+          CWS_CONFIRM_VERSION: ${{ inputs.confirm_version }}
+        run: |
+          set -euo pipefail
+          case "$CWS_ACTION" in
+            status)
+              node scripts/cws.mjs status
+              ;;
+            stage-release)
+              node scripts/cws.mjs stage --confirm-version "$CWS_CONFIRM_VERSION"
+              ;;
+            publish-staged)
+              node scripts/cws.mjs publish-staged --confirm-version "$CWS_CONFIRM_VERSION"
+              ;;
+            cancel)
+              node scripts/cws.mjs cancel --confirm-version "$CWS_CONFIRM_VERSION"
+              ;;
+            *)
+              echo "unsupported Store action: $CWS_ACTION" >&2
+              exit 1
+              ;;
+          esac

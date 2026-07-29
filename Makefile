@@ -11,7 +11,7 @@
 # (dev-only dependency; the shipped extension stays dependency-free). See
 # INSTALL.md / test/GUIDED.md / AGENTS.md.
 
-.PHONY: install test test-idb verify-vendor-hpke ci format clean smoke relay-check popup-check e2e e2e-deps dist cws package-check set-version
+.PHONY: install test test-idb verify-vendor-hpke ci format clean smoke relay-check popup-check e2e e2e-deps dist cws cws-status cws-stage cws-publish-staged cws-cancel package-check set-version
 
 # Install locked development tools. Nothing from node_modules ships in extension/.
 install:
@@ -72,6 +72,21 @@ dist: ci
 # Store-specific spelling for operators preparing a dashboard upload. This runs
 # the same full gate as make dist; only the resulting -cws.zip is Store-ready.
 cws: dist
+
+# Chrome Web Store API V2 operator commands. Local calls mint a short-lived
+# service-account token through gcloud; CI uses GitHub OIDC/WIF. Mutations
+# require CWS_CONFIRM to match the exact manifest version.
+cws-status:
+	node scripts/cws.mjs status
+
+cws-stage: dist
+	node scripts/cws.mjs stage --confirm-version $(CWS_CONFIRM)
+
+cws-publish-staged:
+	node scripts/cws.mjs publish-staged --confirm-version $(CWS_CONFIRM)
+
+cws-cancel:
+	node scripts/cws.mjs cancel --confirm-version $(CWS_CONFIRM)
 
 # Reopen already-built release ZIPs and verify their package-level contracts.
 package-check:

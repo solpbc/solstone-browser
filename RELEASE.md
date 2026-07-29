@@ -58,7 +58,8 @@ remains the authoritative upload validator.
 make cws
 ```
 
-Upload only the resulting `-cws.zip` to the Store dashboard.
+Upload only the resulting `-cws.zip` to the Store dashboard. For releases after
+the first item, the supported path is the keyless API flow below.
 
 ## Bump the version
 
@@ -99,12 +100,54 @@ Both channel-specific ZIPs are release assets; `CHANGELOG.md` is the notes
 source. Never replace an existing tag or asset. If packaging changes after a
 release, cut the next patch version.
 
-## Chrome Web Store handoff
+## Chrome Web Store release
 
-The operator hands the exact `-cws.zip` asset to the person completing the Store
-dashboard flow. Dashboard upload, listing fields, review submission, and
-publication are separate manual actions. A local package check is not a claim
-that Google will accept the upload.
+The first item established Store id `eibbeeoifjoabddfmgeggnageolkcnim`. Normal
+updates use Chrome Web Store API V2 through the publisher-linked
+`chrome-web-store-publisher@extro-mail.iam.gserviceaccount.com` identity. Local
+commands impersonate it with the operator's `gcloud` login; GitHub Actions uses
+OIDC and Workload Identity Federation. Both mint short-lived tokens with only
+the `https://www.googleapis.com/auth/chromewebstore` scope. There is no OAuth
+client, refresh token, service-account key, or GitHub secret.
+
+Read current Store state:
+
+```bash
+make cws-status
+```
+
+Build, upload, and submit an immutable version for review:
+
+```bash
+make cws-stage CWS_CONFIRM=0.1.2
+```
+
+Submission uses `STAGED_PUBLISH`. Approval therefore leaves the release staged;
+it does not go live. After founder approval, publish that exact staged version:
+
+```bash
+make cws-publish-staged CWS_CONFIRM=0.1.2
+```
+
+Cancel a pending review only with explicit founder direction:
+
+```bash
+make cws-cancel CWS_CONFIRM=0.1.2
+```
+
+The **Chrome Web Store** workflow exposes the same operations through a protected
+`chrome-web-store` GitHub environment. For `stage-release`, dispatch it from
+`main` with the immutable release tag and exact version. Every mutation requires
+the exact version as a second confirmation. The tool revalidates the Store ZIP,
+refuses versions already published or submitted, blocks a second active
+submission, waits honestly for asynchronous uploads, blocks on Store warnings,
+and reports `PENDING_REVIEW`, `STAGED`, and `PUBLISHED` as distinct outcomes.
+
+API V2 does not edit listing copy, screenshots, privacy declarations,
+distribution, or visibility. Those remain dashboard-only whenever they change.
+If visibility changes in the dashboard, publish once manually with that
+visibility before returning to the API path. A local package check is not a
+claim that Google will accept the upload.
 
 Keep `minimum_chrome_version` at 120 while `scripts/vendor-hpke.mjs` targets
 `chrome120`; the API floor alone is 105 because `Element.checkVisibility` has no

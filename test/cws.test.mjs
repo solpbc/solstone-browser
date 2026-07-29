@@ -4,10 +4,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  accessTokenScope,
   assertConfirmedVersion,
   assertNoActiveSubmission,
   assertReleaseTag,
   assertVersionIsNew,
+  describeGcloudTokenFailure,
+  gcloudAccessTokenArgs,
   revisionVersions,
   summarizeStatus,
 } from "../scripts/cws.mjs";
@@ -67,4 +70,29 @@ test("mutations require the exact package version confirmation", () => {
 test("only the matching immutable release tag satisfies the upload guard", () => {
   assert.doesNotThrow(() => assertReleaseTag(["v0.1.2"], "0.1.2"));
   assert.throws(() => assertReleaseTag(["v0.1.1", "preview"], "0.1.2"), /immutable release tag v0.1.2/);
+});
+
+test("status uses the read-only Store scope while mutations retain the write scope", () => {
+  assert.equal(accessTokenScope("status"), "https://www.googleapis.com/auth/chromewebstore.readonly");
+  assert.equal(accessTokenScope("stage"), "https://www.googleapis.com/auth/chromewebstore");
+});
+
+test("local token mint pins the human source identity", () => {
+  assert.deepEqual(gcloudAccessTokenArgs(accessTokenScope("status")), [
+    "auth",
+    "print-access-token",
+    "--account=jer@solpbc.org",
+    "--impersonate-service-account=chrome-web-store-publisher@extro-mail.iam.gserviceaccount.com",
+    "--scopes=https://www.googleapis.com/auth/chromewebstore.readonly",
+  ]);
+});
+
+test("non-interactive reauthentication failure explains the intentional boundary", () => {
+  const message = describeGcloudTokenFailure({
+    stderr: "Reauthentication failed. cannot prompt during non-interactive execution.",
+  });
+  assert.match(message, /intentionally human-backed/);
+  assert.match(message, /Autonomous sessions must not request reauthentication/);
+  assert.match(message, /public listing/);
+  assert.match(message, /No service-account-key fallback exists by design/);
 });

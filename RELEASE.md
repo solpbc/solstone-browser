@@ -105,10 +105,21 @@ release, cut the next patch version.
 The first item established Store id `eibbeeoifjoabddfmgeggnageolkcnim`. Normal
 updates use Chrome Web Store API V2 through the publisher-linked
 `chrome-web-store-publisher@extro-mail.iam.gserviceaccount.com` identity. Local
-commands impersonate it with the operator's `gcloud` login; GitHub Actions uses
-OIDC and Workload Identity Federation. Both mint short-lived tokens with only
-the `https://www.googleapis.com/auth/chromewebstore` scope. There is no OAuth
-client, refresh token, service-account key, or GitHub secret.
+commands impersonate it from the operator's explicit `jer@solpbc.org` `gcloud`
+login; GitHub Actions uses OIDC and Workload Identity Federation. Status uses
+the read-only `https://www.googleapis.com/auth/chromewebstore.readonly` scope;
+mutations use `https://www.googleapis.com/auth/chromewebstore`. There is no
+OAuth client, refresh token, service-account key, or GitHub secret.
+
+The local path is deliberately human-backed. When Google's reauthentication
+policy expires the user credential, a human operator may run
+`gcloud auth login jer@solpbc.org` interactively and retry. Autonomous sessions
+must not ask for that as a repair or fall back to a long-lived key: use the
+[public listing](https://chromewebstore.google.com/detail/solstone-browser/eibbeeoifjoabddfmgeggnageolkcnim)
+for published-version checks, or dispatch the protected **Chrome Web Store**
+workflow when private Store state is actually required. The workflow remains
+founder-approved because the linked service account is publisher-wide even
+though an individual status token is read-only.
 
 Read current Store state:
 

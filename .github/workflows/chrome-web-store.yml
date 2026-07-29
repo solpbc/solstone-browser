@@ -75,7 +75,7 @@ jobs:
           workload_identity_provider: projects/161174958415/locations/global/workloadIdentityPools/github-actions/providers/solstone-browser
           service_account: chrome-web-store-publisher@extro-mail.iam.gserviceaccount.com
           token_format: access_token
-          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+          access_token_scopes: ${{ inputs.action == 'status' && 'https://www.googleapis.com/auth/chromewebstore.readonly' || 'https://www.googleapis.com/auth/chromewebstore' }}
 
       - name: Build and validate the Store package
         if: inputs.action == 'stage-release'

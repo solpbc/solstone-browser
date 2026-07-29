@@ -73,9 +73,10 @@ dist: ci
 # the same full gate as make dist; only the resulting -cws.zip is Store-ready.
 cws: dist
 
-# Chrome Web Store API V2 operator commands. Local calls mint a short-lived
-# service-account token through gcloud; CI uses GitHub OIDC/WIF. Mutations
-# require CWS_CONFIRM to match the exact manifest version.
+# Chrome Web Store API V2 operator commands. Local calls use jer's interactive
+# gcloud identity to impersonate the publisher service account; there is no
+# unattended key fallback. CI uses GitHub OIDC/WIF. Status tokens are read-only;
+# mutations require CWS_CONFIRM to match the exact manifest version.
 cws-status:
 	node scripts/cws.mjs status
 

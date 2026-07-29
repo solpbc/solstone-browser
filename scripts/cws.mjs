@@ -18,7 +18,11 @@ const PUBLISHER_ID = process.env.CWS_PUBLISHER_ID || "3c2cbd26-afd5-4962-b486-dc
 const ITEM_ID = process.env.CWS_ITEM_ID || "eibbeeoifjoabddfmgeggnageolkcnim";
 const SERVICE_ACCOUNT =
   process.env.CWS_SERVICE_ACCOUNT || "chrome-web-store-publisher@extro-mail.iam.gserviceaccount.com";
-const SCOPE = "https://www.googleapis.com/auth/chromewebstore";
+const GCLOUD_ACCOUNT = "jer@solpbc.org";
+const READ_SCOPE = "https://www.googleapis.com/auth/chromewebstore.readonly";
+const WRITE_SCOPE = "https://www.googleapis.com/auth/chromewebstore";
+const PUBLIC_LISTING =
+  "https://chromewebstore.google.com/detail/solstone-browser/eibbeeoifjoabddfmgeggnageolkcnim";
 const ITEM_NAME = `publishers/${PUBLISHER_ID}/items/${ITEM_ID}`;
 const API_ITEM = `https://chromewebstore.googleapis.com/v2/${ITEM_NAME}`;
 const UPLOAD_URL = `https://chromewebstore.googleapis.com/upload/v2/${ITEM_NAME}:upload`;
@@ -115,31 +119,53 @@ function parseArgs(argv) {
   return { command, packagePath, confirmVersion };
 }
 
-function accessToken() {
+export function accessTokenScope(command) {
+  return command === "status" ? READ_SCOPE : WRITE_SCOPE;
+}
+
+export function gcloudAccessTokenArgs(scope) {
+  return [
+    "auth",
+    "print-access-token",
+    `--account=${GCLOUD_ACCOUNT}`,
+    `--impersonate-service-account=${SERVICE_ACCOUNT}`,
+    `--scopes=${scope}`,
+  ];
+}
+
+export function describeGcloudTokenFailure(error) {
+  const detail =
+    typeof error?.stderr === "string"
+      ? error.stderr.trim()
+      : Buffer.isBuffer(error?.stderr)
+        ? error.stderr.toString("utf8").trim()
+        : "";
+  if (/Reauthentication failed|cannot prompt during non-interactive execution/i.test(detail)) {
+    return `local Chrome Web Store access is intentionally human-backed and cannot refresh in this process. A human operator may run "gcloud auth login ${GCLOUD_ACCOUNT}" interactively and retry. Autonomous sessions must not request reauthentication: use the public listing for published-version checks (${PUBLIC_LISTING}), or use the founder-approved Chrome Web Store workflow for private Store state. No service-account-key fallback exists by design`;
+  }
+  return `could not mint a short-lived Store token with gcloud: ${detail || error.message}`;
+}
+
+function accessToken(scope) {
   if (process.env.CWS_ACCESS_TOKEN) return process.env.CWS_ACCESS_TOKEN;
   try {
     return execFileSync(
       "gcloud",
-      [
-        "auth",
-        "print-access-token",
-        `--impersonate-service-account=${SERVICE_ACCOUNT}`,
-        `--scopes=${SCOPE}`,
-      ],
+      gcloudAccessTokenArgs(scope),
       {
         encoding: "utf8",
-        stdio: ["ignore", "pipe", "inherit"],
+        stdio: ["ignore", "pipe", "pipe"],
         timeout: 30_000,
         maxBuffer: 1024 * 1024,
       },
     ).trim();
   } catch (error) {
-    fail(`could not mint a short-lived Store token with gcloud: ${error.message}`);
+    fail(describeGcloudTokenFailure(error));
   }
 }
 
-async function apiRequest(url, { method = "GET", json, body, contentType } = {}) {
-  const headers = { Authorization: `Bearer ${accessToken()}` };
+async function apiRequest(url, { method = "GET", json, body, contentType, scope = WRITE_SCOPE } = {}) {
+  const headers = { Authorization: `Bearer ${accessToken(scope)}` };
   if (json !== undefined) headers["Content-Type"] = "application/json";
   if (contentType) headers["Content-Type"] = contentType;
 
@@ -165,8 +191,8 @@ async function apiRequest(url, { method = "GET", json, body, contentType } = {})
   return payload;
 }
 
-async function fetchStatus() {
-  return apiRequest(`${API_ITEM}:fetchStatus`);
+async function fetchStatus(scope = WRITE_SCOPE) {
+  return apiRequest(`${API_ITEM}:fetchStatus`, { scope });
 }
 
 function printStatus(status, label = "Chrome Web Store status") {
@@ -345,7 +371,7 @@ async function main(argv) {
   }
   if (command === "status") {
     assert.equal(packagePath, null, "status does not accept a package path");
-    printStatus(await fetchStatus());
+    printStatus(await fetchStatus(accessTokenScope(command)));
     return;
   }
   if (command === "upload" || command === "stage") {

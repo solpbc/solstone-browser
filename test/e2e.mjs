@@ -673,11 +673,16 @@ async function main() {
     ok("bad CA fingerprint aborts pairing", badPair.ok === false && !remoteAfterBadPair, JSON.stringify(badPair));
 
     const beforeRemoteBlobs = stub.received.remoteBlobs.length;
-    await sw.evaluate(async () => {
+    // Deliberately do NOT clear the backoff the unpaired flush earned. This
+    // harness used to, which hid the fact that pairing left it in place and an
+    // owner's backlog then waited for the next rotate alarm. pairRemote clears it
+    // now, and the unassisted drain below is the assertion.
+    const stalledBefore = await sw.evaluate(async () => {
       globalThis.__icons = [];
       const entry = await globalThis.SolstoneOutboxStore.head();
-      if (entry) await globalThis.SolstoneOutboxStore.setBackoff(entry, 0, null, entry.attempts || 0);
+      return entry ? { attempts: entry.attempts || 0, nextAttemptAt: entry.nextAttemptAt || 0, lastError: entry.lastError || null } : null;
     });
+    ok("the unpaired flush leaves the outbox head backed off", !!(stalledBefore && stalledBefore.nextAttemptAt > Date.now()), JSON.stringify(stalledBefore));
     const pair = await popup.evaluate((link) => new Promise((res) => chrome.runtime.sendMessage({ cmd: "pairRemote", link }, (r) => res(r || {}))), stub.pairLink());
     const remoteCfg = await sw.evaluate(async () => ((await chrome.storage.local.get("cfg")).cfg || {}).remote || null);
     ok("pairRemote succeeds against stub relay", pair.ok === true && pair.instanceId === stub.instanceId, JSON.stringify(pair));

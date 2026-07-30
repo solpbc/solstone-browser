@@ -870,6 +870,13 @@ async function pairRemote(link) {
       next.remotePending = null;
       await setCfg(next);
     });
+    // Every delivery attempt before this moment failed for one reason — there was
+    // nowhere to send. Pairing just resolved it, so the backoff those attempts
+    // earned is stale, and leaving it would make the owner watch their backlog sit
+    // still right after the one action that fixed it. Only the head can carry a
+    // backoff (the drain stops at the first failure), so clearing it is enough.
+    const stalled = await OutboxStore.head();
+    if (stalled) await OutboxStore.setBackoff(stalled, 0, null, 0);
     drainOutbox();
     return { ok: true, instanceId: reply.instance_id };
   } finally {

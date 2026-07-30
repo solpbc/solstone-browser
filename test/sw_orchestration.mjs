@@ -6,8 +6,8 @@
 // extension, opens the options page (an extension
 // context with chrome.runtime), and from there drives the worker with the exact
 // messages content.js sends: setConfig -> siteGranted -> hello -> skim
-// (snapshot) -> skim (delta) -> flushNow -> getState. An unpaired run proves
-// queueing; a pre-paired profile continues through the sealed drain. Args: <port>.
+// (snapshot) -> skim (delta) -> flushNow -> getState. It proves queueing and,
+// when unpaired, outbox retention; paired output is diagnostic only. Args: <port>.
 
 const PORT = Number(process.argv[2] || 9311);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

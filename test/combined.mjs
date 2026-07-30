@@ -32,9 +32,9 @@ async function main() {
     console.log("PAGE:", await evalOn(page, pageProbe));
   }
   if (sw) {
-    const swProbe = `(async () => { const r = await chrome.storage.local.get(['cfg','seg']); const cfg=r.cfg||{}, seg=r.seg||{}, sites=seg.sites||{};
+    const swProbe = `(async () => { const r = await chrome.storage.local.get(['cfg','seg']); const cfg=r.cfg||{}, seg=r.seg||{}, ctxs=seg.ctxs||{};
       return JSON.stringify({ connection: globalThis.SolstoneStatus.connection(globalThis.SolstoneStatus.normalize(cfg)), hostname: cfg.hostname, segmentSec: cfg.segmentSec, paused: cfg.paused, health: cfg.health,
-        seg_day: seg.day, seg_sites: Object.fromEntries(Object.entries(sites).map(([k,v])=>[k,{active:v.active,lines:(v.lines||[]).length}])) }); })()`;
+        seg_day: seg.day, seg_ctxs: Object.fromEntries(Object.entries(ctxs).map(([k,v])=>[k,{active:v.active,lines:(v.lines||[]).length}])) }); })()`;
     console.log("SW STORAGE:", await evalOn(sw, swProbe));
   }
   process.exit(0);

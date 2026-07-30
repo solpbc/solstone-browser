@@ -530,7 +530,7 @@ async function pruneSigs(seg) {
 
 // Build + queue the segment. Idle rule (per context): a context whose buffer is
 // just the snapshot (no deltas) AND whose snapshot is unchanged from the last one
-// we uploaded is SKIPPED — so an idle page produces no segment at all. Surviving
+// we enqueued is SKIPPED — so an idle page produces no segment at all. Surviving
 // contexts are grouped by host into one file per host (rows carry their `ctx`).
 // `force` (manual "send now") bypasses idle.
 async function flushSeg(seg, now, force = false) {
@@ -619,7 +619,7 @@ async function rotateIfDue() {
   });
 }
 
-// Force an immediate upload of whatever is buffered (popup "flush now" / demo).
+// Force buffered work into the queue, then kick an unawaited drain.
 async function flushNow() {
   return withSeg(async () => {
     const seg = await getSeg();

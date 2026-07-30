@@ -9,9 +9,9 @@ solstone-browser is one of the owner's observers. It experiences the web apps
 the owner explicitly chooses, taking in their **rendered text and rough
 layout**, and relays what it takes in to a solstone journal as a distinct
 `<host>.browser` stream. Never pixels. Never raw HTML. It follows the same
-observer pattern as solstone-tmux and the screen/audio observers: register
-against the journal, accumulate into segments, sync. The difference is the
-source: semantic DOM content instead of pixels or terminal text.
+segment-and-sync pattern as solstone-tmux and the screen/audio observers:
+accumulate into segments, then deliver through the paired relay. The difference
+is the source: semantic DOM content instead of pixels or terminal text.
 
 This is a **Chromium Web Store candidate** for desktop Chromium. It is opt-in per
 site and delivers through a paired relay to the owner's home. Cross-browser

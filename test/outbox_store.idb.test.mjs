@@ -4,6 +4,8 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import vm from "node:vm";
 
 await import(new URL("../extension/lib/uuid.js", import.meta.url));
 await import(new URL("../extension/lib/outbox.js", import.meta.url));
@@ -13,6 +15,52 @@ await import(new URL("../extension/lib/outbox_store.js", import.meta.url));
 const DB = globalThis.SolstoneDB;
 const Store = globalThis.SolstoneOutboxStore;
 const CAP = globalThis.SolstoneOutbox.OUTBOX_CAP;
+const backgroundSource = fs.readFileSync(new URL("../extension/background.js", import.meta.url), "utf8");
+
+function listenerEvent() {
+  return { addListener() {} };
+}
+
+function storageWith(initial) {
+  const values = structuredClone(initial);
+  let setCount = 0;
+  return {
+    async get(keys) {
+      const names = Array.isArray(keys) ? keys : [keys];
+      return Object.fromEntries(names.filter((name) => Object.hasOwn(values, name)).map((name) => [name, structuredClone(values[name])]));
+    },
+    async set(next) {
+      setCount += 1;
+      Object.assign(values, structuredClone(next));
+    },
+    async remove(keys) {
+      for (const name of Array.isArray(keys) ? keys : [keys]) delete values[name];
+    },
+    snapshot() {
+      return structuredClone(values);
+    },
+    setCount() {
+      return setCount;
+    },
+  };
+}
+
+function loadRemoteOnlyMigration(storage) {
+  const sandbox = {
+    chrome: {
+      storage: { local: storage },
+      runtime: { onMessage: listenerEvent(), onInstalled: listenerEvent(), onStartup: listenerEvent() },
+      tabs: { onRemoved: listenerEvent() },
+      alarms: { onAlarm: listenerEvent() },
+      permissions: { onRemoved: listenerEvent(), onAdded: listenerEvent() },
+    },
+    importScripts() {},
+    SolstoneOutboxStore: Store,
+    console,
+  };
+  vm.runInNewContext(backgroundSource, sandbox, { filename: "extension/background.js" });
+  return sandbox.migrateRemoteOnlyV1;
+}
 
 function entry(id, lines = 1) {
   const value = {
@@ -75,31 +123,42 @@ describe("production IndexedDB outbox store", { concurrency: false }, () => {
     assert.deepEqual(await Store.getDropped(), prior);
   });
 
-  test("remote-only migration rewrites every legacy row once without dropping data", async () => {
+  test("complete remote-only migration cleans config and preserves a local-form row exactly once", async () => {
     const local = Object.assign(entry(301, 2), {
       mode: "local",
       meta: { host: "old-laptop", stream: "old-laptop.browser", observer: "legacy-id" },
     });
-    const missing = Object.assign(entry(302, 3), {
-      meta: { host: "other-laptop", platform: "browser" },
+    const storage = storageWith({
+      cfg: {
+        hostname: "old-laptop",
+        allowlist: ["example.com"],
+        journalUrl: "http://localhost:5015",
+        key: "bearer-handle",
+        stream: "old-laptop.browser",
+        protocolVersion: "1",
+        localRegistered: true,
+        journalPermission: { required: true, granted: true },
+      },
     });
-    const remote = Object.assign(entry(303, 4), {
-      mode: "remote",
-      meta: { host: "ready-laptop", platform: "browser" },
-    });
-    await seedRows([local, missing, remote]);
+    await seedRows([local]);
+    const migrateRemoteOnlyV1 = loadRemoteOnlyMigration(storage);
 
-    assert.equal(await Store.migrateRemoteOnly(), true);
-    assert.deepEqual(await Store.all(), [
-      Object.assign({}, local, { mode: "remote" }),
-      Object.assign({}, missing, { mode: "remote" }),
-      remote,
-    ]);
+    await migrateRemoteOnlyV1();
+    assert.deepEqual(storage.snapshot().cfg, {
+      hostname: "old-laptop",
+      allowlist: ["example.com"],
+    });
+    assert.deepEqual(await Store.all(), [Object.assign({}, local, { mode: "remote" })]);
     assert.equal(await DB.get("meta", Store.REMOTE_ONLY_MIGRATION_KEY), true);
 
-    const once = await Store.all();
-    assert.equal(await Store.migrateRemoteOnly(), false);
-    assert.deepEqual(await Store.all(), once);
+    const configAfterFirstRun = storage.snapshot();
+    const rowsAfterFirstRun = await Store.all();
+    const writesAfterFirstRun = storage.setCount();
+    await migrateRemoteOnlyV1();
+    assert.deepEqual(storage.snapshot(), configAfterFirstRun);
+    assert.deepEqual(await Store.all(), rowsAfterFirstRun);
+    assert.equal(storage.setCount(), writesAfterFirstRun);
+    assert.equal(await DB.get("meta", Store.REMOTE_ONLY_MIGRATION_KEY), true);
   });
 
   test("local-form entry dequeues normally before the migration has run", async () => {

@@ -176,16 +176,219 @@ test("verdict carries the pinned remote destination copy byte for byte", () => {
   "kept here, going to your journal at your home when it answers");
 });
 
-test("no-journal fires for unpaired with pinned copy", () => {
-  assert.deepEqual(S.verdict(S.normalize({ allowlist: ["example.com"] })), {
-    kind: "no-journal",
-    tone: "calm",
-    headline: "no journal yet",
-    sub: "nothing is being taken in, and nothing is going anywhere",
-    reason: "",
-    actions: [{ id: "set-up", label: "set up your journal" }],
-    also: [],
-  });
+test("every verdict rung has exact copy, actions, and icon", () => {
+  const cases = [
+    {
+      status: normalized({}, { dropped: { segments: 1, lines: 2 } }),
+      extras: { outbox: { lines: 1 } },
+      verdict: {
+        kind: "dropped",
+        tone: "attention",
+        headline: "some updates couldn't be kept",
+        sub: "kept here, going to your journal at your home when it answers",
+        reason: "sol was offline too long and dropped the oldest to make room.",
+        actions: [],
+        also: [],
+      },
+      icon: {
+        prefix: "icon-error-",
+        title: "sol · some updates couldn't be kept · kept here, going to your journal at your home when it answers",
+        badge: "!",
+      },
+    },
+    {
+      status: normalized({ health: { lastUploadAt: 100, lastError: "offline" } }),
+      extras: {},
+      verdict: {
+        kind: "unreachable",
+        tone: "attention",
+        headline: "can't reach your journal",
+        sub: "kept here, going to your journal at your home when it answers",
+        reason: "your home isn't answering. what sol takes in is kept here, waiting to sync.",
+        actions: [{ id: "try-now", label: "try now" }],
+        also: [],
+      },
+      icon: {
+        prefix: "icon-half-",
+        title: "sol · can't reach your journal · kept here, going to your journal at your home when it answers",
+        badge: "",
+      },
+    },
+    {
+      status: normalized({ paused: true }),
+      extras: {},
+      verdict: {
+        kind: "paused",
+        tone: "calm",
+        headline: "paused",
+        sub: "nothing is being taken in",
+        reason: "",
+        actions: [],
+        also: [],
+      },
+      icon: { prefix: "icon-paused-", title: "sol · paused", badge: "" },
+    },
+    {
+      status: normalized({ pausedHosts: { "example.com": true } }),
+      extras: { entryMatchHosts: { "example.com": "example.com" } },
+      verdict: {
+        kind: "browser-paused",
+        tone: "attention",
+        headline: "1 site paused by your browser",
+        sub: "going to your journal at your home, sealed on the way",
+        reason: "chrome took back access. sol paused rather than quietly forgetting.",
+        actions: [],
+        also: [],
+      },
+      icon: {
+        prefix: "icon-error-",
+        title: "sol · 1 site paused by your browser · going to your journal at your home, sealed on the way",
+        badge: "!",
+      },
+    },
+    {
+      status: normalized({ siteErrors: { "example.com": "failed" } }),
+      extras: {},
+      verdict: {
+        kind: "site-error",
+        tone: "attention",
+        headline: "1 site needs attention",
+        sub: "going to your journal at your home, sealed on the way",
+        reason: "",
+        actions: [],
+        also: [],
+      },
+      icon: {
+        prefix: "icon-error-",
+        title: "sol · 1 site needs attention · going to your journal at your home, sealed on the way",
+        badge: "!",
+      },
+    },
+    {
+      status: S.normalize({ allowlist: ["example.com"] }),
+      extras: {},
+      verdict: {
+        kind: "no-journal",
+        tone: "calm",
+        headline: "no journal yet",
+        sub: "nothing is being taken in, and nothing is going anywhere",
+        reason: "",
+        actions: [{ id: "set-up", label: "set up your journal" }],
+        also: [],
+      },
+      icon: { prefix: "icon-paused-", title: "sol · no journal yet", badge: "" },
+    },
+    {
+      status: S.normalize({
+        allowlist: ["example.com"],
+        remotePending: { relayOrigin: pairedRemote.relayOrigin },
+      }),
+      extras: {},
+      verdict: {
+        kind: "pairing-unfinished",
+        tone: "calm",
+        headline: "pairing isn't finished",
+        sub: "nowhere yet. pairing isn't finished.",
+        reason: "",
+        actions: [{ id: "set-up", label: "finish pairing" }],
+        also: [],
+      },
+      icon: { prefix: "icon-paused-", title: "sol · pairing isn't finished", badge: "" },
+    },
+    {
+      status: normalized({ allowlist: [] }),
+      extras: {},
+      verdict: {
+        kind: "no-sites",
+        tone: "calm",
+        headline: "no sites yet",
+        sub: "sol takes in nothing until you add a site",
+        reason: "",
+        actions: [],
+        also: [],
+      },
+      icon: { prefix: "icon-paused-", title: "sol · no sites yet", badge: "" },
+    },
+    {
+      status: normalized({ health: {} }),
+      extras: {},
+      verdict: {
+        kind: "first-sync-pending",
+        tone: "calm",
+        headline: "paired, nothing sent yet",
+        sub: "going to your journal at your home, sealed on the way",
+        reason: "the first pages go out on the next batch.",
+        actions: [],
+        also: [],
+      },
+      icon: {
+        prefix: "icon-half-",
+        title: "sol · paired, nothing sent yet · going to your journal at your home, sealed on the way",
+        badge: "",
+      },
+    },
+    {
+      status: normalized(),
+      extras: { activeSites: [] },
+      verdict: {
+        kind: "idle",
+        tone: "ok",
+        headline: "on",
+        sub: "going to your journal at your home, sealed on the way",
+        reason: "none of your sites are open right now.",
+        actions: [],
+        also: [],
+      },
+      icon: {
+        prefix: "icon",
+        title: "sol · on · going to your journal at your home, sealed on the way",
+        badge: "",
+      },
+    },
+    {
+      status: normalized(),
+      extras: { activeSites: ["example.com"] },
+      verdict: {
+        kind: "on",
+        tone: "ok",
+        headline: "on",
+        sub: "going to your journal at your home, sealed on the way",
+        reason: "",
+        actions: [],
+        also: [],
+      },
+      icon: {
+        prefix: "icon",
+        title: "sol · on · going to your journal at your home, sealed on the way",
+        badge: "",
+      },
+    },
+    {
+      status: {},
+      extras: {},
+      verdict: {
+        kind: "unavailable",
+        tone: "unavailable",
+        headline: "status unavailable",
+        sub: "",
+        reason: "",
+        actions: [{ id: "open-settings", label: "open settings" }],
+        also: [],
+      },
+      icon: { prefix: "icon-half-", title: "sol · status unavailable", badge: "" },
+    },
+  ];
+
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    for (const entry of cases) {
+      assert.deepEqual(S.verdict(entry.status, entry.extras), entry.verdict, entry.verdict.kind);
+      assert.deepEqual(S.iconState(entry.status, entry.extras), entry.icon, entry.verdict.kind);
+    }
+  } finally {
+    console.warn = originalWarn;
+  }
 });
 
 test("collapsed flowing sub-line applies to unpaired browser and site errors", () => {
@@ -203,17 +406,84 @@ test("collapsed flowing sub-line applies to unpaired browser and site errors", (
   assert.equal(siteError.sub, "going to your journal at your home, sealed on the way");
 });
 
-test("verdict ladder keeps worst-signal-wins ordering", () => {
+test("verdict ladder keeps every surviving worst-signal precedence pair", () => {
+  const cases = [
+    {
+      status: normalized({ health: { lastError: "offline" } }, { dropped: { segments: 1 } }),
+      extras: {},
+      winner: "dropped",
+      also: ["unreachable"],
+    },
+    {
+      status: normalized({ paused: true, health: { lastError: "offline" } }),
+      extras: {},
+      winner: "unreachable",
+      also: ["paused"],
+    },
+    {
+      status: normalized({ paused: true, pausedHosts: { "example.com": true } }),
+      extras: { entryMatchHosts: { "example.com": "example.com" } },
+      winner: "paused",
+      also: ["browser-paused"],
+    },
+    {
+      status: normalized({
+        pausedHosts: { "example.com": true },
+        siteErrors: { "example.com": "failed" },
+      }),
+      extras: { entryMatchHosts: { "example.com": "example.com" } },
+      winner: "browser-paused",
+      also: ["site-error"],
+    },
+    {
+      status: S.normalize({
+        allowlist: ["example.com"],
+        siteErrors: { "example.com": "failed" },
+      }),
+      extras: {},
+      winner: "site-error",
+      also: ["no-journal"],
+    },
+    {
+      status: S.normalize({}),
+      extras: {},
+      winner: "no-journal",
+      also: ["no-sites"],
+    },
+    {
+      status: S.normalize({ remotePending: { relayOrigin: pairedRemote.relayOrigin } }),
+      extras: {},
+      winner: "pairing-unfinished",
+      also: ["no-sites"],
+    },
+    {
+      status: normalized({ allowlist: [], health: {} }),
+      extras: {},
+      winner: "no-sites",
+      also: ["first-sync-pending"],
+    },
+  ];
+
+  for (const entry of cases) {
+    const result = S.verdict(entry.status, entry.extras);
+    assert.equal(result.kind, entry.winner);
+    assert.deepEqual(result.also, entry.also);
+  }
+});
+
+test("iconState accepts the legacy positional entryMatchHosts map", () => {
   const status = normalized({
-    paused: true,
-    pausedHosts: { "example.com": true },
-    siteErrors: { "example.com": "failed" },
-    health: { lastError: "offline" },
-  }, { dropped: { segments: 1, lines: 2 } });
-  const result = S.verdict(status, { entryMatchHosts: { "example.com": "example.com" }, outbox: { lines: 3 } });
-  assert.equal(result.kind, "dropped");
-  assert.deepEqual(result.also, ["unreachable", "paused", "browser-paused", "site-error"]);
-  assert.deepEqual(result.actions, [{ id: "try-now", label: "try now" }]);
+    allowlist: ["localhost:5015", "localhost:3000"],
+    pausedHosts: { localhost: true },
+  });
+  assert.deepEqual(S.iconState(status, {
+    "localhost:5015": "localhost",
+    "localhost:3000": "localhost",
+  }), {
+    prefix: "icon-error-",
+    title: "sol · 2 sites paused by your browser · going to your journal at your home, sealed on the way",
+    badge: "!",
+  });
 });
 
 test("verdictForConnection keeps the unhandled-kind assert live", () => {

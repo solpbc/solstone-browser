@@ -67,6 +67,39 @@ function lineAt(source, offset) {
   return source.slice(0, offset).split("\n").length;
 }
 
+function namedFunctionRanges(source) {
+  const code = maskCommentsAndStrings(source);
+  const ranges = [];
+  const declarations = /\b(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{/g;
+  for (const match of code.matchAll(declarations)) {
+    const bodyStart = match.index + match[0].lastIndexOf("{");
+    let depth = 1;
+    let bodyEnd = bodyStart + 1;
+    while (bodyEnd < code.length && depth > 0) {
+      if (code[bodyEnd] === "{") depth += 1;
+      else if (code[bodyEnd] === "}") depth -= 1;
+      bodyEnd += 1;
+    }
+    assert.equal(depth, 0, `unclosed function ${match[1]}`);
+    ranges.push({ name: match[1], bodyStart, bodyEnd });
+  }
+  return { code, ranges };
+}
+
+function callOwners(source, callee) {
+  const { code, ranges } = namedFunctionRanges(source);
+  const calls = new RegExp(`\\b${callee}\\s*\\(`, "g");
+  const owners = [];
+  for (const match of code.matchAll(calls)) {
+    if (/function\s*$/.test(code.slice(0, match.index))) continue;
+    const containing = ranges
+      .filter((range) => range.bodyStart < match.index && match.index < range.bodyEnd)
+      .sort((a, b) => (a.bodyEnd - a.bodyStart) - (b.bodyEnd - b.bodyStart));
+    owners.push(containing[0]?.name || "<top-level>");
+  }
+  return owners.sort();
+}
+
 function constructionSites() {
   const patterns = [
     ["fetch", /\bfetch\s*\(/g],
@@ -103,11 +136,19 @@ test("extension network operations are exactly pair dial, data dial, and device 
   ]);
 
   const tunnel = fs.readFileSync(path.join(extensionRoot, "lib/remote_tunnel.js"), "utf8");
+  assert.deepEqual(callOwners(tunnel, "connect"), ["dialData", "dialPair"]);
+  assert.deepEqual(callOwners(tunnel, "fetch"), ["enrollDevice"]);
   assert.match(tunnel, /function dialPair\(relayOrigin, rkHex\)[\s\S]*?connect\(wsUrl\(relayOrigin, PAIR_DIAL_PATH\)/);
   assert.match(tunnel, /function dialData\(relayOrigin, instanceId, deviceToken\)[\s\S]*?wsUrl\(relayOrigin, DATA_DIAL_PATH\)[\s\S]*?return connect\(u, \[\]\)/);
   assert.match(tunnel, /function enrollDevice\(relayOrigin, body\)[\s\S]*?relayOrigin\.replace\([\s\S]*?\+ ENROLL_DEVICE_PATH[\s\S]*?fetch\(url, \{[\s\S]*?method: "POST"/);
 
   const background = fs.readFileSync(path.join(extensionRoot, "background.js"), "utf8");
+  const options = fs.readFileSync(path.join(extensionRoot, "options.js"), "utf8");
+  // Pair dial and enrollment use the origin parsed from the pasted pair link.
+  // Data dial uses the relay origin saved in cfg.remote after pairing. The
+  // pending origin is saved before permission is requested, but pairRemote()
+  // does not compare it with the freshly parsed link origin.
+  assert.match(options, /cmd\(\{ cmd: "relayIntent", relayOrigin: parsed\.relayOrigin \}\)/);
   assert.match(background, /cfg\.remotePending = relayOrigin \? \{ relayOrigin \} : null/);
   assert.match(background, /RemoteTunnel\.dialPair\(parsed\.relayOrigin, hex\(rk\)\)/);
   assert.match(background, /RemoteTunnel\.enrollDevice\(parsed\.relayOrigin,/);

@@ -89,13 +89,13 @@ async function main() {
     const expr = `(async () => {
       const r = await chrome.storage.local.get(['cfg','seg']);
       const cfg = r.cfg || {}; const seg = r.seg || {};
-      const sites = seg.sites || {};
+      const ctxs = seg.ctxs || {};
       return JSON.stringify({
         connection: globalThis.SolstoneStatus.connection(globalThis.SolstoneStatus.normalize(cfg)), hostname: cfg.hostname,
         segmentSec: cfg.segmentSec, paused: cfg.paused,
         allowlist: cfg.allowlist, health: cfg.health,
         seg_day: seg.day,
-        seg_sites: Object.fromEntries(Object.entries(sites).map(([k,v]) => [k, {active: v.active, lines: (v.lines||[]).length, snapshotWritten: v.snapshotWritten}]))
+        seg_ctxs: Object.fromEntries(Object.entries(ctxs).map(([k,v]) => [k, {active: v.active, lines: (v.lines||[]).length, snapshotWritten: v.snapshotWritten}]))
       }, null, 2);
     })()`;
     try {

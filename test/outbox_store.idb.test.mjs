@@ -74,4 +74,46 @@ describe("production IndexedDB outbox store", { concurrency: false }, () => {
     assert.deepEqual(finalRows, rows);
     assert.deepEqual(await Store.getDropped(), prior);
   });
+
+  test("remote-only migration rewrites every legacy row once without dropping data", async () => {
+    const local = Object.assign(entry(301, 2), {
+      mode: "local",
+      meta: { host: "old-laptop", stream: "old-laptop.browser", observer: "legacy-id" },
+    });
+    const missing = Object.assign(entry(302, 3), {
+      meta: { host: "other-laptop", platform: "browser" },
+    });
+    const remote = Object.assign(entry(303, 4), {
+      mode: "remote",
+      meta: { host: "ready-laptop", platform: "browser" },
+    });
+    await seedRows([local, missing, remote]);
+
+    assert.equal(await Store.migrateRemoteOnly(), true);
+    assert.deepEqual(await Store.all(), [
+      Object.assign({}, local, { mode: "remote" }),
+      Object.assign({}, missing, { mode: "remote" }),
+      remote,
+    ]);
+    assert.equal(await DB.get("meta", Store.REMOTE_ONLY_MIGRATION_KEY), true);
+
+    const once = await Store.all();
+    assert.equal(await Store.migrateRemoteOnly(), false);
+    assert.deepEqual(await Store.all(), once);
+  });
+
+  test("local-form entry dequeues normally before the migration has run", async () => {
+    await Store.enqueue(Object.assign(entry(undefined, 2), {
+      mode: "local",
+      blob_id: "00112233445566778899aabbccddeeff",
+      meta: { host: "old-laptop", stream: "old-laptop.browser", observer: "legacy-id" },
+    }));
+    assert.equal(await DB.get("meta", Store.REMOTE_ONLY_MIGRATION_KEY), undefined);
+
+    const queued = await Store.head();
+    assert.equal(queued.mode, "local");
+    assert.equal(await Store.removeHeadIf(queued), true);
+    assert.equal(await Store.head(), null);
+    assert.equal(await DB.get("meta", Store.REMOTE_ONLY_MIGRATION_KEY), undefined);
+  });
 });

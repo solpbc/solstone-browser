@@ -15,15 +15,10 @@ fs.mkdirSync(outputDir, { recursive: true });
 function base() {
   return {
     ok: true,
-    version: "0.0.13",
+    version: "0.2.0",
     activeSites: [],
     outbox: { entries: 0, lines: 0 },
-    journalUrl: "http://localhost:5015",
     hostname: "laptop",
-    stream: "",
-    streamName: "laptop.browser",
-    localRegistered: true,
-    journalPermission: "granted",
     paused: false,
     allowlist: [],
     pausedHosts: {},
@@ -36,11 +31,11 @@ function base() {
       consecutiveFailures: 0,
     },
     remote: {
-      paired: false,
+      paired: true,
       pending: false,
-      instanceId: "",
-      relayOrigin: "",
-      pairedAt: null,
+      instanceId: "018f0112-3456-789a-8bcd-ef0123456789",
+      relayOrigin: "https://link.solstone.app",
+      pairedAt: Date.now() - 86400000,
     },
     waiting: 0,
     dropped: { segments: 0, lines: 0 },
@@ -95,8 +90,13 @@ const FIXTURES = {
   })(),
   "no-journal": (() => {
     const value = fixture([]);
-    value.state.journalUrl = "";
-    value.state.localRegistered = false;
+    value.state.remote = {
+      paired: false,
+      pending: false,
+      instanceId: "",
+      relayOrigin: "",
+      pairedAt: null,
+    };
     value.state.health.lastUploadAt = null;
     value.state.health.segmentsUploaded = 0;
     return value;
@@ -107,17 +107,21 @@ const FIXTURES = {
     value.state.pausedHosts = { "mail.google.com": true };
     return value;
   })(),
-  "disclosure-local": Object.assign(fixture([]), { disclosure: true, focusConfirm: true }),
+  "disclosure-unpaired": (() => {
+    const value = fixture([]);
+    value.state.remote = {
+      paired: false,
+      pending: false,
+      instanceId: "",
+      relayOrigin: "",
+      pairedAt: null,
+    };
+    value.disclosure = true;
+    value.focusConfirm = true;
+    return value;
+  })(),
   "disclosure-remote": (() => {
     const value = fixture([]);
-    value.state.localRegistered = false;
-    value.state.remote = {
-      paired: true,
-      pending: false,
-      instanceId: "018f0112-3456-789a-8bcd-ef0123456789",
-      relayOrigin: "https://link.solstone.app",
-      pairedAt: Date.now() - 86400000,
-    };
     value.disclosure = true;
     return value;
   })(),

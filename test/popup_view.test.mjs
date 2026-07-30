@@ -14,15 +14,18 @@ const View = globalThis.SolstonePopupView;
 
 function state(overrides = {}) {
   const base = {
-    journalUrl: "http://localhost:5015",
-    localRegistered: true,
-    journalPermission: "granted",
     paused: false,
     allowlist: [],
     pausedHosts: {},
     siteErrors: {},
     health: { lastError: null, lastUploadAt: 1, segmentsUploaded: 1, lastStatus: 200, consecutiveFailures: 0 },
-    remote: { paired: false, pending: false, relayOrigin: "", pairedAt: null },
+    remote: {
+      paired: true,
+      pending: false,
+      instanceId: "00112233445566778899aabbccddeeff",
+      relayOrigin: "https://relay.example",
+      pairedAt: 1,
+    },
     activeSites: [],
     waiting: 0,
     dropped: { segments: 0, lines: 0 },
@@ -35,7 +38,7 @@ function verdict(overrides = {}) {
     kind: "on",
     tone: "ok",
     headline: "on",
-    sub: "going to your journal on this computer",
+    sub: "going to your journal at your home, sealed on the way",
     reason: "",
     actions: [],
   }, overrides);

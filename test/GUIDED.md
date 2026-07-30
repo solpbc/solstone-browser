@@ -1,136 +1,110 @@
-# Guided test — sol (you drive, real Chrome)
+# Guided test: sol (you drive, real Chrome)
 
-sol's live path — a per-site content script talking to the MV3 service
-worker, which relays finished segments to your journal — can only be exercised in
-a **real, interactive Chrome** (the per-site permission grant needs your click).
-This is the walkthrough you run yourself to see all three legs work. The
-automated version of the *technical* path (content script → worker → relay) is
-`npm run e2e` (see [AGENTS.md](../AGENTS.md) § agentic e2e); this doc is the
-human-in-the-loop counterpart, and the one that proves the real opt-in UX.
-
-`INSTALL.md` is the general install; this adds the **test discipline** (a clean
-throwaway profile) and the **three legs to watch**.
+sol's live path is a per-site content script talking to the MV3 service worker,
+which sends sealed segments through a relay to your paired home. The per-site
+permission grant needs your click, so this walkthrough uses a real interactive
+Chrome. The technical automation is `npm run e2e`; this guide proves the live
+opt-in and pair experience.
 
 ## Prerequisites
 
-- **Your journal running locally** on `http://localhost:5015`, on the
-  machine you're testing from (the extension registers over localhost only —
-  same as the tmux/screen streams). On the dev box that's suze.local.
-- **Stable Chrome desktop** (your everyday Chrome is fine — the `chrome://extensions`
-  "Load unpacked" button is unaffected by the branded-Chrome flag removals).
+- A home running solstone 0.8.7 or newer, with a fresh browser pair link.
+- Stable Chrome desktop.
+- A clean build from `make dist`.
 
-## Step 0 — a dedicated throwaway profile (do this first)
+## Step 0: use a dedicated profile
 
-Test in a **fresh Chrome profile**, not your daily one:
+Test in a fresh Chrome profile, not your daily one:
 
-- Chrome → your avatar (top-right) → **Add** → a new person, e.g. "sol-test".
-- **No other extensions** in it — a second extension can intercept the messaging
-  path and muddy what you're seeing.
-- No synced state.
-- Record the exact version you tested: `chrome://version` → copy the "Google
-  Chrome" line into your notes.
+- Chrome → your avatar → **Add** → a new person, such as "sol-test".
+- Leave every other extension out of this profile.
+- Leave sync off.
+- Copy the Chrome version from `chrome://version` into your notes.
 
-## Step 1 — load the extension
+## Step 1: load the extension
 
-1. In the test profile, open `chrome://extensions`.
-2. Turn on **Developer mode** (top-right).
-3. **Load unpacked** → choose this repo's **`extension/`** folder.
-4. The **☼ sol mark** appears in the toolbar, and the card shows a **service
-   worker** link (that's leg 2's console — keep it handy). Nothing is read
-   yet: the extension does nothing until you add a site.
+1. Open `chrome://extensions`.
+2. Turn on **Developer mode**.
+3. Click **Load unpacked** and choose `dist/current`.
+4. Confirm the sol mark appears in the toolbar and the extension card has a
+   **service worker** link.
 
-## Step 2: point it at your journal (Options)
+Nothing is read until you add a site.
 
-Settings opens when sol is first installed. To return later, right-click the ☼
-icon → **Options** (or "settings ›" in the popup):
+## Step 2: pair your journal
 
-- Under **where your journal lives**, choose **this computer**.
-- Set **this computer's short name** to the machine name. It labels the stream;
-  for example, `suze` makes the stream `suze.browser`.
-- Under **journal address**, confirm `http://localhost:5015`.
-- Set **send to your journal every (seconds)** to **60** for a snappy demo
-  (default 300).
-- Click **save** to keep the short name and interval for either destination,
-  and allow access to the journal address when Chrome asks. Save these fields
-  before **pair** when following the remote path.
-- Click **connect** and confirm the connection changes from **connecting** to
-  **connected**.
+Settings opens on first install. To return later, right-click the sol icon and
+choose **Options**, or use **settings ›** in the popup.
 
-## Step 3 — opt in a site, then check the three legs
+1. Set **this computer's short name**.
+2. Set **send to your journal every (seconds)** to **60** for this walkthrough.
+3. Click **save**.
+4. Paste the fresh link into **pair link** and click **pair**.
+5. Allow Chrome to reach the relay origin.
+6. Open **journal details** and confirm the paired home and relay are shown.
 
-Open a site (Gmail `mail.google.com`, or any site; there is a generic reader),
-click the ☼ icon → **add this site**. Read the disclosure and click
-**add this site** in it → choose **Allow** in Chrome's grant prompt →
-**reload that tab**. Now check:
+Before the first acknowledged delivery, the status reads **paired · waiting for
+first sync**.
 
-### Leg 1 — the content script (on the page)
-The toolbar status icon shows the on state, and Options lists the site as
-**● on now**. If Options still says to open or reload the tab, reload it
-once so the content script attaches on the next load.
+## Step 3: opt in a site and check all three legs
 
-The on-page marker is optional. If you enable it in Options, a small
-**“☼ on”** marker appears bottom-right of added tabs.
+Open Gmail at `mail.google.com`, or another site. Click the sol icon and **add
+this site**. Read the disclosure, click **add this site**, allow Chrome's prompt,
+and reload the tab.
 
-### Leg 2 — the service worker (the console)
-`chrome://extensions` → the extension card → click **service worker** → a DevTools
-window opens on the worker. In its Console you should see:
+### Leg 1: page
 
-- `[solstone] registered as <host>.browser (…)` — registration succeeded.
-- on each rotation/flush: `[solstone] segment <YYYYMMDD>/<HHMMSS_LEN> -> stored`
-  — the diff was batched and uploaded.
+The toolbar status icon shows the on state, and options lists the site as **on
+now**. If options says to open or reload the tab, reload once.
 
-This is where the diff/batch/upload half is visible. (The worker sleeps when
-idle; interacting with the added tab or clicking **send now** in
-Options wakes it.)
+The on-page marker is optional. Enabling it in options adds a small **☼ on**
+marker to added pages.
 
-### Leg 3 — the journal ingest (it landed)
-Your journal's devices page shows **`<host>.browser` connected** (a heartbeat
-fires every minute). On disk, after one segment length (or click **send buffered
-now** to send immediately):
+### Leg 2: service worker
 
-```bash
-ls ~/journal/chronicle/$(date +%Y%m%d)/<host>.browser/
-# -> a HHMMSS_LEN segment folder
-cat ~/journal/chronicle/$(date +%Y%m%d)/<host>.browser/*/browser_*.jsonl | head
-```
+Open `chrome://extensions`, find the extension card, and click **service
+worker**. Keep the console open while you use **send now**. There should be no
+uncaught exception or network call outside pair dial, data dial, and device
+enrollment.
 
-Each file opens with a `segment_start` snapshot of what was on the page, then
-`delta` lines as it changed. It's a **distinct `<host>.browser` stream**, a
-sibling of your other streams — never merged.
+### Leg 3: paired home
 
-## Step 4 — the kill switch (verify it stops)
-Click the ☼ icon → **pause all**. The toolbar status icon switches to paused,
-and nothing is read until you resume. Confirm no new segments land while paused.
+Click **send now**. Confirm the status becomes **connected** after the home
+acknowledges the sealed segment, and confirm the waiting count drains. At the
+home, verify the `<host>.browser` stream contains a `segment_start` line followed
+by `delta` lines as the page changes.
 
-## Step 5 — remove access, allow again, then remove
-Use Chrome's own per-site control at `chrome://extensions` → the extension's
-**site access** to remove access. The site stays in sol as **paused by browser**,
-the toolbar points you to settings, and no new segments land. Click **allow
-again**, accept Chrome's prompt, and reload the tab if needed; the row returns
-to **● on now**.
+## Step 4: pause
 
-Then click **remove** in Options. The row disappears and sol releases access
-that no other added site, your configured journal, or a paired or pending
-remote-home relay needs.
+Click **pause all**. The toolbar status switches to paused, and nothing new is
+read until you resume.
 
-## What "good" looks like
-- The toolbar status icon shows on, and Options shows **● on now**.
-- The SW console shows **registered** then **stored** segments.
-- The **`<host>.browser`** stream lands with clean, legible text (your content —
-  no hidden/preheader junk, no full URLs).
-- Pause stops it; Chrome-side access removal pauses it until you allow again;
-  remove forgets it; a non-added site is never touched.
+## Step 5: remove access, allow again, then remove
+
+Use Chrome's per-site control to remove access. The site stays in sol as
+**paused by browser**, and no new segments arrive. Click **allow again**, accept
+Chrome's prompt, and reload if needed. The row returns to **on now**.
+
+Then click **remove** in options. The row disappears and sol releases access
+that no other added site or paired or pending relay needs.
+
+## What good looks like
+
+- The toolbar status is on, and options shows **on now**.
+- A sealed segment arrives in the `<host>.browser` stream with clean text, no
+  hidden preheader text, and no full page URLs.
+- Pause stops new reads.
+- Chrome-side access removal pauses the site until you allow it again.
+- Remove forgets the site, and a site you did not add is never touched.
 
 ## Troubleshooting
-- **Options does not show on now** → reload the tab (content script
-  attaches on next load); confirm the site is listed in Options.
-- **Options shows `⚠ <error>`** → the surfaced registration error (errors
-  are surfaced, not swallowed) tells you what failed.
-- **Options shows paused by browser** → click **allow again**, accept Chrome's
-  prompt, and reload the tab if it does not return to **● on now**.
-- **Options shows needs permission** → click **connect** and allow access to the
-  journal address when Chrome asks.
-- **Nothing lands** → confirm the journal is up on `localhost:5015`, that a segment
-  length elapsed, or click **send now**. If the journal is down, updates are
-  kept in the offline outbox and sync when the journal returns; if it stays down
-  too long, the oldest queued updates are counted and surfaced.
+
+- **Options does not show on now:** reload the tab and confirm the site is listed.
+- **Options shows paused by browser:** click **allow again**, accept Chrome's
+  prompt, and reload the tab.
+- **Pairing is not finished:** paste a fresh pair link and complete Chrome's
+  relay-origin prompt.
+- **Nothing arrives:** confirm the paired home and relay are available, wait for
+  the batch interval, or click **send now**. Waiting entries remain in the
+  durable outbox and retry; if it stays full too long, the oldest entries are
+  counted and surfaced.

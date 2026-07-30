@@ -91,8 +91,8 @@ async function main() {
       const cfg = r.cfg || {}; const seg = r.seg || {};
       const sites = seg.sites || {};
       return JSON.stringify({
-        connection: globalThis.SolstoneStatus.connection(globalThis.SolstoneStatus.normalize(cfg)), stream: cfg.stream, hostname: cfg.hostname,
-        journalUrl: cfg.journalUrl, segmentSec: cfg.segmentSec, paused: cfg.paused,
+        connection: globalThis.SolstoneStatus.connection(globalThis.SolstoneStatus.normalize(cfg)), hostname: cfg.hostname,
+        segmentSec: cfg.segmentSec, paused: cfg.paused,
         allowlist: cfg.allowlist, health: cfg.health,
         seg_day: seg.day,
         seg_sites: Object.fromEntries(Object.entries(sites).map(([k,v]) => [k, {active: v.active, lines: (v.lines||[]).length, snapshotWritten: v.snapshotWritten}]))

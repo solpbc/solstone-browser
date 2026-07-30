@@ -253,9 +253,7 @@ function remoteDedupeKey(handle, contentIdentity) {
   return `${handle}::${contentIdentity}`;
 }
 
-// ---- the stub journal: records every /app/observer/ingest POST (parsed as real
-// multipart via undici's global Response.formData — no deps) so we can assert the
-// batched segment POST the worker makes. Also serves a skimmable /observe-test page.
+// ---- the stub relay and skimmable fixture page.
 const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>solstone browser-observer e2e page</title></head>
 <body>
@@ -273,14 +271,11 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 </body></html>`;
 
 async function startStub() {
-  const received = { registers: [], ingests: [], events: [], pairs: [], remoteBlobs: [] };
-  const seenSegments = new Set();
+  const received = { pairs: [], remoteBlobs: [] };
   const seenRemote = new Set();
-  let rejectIngest = false;
   let rejectRemoteReady = false;
   let dropRemoteAck = false;
   let corruptRemoteAck = false;
-  let keySeq = 0;
   let deviceToken = "";
   let extPubSpki = null;
   const S = fromHex("0123456789abcdef");
@@ -322,44 +317,6 @@ async function startStub() {
         deviceToken = `device-token-${Date.now()}`;
         received.enroll = body;
         return json(res, 200, { device_token: deviceToken, expires_at: Date.now() + 3600_000 });
-      }
-      if (req.method === "POST" && path === "/app/observer/register") {
-        let desc = {};
-        try { desc = JSON.parse((await readBuf(req)).toString("utf8")); } catch (_e) {}
-        const name = `${desc.hostname || "local"}.browser`;
-        const key = `e2ekey-${++keySeq}-${desc.hostname || "local"}`;
-        received.registers.push({ at: Date.now(), descriptor: desc, name, key });
-        return json(res, 200, { key, name, prefix: key.slice(0, 8), protocol_version: 1 });
-      }
-      if (req.method === "POST" && path === "/app/observer/ingest") {
-        if (rejectIngest) return json(res, 503, { error: "stub outage" });
-        const buf = await readBuf(req);
-        const auth = req.headers["authorization"] || req.headers["x-solstone-observer"] || "";
-        const fd = await new Response(buf, { headers: { "content-type": req.headers["content-type"] } }).formData();
-        const files = [];
-        for (const f of fd.getAll("files")) {
-          const text = typeof f === "string" ? f : await f.text();
-          files.push({ name: (f && f.name) || "?", bytes: Buffer.byteLength(text), text });
-        }
-        let meta = null;
-        try { meta = JSON.parse(fd.get("meta") || "null"); } catch (_e) {}
-        const day = fd.get("day");
-        const segment = fd.get("segment");
-        const key = `${day}/${segment}`;
-        if (seenSegments.has(key)) return json(res, 200, { status: "duplicate", segment, files: files.map((f) => f.name) });
-        seenSegments.add(key);
-        received.ingests.push({ at: Date.now(), day, segment, meta, files, authPresent: !!auth });
-        return json(res, 200, { status: "ok", segment: fd.get("segment"), files: files.map((f) => f.name) });
-      }
-      if (req.method === "POST" && path === "/app/observer/ingest/event") {
-        let ev = null;
-        try { ev = JSON.parse((await readBuf(req)).toString("utf8")); } catch (_e) {}
-        received.events.push({ at: Date.now(), event: ev });
-        return json(res, 200, { ok: true });
-      }
-      if (req.method === "GET" && path.startsWith("/app/observer/ingest/segments/")) {
-        const day = path.split("/").pop();
-        return json(res, 200, received.ingests.filter((i) => i.day === day).map((i) => ({ segment: i.segment, files: i.files.map((f) => f.name) })));
       }
       json(res, 404, { error: "not found", path });
     } catch (e) {
@@ -457,7 +414,7 @@ async function startStub() {
 
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => {
-      const port = server.address().port; // ephemeral — never clashes with a real journal on 5015
+      const port = server.address().port;
       const url = `http://127.0.0.1:${port}`;
       pairLink = P.linkFromBlob(P.buildBlob({ S, caFpSpki: caFp, relayOrigin: url }));
       badPairLink = P.linkFromBlob(P.buildBlob({ S, caFpSpki: new Uint8Array(16), relayOrigin: url }));
@@ -468,7 +425,6 @@ async function startStub() {
         badPairLink: () => badPairLink,
         instanceId,
         received,
-        setIngestReject: (v) => { rejectIngest = !!v; },
         setRemoteReadyReject: (v) => { rejectRemoteReady = !!v; },
         setDropRemoteAck: (v) => { dropRemoteAck = !!v; },
         setCorruptRemoteAck: (v) => { corruptRemoteAck = !!v; },
@@ -556,17 +512,17 @@ async function main() {
       chrome.action.setIcon = (d) => { try { globalThis.__icons.push(d && d.path && d.path["16"]); } catch (_e) {} return orig(d); };
     });
 
-    // 2. Point the observer at the stub + opt the fixture host into the allowlist.
+    // 2. Opt the fixture host into the allowlist.
     //    (showPageIndicator is left at its default — false — so we verify off-by-default.)
-    await sw.evaluate(async ({ journalUrl, host }) => {
+    await sw.evaluate(async ({ host }) => {
       await chrome.storage.local.set({
         cfg: {
-          journalUrl, hostname: "e2e", key: "", stream: "", protocolVersion: null,
+          hostname: "e2e",
           segmentSec: 300, paused: false, allowlist: [host], siteErrors: {},
           health: { lastError: null, lastUploadAt: null, segmentsUploaded: 0, lastStatus: null },
         },
       });
-    }, { journalUrl: stub.url, host: observedHost });
+    }, { host: observedHost });
 
     // 3. Dynamic registration — the EXACT call registerSite() makes. A transient MV3
     // SW init() re-assertion may run registerSite() (unregister→register over
@@ -631,82 +587,32 @@ async function main() {
         snap.url === expectedPageUrl && !/[?#@]/.test(snap.url) && !snap.url.includes("e2e-token") && !snap.url.includes("e2e-key"), snap.url || "none");
     }
 
-    // 7. relay leg: force a flush from the popup (an extension page can message the
-    // SW; the SW can't message its own listener) and assert the batched POST landed.
+    // 7. Force a flush while unpaired. It must be queued without consulting the
+    // legacy mode field, then pairing below must seal and drain the same entry.
     const popup = await context.newPage();
     await popup.goto(`chrome-extension://${extId}/popup.html`, { waitUntil: "domcontentloaded" });
-    await popup.evaluate(() => new Promise((res) => chrome.runtime.sendMessage({ cmd: "flushNow" }, () => res(true))));
-
-    let landed = false;
-    for (let i = 0; i < 40 && !landed; i++) { landed = stub.received.ingests.length > 0; if (!landed) await sleep(250); }
-    ok("batched segment POST reached the relay (/app/observer/ingest)", landed, `ingests=${stub.received.ingests.length}`);
-    if (landed) {
-      const first = stub.received.ingests[0];
-      ok("register happened first (observer minted a key)", stub.received.registers.length > 0, stub.received.registers.map((r) => r.name).join(","));
-      ok("ingest carried the bearer key", first.authPresent === true);
-      const bfile = first.files.find((f) => /^browser_.*\.jsonl$/.test(f.name));
-      ok("POST carried a browser_<host>.jsonl segment file", !!bfile, first.files.map((f) => f.name).join(","));
-      ok("segment file opens with a segment_start line", !!bfile && /"t":"segment_start"/.test(bfile.text));
-      ok("segment_start carries the skimmed heading", !!bfile && /On structural trust/.test(bfile.text));
-      ok("relayed segment does NOT carry hidden content", !bfile || !/SECRET-HIDDEN/.test(bfile.text));
-      let relayedSnap = null;
-      try {
-        relayedSnap = bfile ? JSON.parse(bfile.text.split("\n")[0]) : null;
-      } catch (_e) {
-        /* the assertion below reports malformed JSONL */
-      }
-      ok("relayed page URL is origin + path only (privacy boundary held)",
-        !!relayedSnap && relayedSnap.url === expectedPageUrl && !/[?#@]/.test(relayedSnap.url)
-          && !bfile.text.includes("e2e-token") && !bfile.text.includes("e2e-key"), relayedSnap?.url || "none");
-    }
-
-    // 7a. Outage round-trip: a failed send is kept in the offline outbox; when
-    // the stub recovers, probe triggers drain and the original day/segment lands.
-    await sleep(1100);
-    await sw.evaluate(async () => {
-      const r = await chrome.storage.local.get("seg");
-      if (r.seg) {
-        r.seg.startMs = Date.now();
-        r.seg.day = globalThis.SolstoneSegment.dayKey(r.seg.startMs);
-        await chrome.storage.local.set({ seg: r.seg });
-      }
-    });
-    const beforeOutageIngests = stub.received.ingests.length;
-    stub.setIngestReject(true);
     const queued = await popup.evaluate(() => new Promise((res) => chrome.runtime.sendMessage({ cmd: "flushNow" }, (r) => res(r || {}))));
-    ok("outage send-now reports queued", queued.outcome === "queued", JSON.stringify(queued));
+    ok("unpaired send-now reports queued", queued.outcome === "queued", JSON.stringify(queued));
     const queuedState = await sw.evaluate(async () => {
       return { outbox: await globalThis.SolstoneOutboxStore.all(), dropped: await globalThis.SolstoneOutboxStore.getDropped() };
     });
-    ok("outage leaves a durable outbox entry", queuedState.outbox.length > 0, `outbox=${queuedState.outbox.length}`);
-    ok("outage does not count loss", (queuedState.dropped.segments || 0) === 0 && (queuedState.dropped.lines || 0) === 0, JSON.stringify(queuedState.dropped));
-    stub.setIngestReject(false);
-    await sleep(400);
-    await sw.evaluate(async () => {
+    ok("unpaired flush leaves one durable outbox entry", queuedState.outbox.length === 1, `outbox=${queuedState.outbox.length}`);
+    ok("unpaired queueing does not count loss", (queuedState.dropped.segments || 0) === 0 && (queuedState.dropped.lines || 0) === 0, JSON.stringify(queuedState.dropped));
+    const legacyBlobId = await sw.evaluate(async () => {
       const entry = await globalThis.SolstoneOutboxStore.head();
-      if (entry) await globalThis.SolstoneOutboxStore.setBackoff(entry, 0, null, entry.attempts || 0);
+      entry.mode = "local";
+      entry.meta = { host: "e2e", platform: "browser", stream: "e2e.browser", observer: "legacy-observer-id" };
+      await globalThis.SolstoneDB.put("outbox", entry);
+      return entry.blob_id;
     });
-    await popup.evaluate(() => new Promise((res) => chrome.runtime.sendMessage({ cmd: "probe" }, () => res(true))));
-    let drained = false;
-    for (let i = 0; i < 40 && !drained; i++) {
-      drained = await sw.evaluate(async () => (await globalThis.SolstoneOutboxStore.all()).length === 0);
-      if (!drained) await sleep(250);
-    }
-    ok("recovered journal drains the offline outbox", drained);
-    ok("local drain delivered the queued segment after recovery", stub.received.ingests.length === beforeOutageIngests + 1, `ingests=${stub.received.ingests.length}`);
+    ok("queued fixture is in pre-change local form", !!legacyBlobId);
 
-    // 7b. Live toggle: enabling the on-page marker mounts it on the already-open
+    // 7a. Live toggle: enabling the on-page marker mounts it on the already-open
     // observed tab (exercises setIndicatorAll -> the hostAllowed-gated content path).
     await popup.evaluate(() => new Promise((res) => chrome.runtime.sendMessage({ cmd: "setConfig", showPageIndicator: true }, () => res(true))));
     let markerOn = false;
     try { await page.waitForFunction(() => !!document.getElementById("solstone-observer-indicator-host"), { timeout: 6000 }); markerOn = true; } catch (_e) {}
     ok("enabling the on-page marker mounts it live on the observed tab", markerOn);
-
-    // 7c. Icon wiring: after a successful upload the state is observing + connected,
-    // so updateBadge must have driven the full-sun icon via iconState.
-    const icons = await sw.evaluate(() => globalThis.__icons || []);
-    ok("updateBadge drove the toolbar icon to full sun (observing + journal connected)",
-      icons.length > 0 && icons[icons.length - 1] === "icons/icon16.png", icons.slice(-4).join(",") || "no setIcon calls");
 
     console.log("\n  -- remote HPKE relay path --");
     const surfaces = await sw.evaluate(async ({ stubPort }) => {
@@ -715,7 +621,7 @@ async function main() {
       const identity1 = await globalThis.SolstoneIdentity.ensureIdentity();
       const identity2 = await globalThis.SolstoneIdentity.ensureIdentity();
       const packed = await globalThis.SolstoneRemoteBlob.packPlaintext([{ name: "browser_probe.jsonl", text: "{\"t\":\"segment_start\"}\n" }], {
-        v: 1, day: "20260704", segment: "120000_1", host: "probe", meta: { observer: "probe.browser" },
+        v: 1, day: "20260704", segment: "120000_1", host: "probe", meta: { host: "probe", platform: "browser" },
       });
       const gunzipped = new Uint8Array(await new Response(new Blob([packed]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
       const unpacked = globalThis.SolstoneRemoteBlob.untar(gunzipped).map((f) => ({ name: f.name, text: new TextDecoder().decode(f.bytes) }));
@@ -766,42 +672,32 @@ async function main() {
     const remoteAfterBadPair = await sw.evaluate(async () => ((await chrome.storage.local.get("cfg")).cfg || {}).remote || null);
     ok("bad CA fingerprint aborts pairing", badPair.ok === false && !remoteAfterBadPair, JSON.stringify(badPair));
 
+    const beforeRemoteBlobs = stub.received.remoteBlobs.length;
+    await sw.evaluate(async () => {
+      globalThis.__icons = [];
+      const entry = await globalThis.SolstoneOutboxStore.head();
+      if (entry) await globalThis.SolstoneOutboxStore.setBackoff(entry, 0, null, entry.attempts || 0);
+    });
     const pair = await popup.evaluate((link) => new Promise((res) => chrome.runtime.sendMessage({ cmd: "pairRemote", link }, (r) => res(r || {}))), stub.pairLink());
     const remoteCfg = await sw.evaluate(async () => ((await chrome.storage.local.get("cfg")).cfg || {}).remote || null);
     ok("pairRemote succeeds against stub relay", pair.ok === true && pair.instanceId === stub.instanceId, JSON.stringify(pair));
     ok("pairing stores remote config", !!(remoteCfg && remoteCfg.instanceId === stub.instanceId && remoteCfg.deviceToken && remoteCfg.homeSpki && remoteCfg.relayOrigin === stub.url), JSON.stringify(remoteCfg));
     ok("stub saw PairHello and enroll", stub.received.pairs.length > 0 && !!stub.received.enroll, `pairs=${stub.received.pairs.length} enroll=${!!stub.received.enroll}`);
-    await sw.evaluate(async () => {
-      const r = await chrome.storage.local.get("cfg");
-      const cfg = r.cfg || {};
-      cfg.key = "";
-      await chrome.storage.local.set({ cfg });
-      globalThis.__icons = [];
-    });
 
-    await sleep(1100);
-    await sw.evaluate(async () => {
-      const r = await chrome.storage.local.get("seg");
-      if (r.seg) {
-        r.seg.startMs = Date.now();
-        r.seg.day = globalThis.SolstoneSegment.dayKey(r.seg.startMs);
-        await chrome.storage.local.set({ seg: r.seg });
-      }
-    });
-    const beforeRemoteBlobs = stub.received.remoteBlobs.length;
-    const remoteFlush = await popup.evaluate(() => new Promise((res) => chrome.runtime.sendMessage({ cmd: "flushNow" }, (r) => res(r || {}))));
-    ok("remote send-now queues for sealed drain", remoteFlush.outcome === "queued", JSON.stringify(remoteFlush));
     let remoteDelivered = false;
     for (let i = 0; i < 50 && !remoteDelivered; i++) {
       remoteDelivered = stub.received.remoteBlobs.length > beforeRemoteBlobs && await sw.evaluate(async () => (await globalThis.SolstoneOutboxStore.all()).length === 0);
       if (!remoteDelivered) await sleep(250);
     }
     const firstRemote = stub.received.remoteBlobs.at(-1);
-    ok("sealed uplink reaches stub and IDB outbox drains after valid ACK", remoteDelivered, `remoteBlobs=${stub.received.remoteBlobs.length}`);
+    ok("pairing drains the unmigrated local-form entry without reading mode", remoteDelivered && firstRemote?.blobId === legacyBlobId, `remoteBlobs=${stub.received.remoteBlobs.length}`);
     ok("sealed segment carries heading and excludes hidden content", !!firstRemote && /On structural trust/.test(firstRemote.segmentText) && !/SECRET-HIDDEN/.test(firstRemote.segmentText));
+    ok("sealed plaintext metadata is exactly host and platform",
+      !!firstRemote && JSON.stringify(firstRemote.blob.meta) === JSON.stringify({ host: "e2e", platform: "browser" }),
+      JSON.stringify(firstRemote && firstRemote.blob && firstRemote.blob.meta));
     ok("stub ACK for sealed blob was tag-valid", !!firstRemote && firstRemote.ackValid === true);
     const remoteIcons = await sw.evaluate(() => globalThis.__icons || []);
-    ok("sealed delivery with no local key drives the toolbar icon to full sun",
+    ok("sealed delivery drives the toolbar icon to full sun",
       remoteIcons.length > 0 && remoteIcons[remoteIcons.length - 1] === "icons/icon16.png", remoteIcons.slice(-4).join(",") || "no setIcon calls");
     await popup.reload();
     await popup.waitForFunction(() => document.getElementById("verdictHeadline")?.textContent.trim().length > 0);
@@ -816,7 +712,7 @@ async function main() {
         reasonHidden: document.getElementById("verdictReason")?.hidden,
       };
     });
-    ok("sealed delivery with no local key gives the popup the same healthy state with no reason line",
+    ok("sealed delivery gives the popup the healthy state with no reason line",
       remotePopupState.role === "status"
         && (remotePopupState.className || "").split(/\s+/).includes("ok")
         && remotePopupState.headline === "on"

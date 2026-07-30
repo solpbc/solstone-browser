@@ -2,9 +2,8 @@
 
 sol is a Chromium desktop extension that experiences the sites you choose,
 taking in their rendered text and rough layout. Never pixels. Never raw HTML.
-It delivers a distinct `<hostname>.browser` stream to your journal on this
-computer or to your journal at a paired home. A paired remote home must run
-solstone 0.8.7 or newer.
+It delivers a distinct `<hostname>.browser` stream to your journal at a paired
+home. The home must run solstone 0.8.7 or newer.
 
 ## Install
 
@@ -27,27 +26,16 @@ only for a Chrome Web Store dashboard upload.
 
 Nothing is taken in until you add a site.
 
-## Connect your journal
+## Pair your journal
 
 Settings opens when sol is first installed. To return later, right-click the
 toolbar icon and choose **Options**, or use the **settings ›** link in the popup.
 
-Under **where your journal lives**, choose **this computer** or **somewhere
-else**. The **this computer's short name** labels the stream in both destinations,
-and **send to your journal every (seconds)** controls its batch interval, so both
-fields stay available whichever destination you choose. Click **save** to keep
-the short name and interval for both destinations.
-
-For **this computer**, leave **journal address** at `http://localhost:5015`,
-click **save**, and allow Chrome to reach that journal origin. Then click
-**connect**. The journal accepts registration from localhost.
-
-For **somewhere else**, set the short name and interval, then click **save**
-before pairing. Get a pair link from your home, paste it into the **pair link**
-field, and click **pair**. Chrome asks whether sol may reach the relay origin.
-After you allow it, sol verifies the home fingerprint carried in the pair link
-before trusting the home, then shows the paired home and relay under **journal
-details**.
+Set **this computer's short name** and the batch interval, then click **save**.
+Get a pair link from your home, paste it into **pair link**, and click **pair**.
+Chrome asks whether sol may reach the relay origin. After you allow it, sol
+verifies the home fingerprint carried in the pair link before trusting the
+home. The paired home and relay appear under **journal details**.
 
 Set **send to your journal every (seconds)** to `60` for a quicker walkthrough.
 The default is 300 seconds.
@@ -60,41 +48,32 @@ The default is 300 seconds.
    prompt for that site. You can also add a hostname, IP, or `host:port` in
    options. Reload the tab after adding it.
 2. **Read the status light.** The toolbar and popup distinguish connected,
-   connecting, needs permission, waiting for first sync, pairing not finished,
-   can't reach, paused, paused by browser, and attention states. The on-page
-   marker is optional and off by default.
+   waiting for first sync, pairing not finished, not paired, can't reach,
+   paused, paused by browser, and attention states. The on-page marker is
+   optional and off by default.
 3. **Pause and resume.** Click **pause all** to stop reading every added site.
    Nothing new is read until you resume.
 4. **Send what is waiting.** Leave an added tab open for one segment, or click
-   **send now** in options. If the destination does not answer, the entry stays
-   in the local durable outbox and retries. If the bounded outbox fills, sol
-   drops the oldest entries and shows the loss.
+   **send now** in options. If the paired home does not answer, the entry stays
+   in the durable outbox and retries. If the bounded outbox fills, sol drops the
+   oldest entries and shows the loss.
 
-For a journal on this computer, verify the stream on disk using the short name
-you configured:
-
-```bash
-ls ~/journal/chronicle/$(date +%Y%m%d)/<hostname>.browser/
-cat ~/journal/chronicle/$(date +%Y%m%d)/<hostname>.browser/*/browser_*.jsonl | head
-```
-
-Each file opens with a `segment_start` snapshot that includes the page title
-and then accumulates `delta` lines as the page changes. For a paired home, the
-popup becomes **connected · your home** after the first acknowledged delivery,
-and the waiting count drains.
+After the first acknowledged delivery, the popup becomes **connected · your
+home** and the waiting count drains. At your home, each file opens with a
+`segment_start` snapshot that includes the page title and then accumulates
+`delta` lines as the page changes.
 
 ## Remove access and understand delivery
 
 Remove a site in options to forget it. If Chrome removes access in its own
 per-site controls, sol pauses the retained site so you can allow it again. Use
-**unpair** to stop remote delivery to a paired home.
+**unpair** to stop delivery to a paired home.
 
-Everything is opt-in. Nothing is taken in until you add a site. In local
-mode, what sol takes in goes to your journal on this computer. In remote mode,
-it goes to your journal at your home, sealed on the way. Waiting entries are
-kept locally and sealed inside the browser immediately before each remote
-send. The relay carries the sealed bytes and cannot read them, but it can see
-the routing, offer, and delivery framing needed to carry them.
+Everything is opt-in. Nothing is taken in until you add a site. What sol takes
+in goes to your journal at your home, sealed on the way. Waiting entries are
+kept on this device and sealed inside the browser immediately before each send.
+The relay carries the sealed bytes and cannot read them, but it can see the
+routing, offer, and delivery framing needed to carry them.
 
 Each page URL is reduced to its origin + path before delivery. Its query string,
 fragment, and credentials are left out. On a site you add, sol takes in the

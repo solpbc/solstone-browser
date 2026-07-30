@@ -70,7 +70,6 @@
         background: #fff;
         color: var(--ink);
       }
-      input[type="radio"],
       input[type="checkbox"] { width: auto; }
       button {
         min-height: 34px;
@@ -85,14 +84,11 @@
       button.primary { background: var(--orange); border-color: var(--orange); color: var(--ink); font-weight: 600; }
       button:disabled { cursor: default; opacity: .5; }
       button:focus-visible,
-      a:focus-visible,
       input:focus-visible,
       summary:focus-visible {
         outline: 2px solid var(--focus);
         outline-offset: 2px;
       }
-      a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
-      code { background: var(--orange-wash); color: var(--ink); padding: 1px 6px; border-radius: 5px; }
       .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
       .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
       .lead-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
@@ -117,29 +113,6 @@
       .state-chip.attention::before { background: var(--bad); }
       .state-chip.unavailable { border-color: var(--warn); }
       .state-chip.unavailable::before { background: var(--warn); }
-      fieldset {
-        margin: 14px 0 0;
-        padding: 0;
-        border: 0;
-      }
-      legend { padding: 0; color: var(--muted); font-size: 12px; }
-      .destination-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 5px; }
-      .destination-options label {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        min-height: 34px;
-        box-sizing: border-box;
-        margin: 0;
-        padding: 6px 10px;
-        border: 1px solid var(--field-line);
-        border-radius: 9px;
-        color: var(--ink);
-        background: #fff;
-      }
-      .branch { margin-top: 12px; padding-top: 2px; }
-      .stream-row { margin-top: 10px; color: var(--muted); font-size: 12px; }
-      .stream-row code { margin-left: 5px; }
       .destination-box {
         margin-top: 12px;
         padding: 10px 11px;
@@ -183,7 +156,7 @@
       footer { color: var(--muted); font-size: 12px; }
       @media (max-width: 620px) {
         body { padding: 18px; }
-        .grid, .destination-options { grid-template-columns: 1fr; }
+        .grid { grid-template-columns: 1fr; }
         .site { align-items: flex-start; flex-direction: column; }
       }
     </style>
@@ -196,7 +169,7 @@
           sol <span class="desc">settings</span>
         </h1>
       </header>
-      <p id="intro" class="muted">choose where your journal lives, manage your sites, and decide whether sol shows its on-page marker.</p>
+      <p id="intro" class="muted">pair your journal, manage your sites, and decide whether sol shows its on-page marker.</p>
 
       <section id="firstRun" class="card first-run" hidden>
         <h2 id="firstRunHeading"></h2>
@@ -211,7 +184,7 @@
           <div class="key">it goes to</div>
           <div id="firstRunDestination" class="value"></div>
           <div id="firstRunDestinationDetail" class="detail"></div>
-          <button id="firstRunChange" type="button" aria-label="change where your journal lives">change</button>
+          <button id="firstRunChange" type="button" aria-label="set up your journal">set up</button>
         </div>
         <p id="firstRunNothingYet" class="muted"></p>
       </section>
@@ -223,21 +196,12 @@
           <span id="journalStateChip" class="state-chip calm"></span>
         </div>
 
-        <fieldset id="destinationChoice">
-          <legend>where your journal lives</legend>
-          <div class="destination-options">
-            <label><input id="destinationLocal" type="radio" name="journalDestination" value="local" /> this computer</label>
-            <label><input id="destinationRemote" type="radio" name="journalDestination" value="remote" /> somewhere else</label>
-          </div>
-        </fieldset>
-
         <form id="connForm" novalidate>
           <div class="grid">
             <div>
               <label for="hostname">this computer's short name</label>
               <input id="hostname" placeholder="e.g. laptop" />
-              <div class="muted">labels the browser stream in both destinations.</div>
-              <div class="stream-row">stream <code id="streamLabel"></code></div>
+              <div class="muted">labels this browser at your paired home.</div>
             </div>
             <div>
               <label for="segmentSec">send to your journal every (seconds)</label>
@@ -246,27 +210,19 @@
             </div>
           </div>
           <div class="actions"><button id="saveBtn" class="primary" type="submit">save</button></div>
-          <div id="localDestination" class="branch">
-            <label for="journalUrl">journal address</label>
-            <input id="journalUrl" placeholder="http://localhost:5015" />
-            <div class="actions"><button id="registerBtn" type="button">connect</button></div>
+        </form>
+
+        <form id="pairForm" novalidate>
+          <label for="pairLink">pair link</label>
+          <input id="pairLink" placeholder="https://go.solstone.app/p#…" />
+          <div class="actions">
+            <button id="pairBtn" class="primary" type="submit">pair</button>
+            <button id="unpairBtn" type="button">unpair</button>
           </div>
         </form>
 
-        <div id="remoteDestination" class="branch" hidden>
-          <form id="pairForm" novalidate>
-            <label for="pairLink">pair link</label>
-            <input id="pairLink" placeholder="https://go.solstone.app/p#…" />
-            <div class="actions">
-              <button id="pairBtn" class="primary" type="submit">pair</button>
-              <button id="unpairBtn" type="button">unpair</button>
-            </div>
-          </form>
-        </div>
-
         <div class="actions">
           <button id="flushBtn" type="button">send now</button>
-          <a id="journalLink" target="_blank" rel="noopener" hidden>open your journal ↗</a>
         </div>
 
         <details id="journalDetails">

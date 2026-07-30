@@ -8,7 +8,6 @@ await import(new URL("../extension/lib/hosts.js", import.meta.url));
 await import(new URL("../extension/lib/reconcile.js", import.meta.url));
 
 const R = globalThis.SolstoneReconcile;
-const H = globalThis.SolstoneHosts;
 
 test("missing grant pauses a group without deleting allowlist intent", () => {
   const allowlist = Object.freeze(["example.com"]);
@@ -40,34 +39,27 @@ test("orphan grants are released and claimed grants are retained", () => {
   assert.deepEqual(actions, [{ op: "release", origin: "*://orphan.test/*" }]);
 });
 
-test("journal and relay exemptions are derived from their configured URLs", () => {
-  for (const [journalUrl, expected] of [
-    ["http://localhost:5015", "http://localhost:5015/*"],
-    ["http://localhost:6123/app/observer", "http://localhost:6123/*"],
-    ["https://relay.example/path", "https://relay.example/*"],
-  ]) {
-    const derived = H.permissionOriginForUrl(journalUrl);
-    assert.equal(derived, expected);
-    assert.deepEqual(R.reconcile({
-      granted: [expected],
-      manifestOrigins: [],
-      exemptOrigins: [derived].filter(Boolean),
-      allowlist: [],
-      pausedHosts: {},
-    }), []);
-  }
+test("permission exemptions contain paired and pending relay origins and no journal origin", () => {
+  assert.deepEqual(R.permissionExemptOrigins({
+    journalUrl: "http://localhost:5015",
+    remote: { relayOrigin: "https://relay.example/path" },
+    remotePending: { relayOrigin: "https://pending.example/pair" },
+  }), [
+    "https://relay.example/*",
+    "https://pending.example/*",
+  ]);
+});
 
-  for (const journalUrl of ["", "not a url"]) {
-    const derived = H.permissionOriginForUrl(journalUrl);
-    assert.equal(derived, "");
-    assert.deepEqual(R.reconcile({
-      granted: ["http://localhost:5015/*"],
-      manifestOrigins: [],
-      exemptOrigins: [derived].filter(Boolean),
-      allowlist: [],
-      pausedHosts: {},
-    }), [{ op: "release", origin: "http://localhost:5015/*" }]);
-  }
+test("obsolete journal grant release leaves the broad localhost site grant claimed", () => {
+  assert.deepEqual(R.reconcile({
+    granted: ["http://localhost:5015/*", "*://localhost/*"],
+    manifestOrigins: [],
+    exemptOrigins: [],
+    allowlist: ["localhost:5015"],
+    pausedHosts: {},
+  }), [
+    { op: "release", origin: "http://localhost:5015/*" },
+  ]);
 });
 
 test("port siblings form one normalized pause and resume group", () => {

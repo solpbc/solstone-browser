@@ -14,9 +14,9 @@ against the journal, accumulate into segments, sync. The difference is the
 source: semantic DOM content instead of pixels or terminal text.
 
 This is a **Chromium Web Store candidate** for desktop Chromium. It is opt-in per
-site and delivers directly to the local journal by default, with an optional
-paired remote home. Cross-browser Firefox and Safari packaging, and the iOS
-Safari path, remain deliberately out of scope.
+site and delivers through a paired relay to the owner's home. Cross-browser
+Firefox and Safari packaging, and the iOS Safari path, remain deliberately out
+of scope.
 
 ## Architecture
 
@@ -29,24 +29,21 @@ Two halves, one substrate (the WebExtensions API):
   rendered-box fallback, and relays the current block list to the worker on load
   and whenever the page settles after a mutation (debounced, change-gated). It is
   a thin producer — no segmenting, no diffing, no network.
-- **Service worker** (`background.js` + `journal.js` + `lib/*`) is the
-  event-driven persistent half. It holds the journal registration, buffers each
+- **Service worker** (`background.js` + `lib/*`) is the event-driven persistent
+  half. It buffers each
   tab's skims into a segment in `chrome.storage`, diffs successive skims into a
-  snapshot+delta stream, rotates segments via `chrome.alarms`, and delivers them
-  either by local multipart POST or, after a pasted `0x06` pair link, as
-  HPKE-sealed blobs over the relay tunnel. It keeps its non-extractable ECDH
+  snapshot+delta stream, rotates segments via `chrome.alarms`, and, after a
+  pasted `0x06` pair link, delivers HPKE-sealed blobs over the relay tunnel. It
+  keeps its non-extractable ECDH
   identity and durable outbox in IndexedDB, and owns the opt-in per-site
   lifecycle (grant → register a content script; revoke → tear down). MV3
   service-worker ephemerality is handled by persisting state and waking on
   alarms.
 
-Why there is no separate native host: in local mode, the journal runs on the
-same machine and exposes a localhost ingest API that segments on receipt, so the
-worker registers as its own observer and uploads directly. Remote mode uses the
-paired relay path without adding a native host. A native host may return for the
-cross-platform and iOS shape later.
+There is no separate native host. The paired relay path works inside the MV3
+worker. A native host may return for the cross-platform and iOS shape later.
 
-Remote-mode releases must satisfy the compatibility precondition documented in
+Every release must satisfy the compatibility precondition documented in
 the [release checklist](RELEASE.md#cut-a-tagged-release-like-our-other-surfaces).
 
 ## The block model
@@ -81,7 +78,7 @@ extension/   the unpacked MV3 extension (see README for the per-file map)
   lib/remote_tunnel.js            relay WebSocket client
   lib/outbox.js, lib/outbox_store.js pure FIFO logic + IDB adapter
   vendor/hpke/                    pinned @hpke/core IIFE artifact
-test/        node --test pure logic/vectors, real-Chrome CDP skim smoke, journal/relay round-trips
+test/        node --test pure logic/vectors, real-Chrome CDP skim smoke, relay round-trips
 ```
 
 ## Build and test
@@ -97,7 +94,6 @@ make ci             # locked install + pure units + real-IDB + vendor verificati
 npm test            # pure-logic unit tests + pair-link/HPKE byte vectors — no browser, no deps
 npm run test:idb    # production IDB adapter tests (needs fake-indexeddb)
 make smoke          # (npm run smoke) headless Chrome over CDP: skim the Gmail/Slack/article fixtures
-make relay-check    # (npm run relay-check) ON the journal machine: register + multipart ingest + verify a segment landed
 make e2e-deps       # one-time: npm install + npx playwright install chromium (dev-only deps)
 make popup-check    # render popup states + enforce the 600px ceiling (needs make e2e-deps; outside make ci)
 make e2e            # (npm run e2e) agentic integration: content script -> SW -> relay, headless
@@ -107,18 +103,18 @@ make package-check  # reopen and verify already-built dev and Store ZIPs
 ```
 
 `make ci` is the CI-able gate and needs a locked dev install. `npm test` and
-`make test` remain dependency-free. The smoke needs a real Chrome; relay-check
-needs a live local journal; popup-check and the e2e harness need the Playwright
-chromium build. Popup-check is deliberately outside `make ci`.
+`make test` remain dependency-free. The smoke needs a real Chrome; popup-check
+and the e2e harness need the Playwright chromium build. Popup-check is
+deliberately outside `make ci`.
 All dependencies are development-only: the shipped extension remains runtime-
 dependency-free and loads no code from npm or the network.
 
 ## Agentic e2e (the live path, headless)
 
 `make e2e` (`test/e2e.mjs`) drives the one path the unit tests can't reach —
-**dynamically-registered content script → service worker → local POST / remote
-relay** end-to-end under browser automation with no display, against an
-in-process stub journal and relay. It is the automated half of `test/GUIDED.md`.
+**dynamically-registered content script → service worker → remote relay**
+end-to-end under browser automation with no display, against an in-process stub
+relay. It is the automated half of `test/GUIDED.md`.
 
 The prototype believed this leg was un-verifiable headlessly. It isn't; the fix
 is two binary choices:
@@ -139,8 +135,7 @@ it to a *throwaway copy* of the manifest's `host_permissions`. This isolates the
 question it answers (does our **dynamic** registration inject + relay under
 new-headless?) from the orthogonal permission-UI question — the live per-site
 opt-in is what the guided walkthrough verifies. The stub binds an **ephemeral
-port**, so the harness never clashes with a real journal on `:5015`. The same
-stub also implements the raw WebSocket pairing/data relay used to prove the
+port** and implements the raw WebSocket pairing/data relay used to prove the
 HPKE-sealed remote path.
 
 There is no build step. The shared `lib/*.js` files are classic scripts that

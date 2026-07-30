@@ -2,28 +2,21 @@
 // Copyright (c) 2026 sol pbc
 //
 // background.js — the MV3 service worker. It is the persistent (event-driven)
-// half of the observer: it holds the journal registration, buffers each tab's
-// skims into a 5-minute segment in chrome.storage, rotates segments via
-// chrome.alarms, and delivers through either local multipart POST or a paired
-// HPKE relay tunnel. It also owns the opt-in per-site lifecycle (grant ->
+// half of the observer: it buffers each tab's skims into a 5-minute segment in
+// chrome.storage, rotates segments via chrome.alarms, and delivers through a
+// paired HPKE relay tunnel. It also owns the opt-in per-site lifecycle (grant ->
 // register a content script -> observe; revoke -> tear down). All segment /
 // diff / JSONL work is delegated to lib/segment.js so it stays pure and tested.
-//
-// Why the worker can be the observer (no separate native host for the Chrome
-// desktop spike): in local mode, the journal already runs on the same machine
-// and exposes a localhost ingest API that does segmentation-on-receipt. Remote
-// mode keeps the same segment model but seals blobs before sending them through
-// the relay. MV3 ephemerality is handled by persisting state to chrome.storage
-// and IndexedDB and waking on alarms.
+// MV3 ephemerality is handled by persisting state to chrome.storage and
+// IndexedDB and waking on alarms.
 
-importScripts("vendor/hpke/hpke-core-1.9.0.iife.js", "lib/blocks.js", "lib/hosts.js", "lib/failures.js", "lib/reconcile.js", "lib/segment.js", "lib/status.js", "lib/buffered.js", "lib/outbox.js", "lib/db.js", "lib/uuid.js", "lib/pairlink.js", "lib/remote_blob.js", "lib/identity.js", "lib/outbox_store.js", "lib/remote_tunnel.js", "journal.js");
+importScripts("vendor/hpke/hpke-core-1.9.0.iife.js", "lib/blocks.js", "lib/hosts.js", "lib/failures.js", "lib/reconcile.js", "lib/segment.js", "lib/status.js", "lib/buffered.js", "lib/outbox.js", "lib/db.js", "lib/uuid.js", "lib/pairlink.js", "lib/remote_blob.js", "lib/identity.js", "lib/outbox_store.js", "lib/remote_tunnel.js");
 
 const Seg = globalThis.SolstoneSegment;
 const H = globalThis.SolstoneHosts;
 const Failures = globalThis.SolstoneFailures;
 const Reconcile = globalThis.SolstoneReconcile;
 const Status = globalThis.SolstoneStatus;
-const J = globalThis.SolstoneJournal;
 const Outbox = globalThis.SolstoneOutbox;
 const DB = globalThis.SolstoneDB;
 const OutboxStore = globalThis.SolstoneOutboxStore;
@@ -32,8 +25,7 @@ const Identity = globalThis.SolstoneIdentity;
 const RemoteBlob = globalThis.SolstoneRemoteBlob;
 const RemoteTunnel = globalThis.SolstoneRemoteTunnel;
 const Uuid = globalThis.SolstoneUuid;
-const VERSION = "0.1.1";
-const BOOT_MS = Date.now();
+const VERSION = "0.2.0";
 
 const CONTENT_SCRIPT_FILES = ["lib/blocks.js", "lib/hosts.js", "adapters.js", "skim.js", "indicator.js", "content.js"];
 const ROTATE_ALARM = "rotate";
@@ -41,12 +33,7 @@ const MAX_LINES = 4000; // per-site per-segment safety cap
 const REMOTE_FRAME_TIMEOUT_MS = 5000;
 
 const DEFAULT_CFG = {
-  journalUrl: "http://localhost:5015",
-  hostname: "desktop", // the short machine name -> stream "<hostname>.browser"; set to your machine name in options
-  key: "",
-  stream: "",
-  protocolVersion: null,
-  journalPermission: "unknown",
+  hostname: "desktop",
   segmentSec: 300,
   paused: false,
   showPageIndicator: false,
@@ -72,35 +59,6 @@ async function setCfg(cfg) {
   await chrome.storage.local.set({ cfg });
 }
 
-async function refreshJournalPermission({ resolveMissing = false } = {}) {
-  return withLifecycle(async () => {
-    const queried = await getCfg();
-    const origin = H.permissionOriginForUrl(queried.journalUrl);
-    let granted = false;
-    if (origin) {
-      try {
-        granted = await chrome.permissions.contains({ origins: [origin] });
-      } catch (_e) {
-        granted = null;
-      }
-    }
-
-    // Permission checks yield to Chrome. Re-read before the narrow mutation so
-    // a concurrent intent cannot be replaced by the pre-check cfg snapshot.
-    const current = await getCfg();
-    if (H.permissionOriginForUrl(current.journalUrl) !== origin) return current;
-    const next = Status.journalPermissionAfterCheck(current.journalPermission, granted, resolveMissing);
-    if (current.journalPermission !== next) {
-      current.journalPermission = next;
-      await setCfg(current);
-    }
-    return current;
-  });
-}
-
-function journalPermissionError() {
-  return new Error("journal permission required");
-}
 async function getSeg() {
   const r = await chrome.storage.local.get("seg");
   const seg = r.seg || null;
@@ -135,9 +93,6 @@ function normalizeDropped(dropped) {
 function pendingLinesForSeg(seg) {
   return seg ? Object.values(seg.ctxs || {}).reduce((n, e) => n + (e.lines ? e.lines.length : 0), 0) : 0;
 }
-function uploadMeta(cfg) {
-  return { host: cfg.hostname || "local", platform: "browser", stream: cfg.stream, observer: cfg.stream };
-}
 async function waitingSummary(seg) {
   const dropped = await getDropped();
   const outboxInfo = await OutboxStore.counts();
@@ -147,7 +102,7 @@ async function waitingSummary(seg) {
 }
 
 function isRemotePaired(cfg) {
-  return globalThis.SolstoneStatus.remotePaired(cfg.remote);
+  return Status.remotePaired(cfg.remote);
 }
 
 function hex(bytes) {
@@ -210,52 +165,6 @@ function withLifecycle(fn) {
 }
 
 let draining = false;
-
-// ---- registration ----------------------------------------------------------
-
-let registering = null;
-async function ensureRegistered(knownCfg) {
-  const cfg = knownCfg || await refreshJournalPermission();
-  if (cfg.journalPermission !== "granted") throw journalPermissionError();
-  if (cfg.key) return cfg;
-  if (registering) return registering;
-  registering = (async () => {
-    const descriptor = {
-      platform: "browser",
-      hostname: cfg.hostname || "local",
-      stream_type: "browser",
-      version: VERSION,
-      label: "solstone browser",
-    };
-    const res = await J.register(cfg.journalUrl, descriptor);
-    const next = await getCfg();
-    if (next.journalUrl !== cfg.journalUrl || next.hostname !== cfg.hostname) {
-      const error = new Error("journal registration was superseded by a configuration change");
-      error.registrationSuperseded = true;
-      throw error;
-    }
-    next.key = res.key;
-    next.stream = res.name;
-    next.protocolVersion = res.protocol_version;
-    next.health = globalThis.SolstoneStatus.updateHealth(next.health, { ok: true });
-    await setCfg(next);
-    console.log(`[solstone] registered as ${res.name} (${res.prefix}…)`);
-    return next;
-  })();
-  try {
-    return await registering;
-  } catch (e) {
-    if (!(e && e.registrationSuperseded)) {
-      const next = await getCfg();
-      next.health = Status.updateHealth(next.health, { ok: false, status: (e && e.status) || 0, error: String(e && e.message) });
-      await setCfg(next);
-      console.warn("[solstone] registration failed:", e);
-    }
-    throw e;
-  } finally {
-    registering = null;
-  }
-}
 
 // ---- per-site lifecycle ----------------------------------------------------
 
@@ -369,69 +278,6 @@ async function relayIntent(relayOrigin) {
   });
 }
 
-async function journalIntent(journalUrl) {
-  return withLifecycle(async () => {
-    const requestedUrl = String(journalUrl || "").trim().replace(/\/+$/, "");
-    if (!H.permissionOriginForUrl(requestedUrl)) return { ok: false, error: "enter a valid journal address" };
-    const cfg = await getCfg();
-    const previous = {
-      journalUrl: cfg.journalUrl,
-      journalPermission: Status.normalizeJournalPermission(cfg.journalPermission),
-    };
-    const changed = requestedUrl !== cfg.journalUrl;
-    cfg.journalUrl = requestedUrl;
-    if (changed) {
-      cfg.journalPermission = "unknown";
-      // Registration credentials belong to the old URL. Clear them in the same
-      // intent write so an onAdded-triggered drain cannot send them to the new one.
-      cfg.key = "";
-      cfg.stream = "";
-      cfg.protocolVersion = null;
-    }
-    // Persist before request so permissions.onAdded reconciliation protects the
-    // origin Chrome is about to grant instead of releasing it as an orphan.
-    await setCfg(cfg);
-    return { ok: true, journalUrl: requestedUrl, changed, previous };
-  });
-}
-
-async function resolveJournalIntent(msg) {
-  return withLifecycle(async () => {
-    const expectedUrl = String(msg.journalUrl || "").trim().replace(/\/+$/, "");
-    const cfg = await getCfg();
-    if (cfg.journalUrl !== expectedUrl) return { ok: false, error: "journal address changed while permission was pending" };
-
-    const origin = H.permissionOriginForUrl(expectedUrl);
-    let granted = false;
-    if (origin) {
-      try {
-        granted = await chrome.permissions.contains({ origins: [origin] });
-      } catch (_e) {
-        if (msg.changed) {
-          cfg.journalUrl = String((msg.previous && msg.previous.journalUrl) || "").trim().replace(/\/+$/, "");
-          cfg.journalPermission = Status.normalizeJournalPermission(msg.previous && msg.previous.journalPermission);
-          await setCfg(cfg);
-        }
-        return { ok: false, error: "could not check journal permission" };
-      }
-    }
-    if (granted) {
-      cfg.journalPermission = "granted";
-      await setCfg(cfg);
-      return { ok: true, granted: true };
-    }
-
-    if (msg.changed) {
-      cfg.journalUrl = String((msg.previous && msg.previous.journalUrl) || "").trim().replace(/\/+$/, "");
-      cfg.journalPermission = Status.normalizeJournalPermission(msg.previous && msg.previous.journalPermission);
-    } else {
-      cfg.journalPermission = "missing";
-    }
-    await setCfg(cfg);
-    return { ok: true, granted: false };
-  });
-}
-
 async function addSite(host) {
   return withLifecycle(async () => {
     let cfg = await getCfg();
@@ -492,21 +338,7 @@ async function unregisterSite(host) {
 }
 
 function permissionExemptOrigins(cfg) {
-  const origins = new Set();
-  // Reconcile uses exact pattern strings, so every protected destination must
-  // flow through the same port-preserving derivation used for permission asks.
-  const journalOrigin = H.permissionOriginForUrl(cfg.journalUrl);
-  if (journalOrigin) origins.add(journalOrigin);
-  for (const remote of [cfg.remote, cfg.remotePending]) {
-    if (!remote || !remote.relayOrigin) continue;
-    const origin = H.permissionOriginForUrl(remote.relayOrigin);
-    if (origin) origins.add(origin);
-  }
-  return [...origins];
-}
-
-function hasObservableSites(cfg) {
-  return cfg.allowlist.some((host) => !cfg.pausedHosts[H.matchHostFor(host)]);
+  return Reconcile.permissionExemptOrigins(cfg);
 }
 
 function entryMatchHosts(cfg) {
@@ -628,7 +460,6 @@ async function handleSkim(ctx, site, tabId, meta, blocks) {
   const cfg = await getCfg();
   if (cfg.paused) return;
   if (!H.hostObservable(site, cfg.allowlist, cfg.pausedHosts)) return; // only read available allowlisted host:port
-  if (!isRemotePaired(cfg)) ensureRegistered().catch(() => {}); // lazy; upload retries if not ready
   await withSeg(async () => {
     let seg = await getSeg();
     const now = Date.now();
@@ -697,7 +528,7 @@ async function pruneSigs(seg) {
   await chrome.storage.local.set({ sigs: live });
 }
 
-// Build + upload the segment. Idle rule (per context): a context whose buffer is
+// Build + queue the segment. Idle rule (per context): a context whose buffer is
 // just the snapshot (no deltas) AND whose snapshot is unchanged from the last one
 // we uploaded is SKIPPED — so an idle page produces no segment at all. Surviving
 // contexts are grouped by host into one file per host (rows carry their `ctx`).
@@ -721,28 +552,9 @@ async function flushSeg(seg, now, force = false) {
   if (!files.length) return { outcome: "empty", nextSigs: {} }; // fully idle — no segment created
   const duration = Math.max(1, Math.floor((now - seg.startMs) / 1000));
   const segment = Seg.segmentKey(seg.startMs, duration);
-  const cfg0 = await getCfg();
-  const meta = uploadMeta(cfg0);
-  const entry = { day: seg.day, segment, files, meta };
-  if (isRemotePaired(cfg0)) return { outcome: "queued", entry: Object.assign({ mode: "remote" }, entry), nextSigs };
-  let cfg;
-  try {
-    cfg = await ensureRegistered();
-  } catch (_e) {
-    console.warn("[solstone] cannot upload segment: journal unreachable; queued in offline outbox");
-    return { outcome: "queued", entry: Object.assign({ mode: "local" }, entry), nextSigs };
-  }
-  let res;
-  try {
-    res = await J.uploadSegment(cfg.journalUrl, cfg.key, { day: seg.day, segment, meta, files });
-  } catch (e) {
-    await recordHealth({ ok: false, status: 0, body: { error: String(e && e.message) } });
-    return { outcome: "queued", entry: Object.assign({ mode: "local" }, entry), nextSigs };
-  }
-  await recordHealth(res);
-  const delivered = !!(res && res.ok && !res.failed);
-  console.log(`[solstone] segment ${seg.day}/${segment} -> ${delivered ? (res.duplicate ? "duplicate" : "stored") : "HTTP " + (res && res.status)}`);
-  return delivered ? { outcome: "uploaded", nextSigs } : { outcome: "queued", entry: Object.assign({ mode: "local" }, entry), nextSigs };
+  const cfg = await getCfg();
+  const meta = RemoteBlob.uploadMeta(cfg.hostname);
+  return { outcome: "queued", entry: { mode: "remote", day: seg.day, segment, files, meta }, nextSigs };
 }
 
 function carryActiveContexts(seg, next, now) {
@@ -767,7 +579,7 @@ function carryActiveContexts(seg, next, now) {
 
 async function commitFlushedTransition(next, r) {
   const sigs = (await chrome.storage.local.get("sigs")).sigs || {};
-  if (r && (r.outcome === "uploaded" || r.outcome === "queued")) Object.assign(sigs, r.nextSigs || {});
+  if (r && r.outcome === "queued") Object.assign(sigs, r.nextSigs || {});
   if (r && r.entry) await OutboxStore.enqueue(r.entry);
   await chrome.storage.local.set({ seg: next, sigs });
 }
@@ -783,36 +595,6 @@ async function recordHealth(res) {
   cfg.health = h;
   await setCfg(cfg);
   await updateBadge(); // reflect connected/error on the icon
-}
-
-// Diagnostics beacon so the journal observer dashboard reads "connected"
-// between uploads (mirrors the tmux/native observers' observe.status). Carries
-// only the observer's own health — never observed content.
-async function emitStatus() {
-  const cfg = await getCfg();
-  if (cfg.paused || !hasObservableSites(cfg)) return;
-  if (isRemotePaired(cfg)) return;
-  let c;
-  try {
-    c = await ensureRegistered();
-  } catch (_e) {
-    return; // journal unreachable — nothing to beacon to
-  }
-  const seg = await getSeg();
-  const { summary } = await waitingSummary(seg);
-  const siteErrs = Object.keys(c.siteErrors || {}).length;
-  await J.relayEvent(c.journalUrl, c.key, "observe", "status", {
-    host: c.hostname || "local",
-    platform: "browser",
-    name: c.stream,
-    stream_type: "browser",
-    version: VERSION,
-    uptime: Math.floor((Date.now() - BOOT_MS) / 1000),
-    last_successful_sync: c.health && c.health.lastUploadAt ? Math.floor(c.health.lastUploadAt / 1000) : null,
-    pending_queue_depth: summary.waiting,
-    recent_error_count: siteErrs + (c.health && c.health.lastError ? 1 : 0),
-    last_error_reason: (c.health && c.health.lastError) || (siteErrs ? Object.values(c.siteErrors)[0] : null),
-  });
 }
 
 async function rotateIfDue() {
@@ -879,29 +661,7 @@ function recvRemoteFrame(ws, stage) {
   });
 }
 
-async function deliverLocalOutboxEntry(entry) {
-  let c;
-  try {
-    c = await ensureRegistered();
-  } catch (e) {
-    await markBackoff(entry, e);
-    return false;
-  }
-  let res;
-  try {
-    res = await J.uploadSegment(c.journalUrl, c.key, { day: entry.day, segment: entry.segment, meta: entry.meta || uploadMeta(c), files: entry.files });
-  } catch (e) {
-    await recordHealth({ ok: false, status: 0, body: { error: String(e && e.message) } });
-    await markBackoff(entry, e);
-    return false;
-  }
-  await recordHealth(res);
-  const delivered = !!(res && res.ok && !res.failed);
-  if (!delivered) await markBackoff(entry, `HTTP ${res && res.status}`);
-  return delivered;
-}
-
-async function deliverRemoteOutboxEntry(entry, cfg) {
+async function deliverOutboxEntry(entry, cfg) {
   if (!isRemotePaired(cfg)) {
     await markBackoff(entry, "not paired");
     return false;
@@ -909,16 +669,11 @@ async function deliverRemoteOutboxEntry(entry, cfg) {
   let ws = null;
   try {
     const ident = await Identity.ensureIdentity();
-    const blobId = bytesFromHex(entry.blob_id);
+    const packed = await RemoteBlob.packOutboxEntry(entry, cfg.hostname);
+    const blobId = bytesFromHex(packed.blob_id);
     const instanceId16 = Uuid.bytesFromUuidString(cfg.remote.instanceId);
     const recipientSpki = fromB64url(cfg.remote.homeSpki);
-    const plaintext = await RemoteBlob.packPlaintext(entry.files, {
-      v: 1,
-      day: entry.day,
-      segment: entry.segment,
-      host: (entry.meta && entry.meta.host) || cfg.hostname || "local",
-      meta: entry.meta || uploadMeta(cfg),
-    });
+    const plaintext = packed.plaintext;
     const info = RemoteBlob.blobInfo(instanceId16, ident.senderFp);
     const ctLen = plaintext.byteLength + 16; // AES-GCM ciphertext is plaintext plus 16-byte tag.
     const offer = RemoteBlob.offerBytes({ senderFp: ident.senderFp, blobId, ctLen });
@@ -962,7 +717,7 @@ async function drainOutbox() {
       if (!entry) break;
       if (entry.nextAttemptAt && entry.nextAttemptAt > Date.now()) break;
       const cfg = await getCfg();
-      const delivered = entry.mode === "remote" ? await deliverRemoteOutboxEntry(entry, cfg) : await deliverLocalOutboxEntry(entry);
+      const delivered = await deliverOutboxEntry(entry, cfg);
       if (!delivered) break;
       await OutboxStore.removeHeadIf(entry);
       await updateBadge();
@@ -973,35 +728,11 @@ async function drainOutbox() {
 }
 
 async function probe() {
-  const mode = await getCfg();
-  if (isRemotePaired(mode)) {
-    await drainOutbox();
-    const current = await getCfg();
-    const lastError = current.health && current.health.lastError;
-    return { ok: !lastError, remote: true, error: lastError || null };
-  }
-  const cfg = await refreshJournalPermission({ resolveMissing: true });
-  if (cfg.journalPermission !== "granted") {
-    await updateBadge();
-    return { ok: false, permissionRequired: true, error: "journal permission required" };
-  }
-  if (!cfg.key) {
-    try {
-      const c = await ensureRegistered(cfg);
-      drainOutbox();
-      return { ok: true, stream: c.stream };
-    } catch (e) {
-      return { ok: false, status: (e && e.status) || 0, error: String(e && e.message) };
-    }
-  }
-  const day = Seg.dayKey(Date.now());
-  const res = await J.checkConnection(cfg.journalUrl, cfg.key, day);
-  const next = await getCfg();
-  next.health = globalThis.SolstoneStatus.updateHealth(next.health, { ok: res.ok, status: res.status, error: res.ok ? null : res.error });
-  await setCfg(next);
-  await updateBadge();
-  if (res.ok) drainOutbox();
-  return { ok: res.ok, status: res.status, error: res.error, stream: cfg.stream };
+  await drainOutbox();
+  const cfg = await getCfg();
+  const paired = isRemotePaired(cfg);
+  const lastError = cfg.health && cfg.health.lastError;
+  return { ok: paired && !lastError, remote: paired, error: lastError || (paired ? null : "not paired") };
 }
 
 // ---- pause + badge ---------------------------------------------------------
@@ -1124,7 +855,7 @@ async function pairRemote(link) {
     const reply = JSON.parse(new TextDecoder().decode(replyBytes));
     if (reply.instance_id !== identityMsg.instance_id) throw new Error("pair reply instance mismatch");
     if (!reply.home_attestation) throw new Error("pair reply missing home_attestation");
-    const enrolled = await J.enrollDevice(parsed.relayOrigin, { instance_id: reply.instance_id, home_attestation: reply.home_attestation });
+    const enrolled = await RemoteTunnel.enrollDevice(parsed.relayOrigin, { instance_id: reply.instance_id, home_attestation: reply.home_attestation });
     if (!enrolled.device_token) throw new Error("enroll response missing device_token");
     await withLifecycle(async () => {
       const next = await getCfg();
@@ -1193,13 +924,6 @@ async function handleCommand(msg, sendResponse) {
         sendResponse({ ok: true, added });
         break;
       }
-      case "journalIntent":
-        sendResponse(await journalIntent(msg.journalUrl));
-        break;
-      case "journalIntentResolve":
-        sendResponse(await resolveJournalIntent(msg));
-        await updateBadge();
-        break;
       case "relayIntent":
         await relayIntent(msg.relayOrigin);
         sendResponse({ ok: true });
@@ -1241,18 +965,8 @@ async function handleCommand(msg, sendResponse) {
         let indicatorShow = false;
         await withLifecycle(async () => {
           const cfg = await getCfg();
-          let reset = false;
           if (typeof msg.hostname === "string" && msg.hostname !== cfg.hostname) {
             cfg.hostname = msg.hostname.trim();
-            reset = true; // hostname changes the stream identity -> re-register
-          }
-          if (typeof msg.journalUrl === "string") {
-            const journalUrl = msg.journalUrl.trim().replace(/\/+$/, "");
-            if (journalUrl !== cfg.journalUrl) {
-              cfg.journalUrl = journalUrl;
-              reset = true;
-              cfg.journalPermission = "unknown";
-            }
           }
           if (typeof msg.segmentSec === "number" && msg.segmentSec >= 30) cfg.segmentSec = Math.floor(msg.segmentSec);
           if (typeof msg.showPageIndicator === "boolean" && msg.showPageIndicator !== cfg.showPageIndicator) {
@@ -1260,27 +974,12 @@ async function handleCommand(msg, sendResponse) {
             indicatorChanged = true;
           }
           indicatorShow = cfg.showPageIndicator;
-          if (reset) {
-            cfg.key = "";
-            cfg.stream = "";
-            cfg.protocolVersion = null;
-          }
           await setCfg(cfg);
         });
-        await refreshJournalPermission();
         if (indicatorChanged) await setIndicatorAll(indicatorShow);
         sendResponse({ ok: true });
         break;
       }
-      case "registerNow":
-        try {
-          const cfg = await ensureRegistered();
-          drainOutbox();
-          sendResponse({ ok: true, stream: cfg.stream });
-        } catch (e) {
-          sendResponse({ ok: false, error: String(e && e.message) });
-        }
-        break;
       case "probe": {
         const r = await probe();
         sendResponse(r);
@@ -1333,20 +1032,17 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ROTATE_ALARM) {
     (async () => {
-      await refreshJournalPermission();
       await rotateIfDue();
       await drainOutbox();
       await runReconcile();
-      await emitStatus();
     })().catch((e) => console.warn("[solstone] rotation/reconciliation failed", e));
   }
 });
 
 async function reconcileAfterPermissionChange() {
-  const cfg = await refreshJournalPermission();
   await runReconcile();
   await updateBadge();
-  if (cfg.journalPermission === "granted") drainOutbox();
+  drainOutbox();
 }
 
 chrome.permissions.onRemoved.addListener(() => {
@@ -1361,7 +1057,7 @@ async function migrateOutboxV1() {
   if (await DB.get("meta", "migratedOutboxV1")) return;
   const legacy = await chrome.storage.local.get(["outbox", "dropped"]);
   const entries = Array.isArray(legacy.outbox) ? legacy.outbox : [];
-  for (const entry of entries) await OutboxStore.enqueue(Object.assign({ mode: "local" }, entry));
+  for (const entry of entries) await OutboxStore.enqueue(Object.assign({ mode: "remote" }, entry));
   const oldDropped = normalizeDropped(legacy.dropped);
   if (oldDropped.segments || oldDropped.lines) {
     const current = await OutboxStore.getDropped();
@@ -1374,10 +1070,25 @@ async function migrateOutboxV1() {
   if ("outbox" in legacy || "dropped" in legacy) await chrome.storage.local.remove(["outbox", "dropped"]);
 }
 
+async function migrateRemoteOnlyV1() {
+  const stored = await chrome.storage.local.get("cfg");
+  if (stored.cfg) {
+    const cfg = Object.assign({}, stored.cfg);
+    let changed = false;
+    for (const field of ["journalUrl", "key", "stream", "protocolVersion", "localRegistered", "journalPermission"]) {
+      if (!Object.prototype.hasOwnProperty.call(cfg, field)) continue;
+      delete cfg[field];
+      changed = true;
+    }
+    if (changed) await chrome.storage.local.set({ cfg });
+  }
+  await OutboxStore.migrateRemoteOnly();
+}
+
 async function init() {
   await chrome.alarms.create(ROTATE_ALARM, { periodInMinutes: 1 });
   await migrateOutboxV1();
-  await refreshJournalPermission();
+  await migrateRemoteOnlyV1();
   await runReconcile();
   // Re-assert one content-script registration per available hostname so file-list
   // changes take effect even though registrations persist across sessions.

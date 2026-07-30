@@ -15,7 +15,6 @@
 
   let state = null;
   let disclosureResolve = null;
-  let destinationOverride = null;
   let lastConnectionSignature = null;
   let renderedOnce = false;
 
@@ -52,41 +51,6 @@
     };
   }
 
-  async function requestJournalAccess(journalUrl) {
-    const origin = Hosts.permissionOriginForUrl(journalUrl);
-    if (!origin) return { ok: false, error: "enter a valid journal address" };
-    const intent = await cmd({ cmd: "journalIntent", journalUrl });
-    if (!intent.ok) {
-      return intent.error
-        ? { ok: false, workerError: intent.error }
-        : { ok: false, error: "could not save the journal address" };
-    }
-
-    let requestError = false;
-    try {
-      await chrome.permissions.request({ origins: [origin] });
-    } catch (_error) {
-      requestError = true;
-    }
-    const resolved = await cmd({
-      cmd: "journalIntentResolve",
-      journalUrl: intent.journalUrl,
-      changed: intent.changed,
-      previous: intent.previous,
-    });
-    if (!resolved.ok) {
-      return resolved.error
-        ? { ok: false, workerError: resolved.error }
-        : { ok: false, error: "could not finish journal permission" };
-    }
-    if (!resolved.granted) {
-      return requestError
-        ? { ok: false, error: "could not request journal permission" }
-        : { ok: false, denied: true };
-    }
-    return { ok: true };
-  }
-
   function renderFirstRun() {
     const allowlist = Array.isArray(state && state.allowlist) ? state.allowlist : null;
     const firstRun = $("firstRun");
@@ -105,24 +69,6 @@
     $("firstRunDestination").textContent = copy.destination.label;
     $("firstRunDestinationDetail").textContent = copy.destination.detail;
     $("firstRunNothingYet").textContent = copy.nothingYet;
-  }
-
-  function selectedDestination() {
-    return $("destinationRemote").checked ? "remote" : "local";
-  }
-
-  function showDestination(selection) {
-    const remote = selection === "remote";
-    $("destinationLocal").checked = !remote;
-    $("destinationRemote").checked = remote;
-    $("localDestination").hidden = remote;
-    $("remoteDestination").hidden = !remote;
-  }
-
-  function renderDestination(connection) {
-    const derived = connection.kind.startsWith("remote-") ? "remote" : "local";
-    if (destinationOverride === derived) destinationOverride = null;
-    showDestination(destinationOverride || derived);
   }
 
   function replaceLabeledDetail(id, label, value) {
@@ -236,13 +182,7 @@
     $("journalLead").textContent = verdict.sub;
     $("journalStateChip").textContent = verdict.headline;
     $("journalStateChip").className = `state-chip ${verdict.tone}`;
-    renderDestination(connection);
 
-    const link = $("journalLink");
-    const showLink = !!(state && state.journalUrl) && connection.kind.startsWith("local-");
-    link.hidden = !showLink;
-    if (showLink) link.href = state.journalUrl;
-    else link.removeAttribute("href");
     $("unpairBtn").hidden = !(state && state.remote && state.remote.paired);
 
     renderProvenance();
@@ -350,11 +290,9 @@
     state = await cmd({ cmd: "getState" });
     const preview = await cmd({ cmd: "getBufferedPreview" });
     $("hostname").value = state.hostname || "";
-    $("journalUrl").value = state.journalUrl || "";
     $("segmentSec").value = state.segmentSec || 300;
     $("showPageIndicator").checked = !!state.showPageIndicator;
     $("ver").textContent = state.version ? `v${state.version}` : "";
-    $("streamLabel").textContent = state.streamName || "browser";
     renderFirstRun();
     const rendered = renderJournal(preview, options.announceConnection !== false);
     renderSites();
@@ -371,20 +309,7 @@
     }
 
     const hostname = $("hostname").value;
-    const local = selectedDestination() === "local";
-    const journalUrl = local ? $("journalUrl").value : String((state && state.journalUrl) || "");
-    if (local) {
-      const permission = await requestJournalAccess(journalUrl);
-      if (!permission.ok) {
-        await refresh({ announceConnection: false });
-        if (permission.denied) announce("permission declined. journal address unchanged.", "bad");
-        else if (permission.workerError) showActionError(permission.workerError);
-        else announce(permission.error || "could not request journal permission", "bad");
-        return;
-      }
-    }
-    await cmd({ cmd: "setConfig", hostname, journalUrl, segmentSec });
-    await cmd({ cmd: "probe" });
+    await cmd({ cmd: "setConfig", hostname, segmentSec });
     await refresh({ announceConnection: false });
     announce("settings saved.", "ok");
   }
@@ -444,48 +369,19 @@
     else showActionError(result.error || "pairing failed");
   }
 
-  $("destinationLocal").addEventListener("change", () => {
-    if (!$("destinationLocal").checked) return;
-    destinationOverride = "local";
-    showDestination("local");
-  });
-  $("destinationRemote").addEventListener("change", () => {
-    if (!$("destinationRemote").checked) return;
-    destinationOverride = "remote";
-    showDestination("remote");
-  });
   $("firstRunChange").addEventListener("click", () => {
-    const selected = selectedDestination() === "remote" ? $("destinationRemote") : $("destinationLocal");
-    selected.focus();
+    $("pairLink").focus();
   });
 
   $("connForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     await saveConfig();
   });
-  $("registerBtn").addEventListener("click", async () => {
-    clearAnnouncement();
-    const permission = await requestJournalAccess($("journalUrl").value);
-    if (!permission.ok) {
-      await refresh({ announceConnection: false });
-      if (permission.denied) announce("permission declined. journal address unchanged.", "bad");
-      else if (permission.workerError) showActionError(permission.workerError);
-      else announce(permission.error || "could not request journal permission", "bad");
-      return;
-    }
-    await cmd({ cmd: "probe" });
-    const rendered = await refresh({ announceConnection: false });
-    const tone = rendered.connection.connected
-      ? "ok"
-      : rendered.connection.kind.endsWith("-error") ? "bad" : "";
-    announce(rendered.connection.stateLabel, tone);
-  });
   $("flushBtn").addEventListener("click", async () => {
     clearAnnouncement();
     const result = await cmd({ cmd: "flushNow" });
     const rendered = await refresh({ announceConnection: false });
-    if (result.outcome === "uploaded") announce("sent.", "ok");
-    else if (result.outcome === "queued" && rendered.connection.consequence) announce(rendered.connection.consequence);
+    if (result.outcome === "queued" && rendered.connection.consequence) announce(rendered.connection.consequence);
     else if (result.outcome === "queued") announce("kept here, waiting to sync.");
     else if (result.outcome === "failed") showActionError((state.health && state.health.lastError) || result.error || "send failed");
     else announce("nothing waiting.");

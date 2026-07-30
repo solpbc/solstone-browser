@@ -4,14 +4,13 @@
 # The shipped extension has zero runtime dependencies: it is plain MV3 and
 # loads no npm or network code. `make test` remains dependency-free; `make ci`
 # installs locked dev dependencies for real-IDB and vendor-reproducibility checks.
-# The CDP skim smoke and the journal relay
-# round-trip need a real Chrome and a live local journal respectively. The
+# The CDP skim smoke needs a real Chrome. The
 # `e2e` target is the agentic integration harness — it drives the live
 # content-script -> service-worker -> relay path under Playwright new-headless
 # (dev-only dependency; the shipped extension stays dependency-free). See
 # INSTALL.md / test/GUIDED.md / AGENTS.md.
 
-.PHONY: install test test-idb verify-vendor-hpke ci format clean smoke relay-check popup-check e2e e2e-deps dist cws cws-status cws-stage cws-publish-staged cws-cancel package-check set-version
+.PHONY: install test test-idb verify-vendor-hpke ci format clean smoke popup-check e2e e2e-deps dist cws cws-status cws-stage cws-publish-staged cws-cancel package-check set-version
 
 # Install locked development tools. Nothing from node_modules ships in extension/.
 install:
@@ -42,10 +41,6 @@ format:
 # Real-Chrome CDP skim smoke (needs a Chrome on this machine).
 smoke:
 	npm run smoke
-
-# End-to-end register + ingest against a real local journal (run ON the journal machine).
-relay-check:
-	npm run relay-check
 
 # Popup content-height gate. The Playwright Chromium binary is not installed by
 # make ci; run make e2e-deps once before using this target.

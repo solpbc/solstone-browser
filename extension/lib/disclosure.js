@@ -35,12 +35,6 @@
           : "sealed in this browser.",
       };
     }
-    if (!remote.pending && status.journalUrl) {
-      return {
-        label: "your journal on this computer",
-        detail: status.journalUrl,
-      };
-    }
     return {
       label: "nowhere yet",
       detail: "set up your journal first, or what sol takes in will just pile up here.",
@@ -69,7 +63,7 @@
       scope: "in your browser, sol takes in only the sites you add.",
       whatSolTakesIn: "on a site you add, sol takes in the page's rendered text and rough layout, along with you, and keeps it in your journal. that is the text the page has drawn, what you can see now and what you'd see by scrolling, plus the labels pages hand to screen readers and tooltips, which sometimes aren't drawn on screen. never pixels. never raw HTML. never a site you didn't add.",
       unsentText: "on a site with a message box, that can include what you've typed but haven't sent. sol skips the compose box on gmail and slack, and nowhere else yet.",
-      neverReceives: "sol pbc can never read it. on this computer it never leaves the computer at all. at your home it reaches us only sealed, and we hold no key.",
+      neverReceives: "sol pbc can never read it. it reaches your home sealed, and we hold no key.",
       absolutes: "no analytics. no telemetry. no phone home. nobody counted.",
       destination: destinationFor(status),
       nothingYet: "nothing is taken in until you add your first site.",

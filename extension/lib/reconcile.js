@@ -6,6 +6,16 @@
 
   const H = globalThis.SolstoneHosts;
 
+  function permissionExemptOrigins(cfg) {
+    const origins = new Set();
+    for (const remote of [cfg && cfg.remote, cfg && cfg.remotePending]) {
+      if (!remote || !remote.relayOrigin) continue;
+      const origin = H.permissionOriginForUrl(remote.relayOrigin);
+      if (origin) origins.add(origin);
+    }
+    return [...origins];
+  }
+
   function reconcile({ granted, manifestOrigins, exemptOrigins, allowlist, pausedHosts } = {}) {
     if (granted === null) return [];
 
@@ -37,5 +47,5 @@
     return actions;
   }
 
-  globalThis.SolstoneReconcile = { reconcile };
+  globalThis.SolstoneReconcile = { permissionExemptOrigins, reconcile };
 })();

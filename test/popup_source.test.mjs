@@ -24,9 +24,8 @@ test("popup HTML fixes the section order and heading contract", () => {
 
 test("popup consumes the upstream status derivations without recreating them", () => {
   assert.match(popupSource, /Status\.verdict\(state,/);
-  assert.match(popupSource, /Status\.connection\(state\)/);
   assert.match(viewSource, /SolstoneStatus\.siteRowState\(entry,/);
-  assert.doesNotMatch(popupSource, /cfg\.key|localRegistered/);
+  assert.doesNotMatch(popupSource, /cfg\.key|localRegistered|journalUrl|journalPermission|journalIntent/);
   assert.doesNotMatch(popupSource, /(?:allowlist\.length|sites)\s*>\s*0\s*&&\s*!\s*(?:state\.)?paused/);
   assert.doesNotMatch(`${popupSource}\n${viewSource}`, /switch\s*\(/);
 
@@ -44,6 +43,7 @@ test("popup has exactly the four tone and four verdict-action lookup entries", (
   }
   assert.match(popupSource, /TONE\[section\.tone\] \|\| TONE\.unavailable/);
   assert.match(popupSource, /ACTION\[section\.action\.id\]/);
+  assert.match(popupSource, /function setUp\(\) \{\s*openSettings\(\);\s*\}/);
 });
 
 test("popup uses real DOM construction and removes all retired selectors", () => {
@@ -125,15 +125,18 @@ class FakeNode {
 function popupState(overrides = {}) {
   return Object.assign({
     ok: true,
-    journalUrl: "http://localhost:5015",
-    localRegistered: true,
-    journalPermission: "granted",
     paused: false,
     allowlist: ["mail.google.com"],
     pausedHosts: {},
     siteErrors: {},
     health: { lastError: null, lastUploadAt: 1, segmentsUploaded: 1, lastStatus: 200, consecutiveFailures: 0 },
-    remote: { paired: false, pending: false, relayOrigin: "", pairedAt: null },
+    remote: {
+      paired: true,
+      pending: false,
+      instanceId: "00112233445566778899aabbccddeeff",
+      relayOrigin: "https://relay.example",
+      pairedAt: 1,
+    },
     activeSites: ["mail.google.com"],
     waiting: 0,
     dropped: { segments: 0, lines: 0 },
@@ -165,6 +168,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   let tabQuery = async () => [{ id: 7, url: "https://mail.google.com/inbox" }];
   let handleCommand = () => ({ ok: true });
   let permissionRequests = 0;
+  let optionsOpened = 0;
   const sent = [];
   const mutationCommands = (messages) => messages.filter(
     (message) => ["siteIntent", "siteGranted", "removeSite"].includes(message.cmd),
@@ -175,7 +179,9 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
         sent.push(message);
         callback(message.cmd === "getState" ? liveState : handleCommand(message));
       },
-      openOptionsPage() {},
+      openOptionsPage() {
+        optionsOpened += 1;
+      },
     },
     tabs: { query: (...args) => tabQuery(...args) },
     permissions: {
@@ -198,6 +204,18 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   const verdictNode = nodes.verdict;
   assert.equal(verdictNode.id, "verdict");
   assert.equal(nodes.verdictHeadline.textContent, "on");
+  nodes.actionMessage.textContent = "previous action";
+
+  liveState = popupState({
+    remote: { paired: false, pending: false, instanceId: "", relayOrigin: "", pairedAt: null },
+    activeSites: [],
+  });
+  await globalThis.SolstonePopup.refresh();
+  assert.equal(nodes.verdictHeadline.textContent, "no journal yet");
+  assert.equal(nodes.verdictActions.children[0].textContent, "set up your journal");
+  await nodes.verdictActions.children[0].listeners.click();
+  assert.equal(optionsOpened, 1);
+  assert.equal(permissionRequests, 0);
   nodes.actionMessage.textContent = "previous action";
 
   liveState = popupState({ paused: true, activeSites: [] });

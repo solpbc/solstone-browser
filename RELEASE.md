@@ -76,8 +76,8 @@ drift. Commit the bump, update `CHANGELOG.md`, then build from that exact commit
 ## Cut a tagged release (like our other surfaces)
 
 Release compatibility gate: before any Chrome Web Store release, verify that
-remote-mode delivery targets a home running **solstone 0.8.7+**. Older homes are
-unsupported remote-delivery targets for this release. This is a release-checklist
+browser delivery targets a home running **solstone 0.8.7+**. Older homes are
+unsupported delivery targets for this release. This is a release-checklist
 precondition, not a runtime or wire-protocol negotiation.
 
 ```bash

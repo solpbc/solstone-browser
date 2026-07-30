@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 //
-// sw_orchestration.mjs — end-to-end test of the REAL assembled service worker
-// against a live local journal, without depending on headless content-script
-// auto-injection. It loads the extension, opens the options page (an extension
+// sw_orchestration.mjs: end-to-end check of the real assembled service worker
+// without depending on headless content-script auto-injection. It loads the
+// extension, opens the options page (an extension
 // context with chrome.runtime), and from there drives the worker with the exact
 // messages content.js sends: setConfig -> siteGranted -> hello -> skim
-// (snapshot) -> skim (delta) -> flushNow -> getState. Then it verifies the
-// segment landed in the journal under the test stream. Args: <port>.
-//
-// Uses a throwaway stream name (swtest.browser) so it never touches real data.
+// (snapshot) -> skim (delta) -> flushNow -> getState. An unpaired run proves
+// queueing; a pre-paired profile continues through the sealed drain. Args: <port>.
 
 const PORT = Number(process.argv[2] || 9311);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -32,7 +30,7 @@ const ORCH = `(async () => {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const meta = { url:'https://swtest.example/inbox', title:'Inbox (2)', adapter:'generic' }; const ctx='test-ctx-1';
   const out = {};
-  out.setConfig = await send({cmd:'setConfig', hostname:'swtest', segmentSec:15, journalUrl:'http://localhost:5015'});
+  out.setConfig = await send({cmd:'setConfig', hostname:'swtest', segmentSec:30});
   out.siteGranted = await send({cmd:'siteGranted', host:'swtest.example'});
   await send({kind:'hello', ctx, site:'swtest.example', meta});
   await send({kind:'skim', ctx, site:'swtest.example', meta, blocks:[
@@ -50,9 +48,12 @@ const ORCH = `(async () => {
   await sleep(1000);
   const st = await send({cmd:'getState'});
   const conn = globalThis.SolstoneStatus.connection(st);
-  out.stream = st.stream; out.connection = conn.kind; out.destination = conn.destination; out.segmentsUploaded = st.health && st.health.segmentsUploaded;
+  out.connection = conn.kind; out.destination = conn.destination; out.segmentsUploaded = st.health && st.health.segmentsUploaded;
+  out.outbox = st.outbox;
   out.lastStatus = st.health && st.health.lastStatus; out.lastError = st.health && st.health.lastError;
   out.siteErrors = st.siteErrors;
+  if (!out.flush || out.flush.outcome !== 'queued') throw new Error('flush did not enqueue');
+  if (conn.kind === 'unpaired' && (!st.outbox || st.outbox.entries < 1)) throw new Error('unpaired queue missing');
   return JSON.stringify(out, null, 2);
 })()`;
 

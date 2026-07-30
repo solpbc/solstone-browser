@@ -47,41 +47,6 @@
   let page = { host: "", ok: false };
   let disclosureResolve = null;
 
-  async function requestJournalAccess(journalUrl) {
-    const origin = SolstoneHosts.permissionOriginForUrl(journalUrl);
-    if (!origin) return { ok: false, error: "enter a valid journal address" };
-    const intent = await cmd({ cmd: "journalIntent", journalUrl });
-    if (!intent.ok) {
-      return intent.error
-        ? { ok: false, workerError: intent.error }
-        : { ok: false, error: "could not save the journal address" };
-    }
-
-    let requestError = false;
-    try {
-      await chrome.permissions.request({ origins: [origin] });
-    } catch (_error) {
-      requestError = true;
-    }
-    const resolved = await cmd({
-      cmd: "journalIntentResolve",
-      journalUrl: intent.journalUrl,
-      changed: intent.changed,
-      previous: intent.previous,
-    });
-    if (!resolved.ok) {
-      return resolved.error
-        ? { ok: false, workerError: resolved.error }
-        : { ok: false, error: "could not finish journal permission" };
-    }
-    if (!resolved.granted) {
-      return requestError
-        ? { ok: false, error: "could not request journal permission" }
-        : { ok: false, denied: true };
-    }
-    return { ok: true };
-  }
-
   function showActionMessage(message) {
     $("actionMessage").textContent = message || "";
   }
@@ -107,38 +72,8 @@
     chrome.runtime.openOptionsPage();
   }
 
-  async function setUp() {
-    showActionMessage("");
-    const origin = SolstoneHosts.permissionOriginForUrl(state.journalUrl);
-    if (!origin) {
-      openSettings();
-      return;
-    }
-    const connection = Status.connection(state);
-    if (!connection.kind.startsWith("local-")) {
-      openSettings();
-      return;
-    }
-
-    let granted;
-    try {
-      granted = await chrome.permissions.contains({ origins: [origin] });
-    } catch (_error) {
-      showActionMessage("could not check journal permission");
-      return;
-    }
-    if (granted) {
-      openSettings();
-      return;
-    }
-
-    const result = await requestJournalAccess(state.journalUrl);
-    if (!result.ok) {
-      if (result.denied) showActionMessage("permission declined. journal address not allowed.");
-      else if (result.workerError) showActionError(result.workerError);
-      else showActionMessage(result.error || "could not request journal permission");
-    }
-    await refresh();
+  function setUp() {
+    openSettings();
   }
 
   const ACTION = {

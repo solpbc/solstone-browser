@@ -4,6 +4,14 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 `make set-version` keeps `manifest.json` / `package.json` / `package-lock.json` /
 `background.js` in lockstep, and `make dist` refuses to build if they drift.
 
+## 0.2.0 (2026-07-30)
+
+sol now sends browser segments only to your journal at a paired home.
+
+- **one sealed route.** the same-computer address and connect controls are gone. pair your journal once, and every segment goes through the sealed relay path.
+- **clearer setup and status.** settings leads with pairing, and the popup opens settings when your journal is not paired.
+- **safe upgrade.** waiting entries from earlier versions keep their identity and contents, then leave through the sealed path with only the host and platform in their metadata.
+
 ## 0.1.1 (2026-07-27)
 
 - development and Chrome Web Store packages are now built and checked separately. sol in the browser itself is unchanged.
@@ -101,7 +109,7 @@ states, plain language, and one-tap symmetry.
 - **Pin suggestion.** The popup suggests pinning solstone when Chrome has tucked
   the icon away, so the status light stays visible.
 - **Port-safe live broadcasts.** Pause-all and the marker toggle now reach
-  observed tabs on port-bearing hosts (e.g. `localhost:5015`), not only portless
+  observed tabs on port-bearing hosts (e.g. `example.test:8443`), not only portless
   domains — the broadcasts use the same port-stripped match pattern as
   registration.
 

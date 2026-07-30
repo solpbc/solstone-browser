@@ -4,6 +4,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
 
 await import(new URL("../extension/lib/remote_blob.js", import.meta.url));
 
@@ -11,6 +13,20 @@ const R = globalThis.SolstoneRemoteBlob;
 const te = new TextEncoder();
 const hex = (bytes) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 const bytes = (s) => Uint8Array.from(s.match(/../g).map((x) => Number.parseInt(x, 16)));
+
+async function gunzip(compressed) {
+  return new Uint8Array(await new Response(
+    new Blob([compressed]).stream().pipeThrough(new DecompressionStream("gzip")),
+  ).arrayBuffer());
+}
+
+function loadHpke() {
+  const code = readFileSync(new URL("../extension/vendor/hpke/hpke-core-1.9.0.iife.js", import.meta.url), "utf8");
+  const context = { crypto: globalThis.crypto, TextEncoder, TextDecoder, Uint8Array, ArrayBuffer };
+  context.globalThis = context;
+  vm.runInNewContext(code, context);
+  return context.SolstoneHpke;
+}
 
 test("ustar tar writer and reader recover exact names and bytes", () => {
   const files = [
@@ -30,13 +46,66 @@ test("tar rejects unsafe paths", () => {
 });
 
 test("blob.json shaping is exact", () => {
-  assert.deepEqual(R.blobJson({ v: 1, day: "20260704", segment: "120000_300", host: "mail.example", meta: { stream: "desktop.browser" } }), {
+  assert.deepEqual(R.blobJson({ v: 1, day: "20260704", segment: "120000_300", host: "mail.example", meta: { host: "laptop", platform: "browser" } }), {
     v: 1,
     day: "20260704",
     segment: "120000_300",
     host: "mail.example",
-    meta: { stream: "desktop.browser" },
+    meta: { host: "laptop", platform: "browser" },
   });
+});
+
+test("upload metadata is exactly host and platform", () => {
+  assert.deepEqual(R.uploadMeta("laptop"), { host: "laptop", platform: "browser" });
+  assert.deepEqual(Object.keys(R.uploadMeta("laptop")), ["host", "platform"]);
+});
+
+test("pre-change local-form entry becomes one sealed blob with preserved identity, files, and sanitized metadata", async () => {
+  const entry = {
+    mode: "local",
+    blob_id: "00112233445566778899aabbccddeeff",
+    day: "20260730",
+    segment: "101112_300",
+    files: [
+      { name: "browser_example.jsonl", text: "{\"t\":\"segment_start\"}\n{\"t\":\"snapshot\"}\n" },
+    ],
+    meta: {
+      host: "old-laptop",
+      platform: "browser",
+      stream: "old-laptop.browser",
+      observer: "legacy-observer-id",
+    },
+  };
+
+  const packed = await R.packOutboxEntry(entry, "fallback-host");
+  assert.deepEqual(Object.keys(packed), ["blob_id", "plaintext"]);
+  assert.equal(packed.blob_id, entry.blob_id);
+
+  const files = R.untar(await gunzip(packed.plaintext));
+  assert.deepEqual(files.map((file) => file.name), ["blob.json", "browser_example.jsonl"]);
+  const blob = JSON.parse(new TextDecoder().decode(files[0].bytes));
+  assert.deepEqual(blob, {
+    v: 1,
+    day: entry.day,
+    segment: entry.segment,
+    host: "old-laptop",
+    meta: { host: "old-laptop", platform: "browser" },
+  });
+  assert.equal(new TextDecoder().decode(files[1].bytes), entry.files[0].text);
+
+  globalThis.SolstoneHpke = loadHpke();
+  const recipient = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+  const sender = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+  const sealed = await R.sealBlob({
+    recipientSpki: new Uint8Array(await crypto.subtle.exportKey("spki", recipient.publicKey)),
+    senderPrivateKey: sender.privateKey,
+    senderPublicKey: sender.publicKey,
+    info: te.encode("local-form-entry-test"),
+    aad: te.encode(entry.blob_id),
+    plaintext: packed.plaintext,
+  });
+  assert.deepEqual(Object.keys(sealed), ["enc", "ct", "kAck"]);
+  assert.equal(sealed.ct.byteLength, packed.plaintext.byteLength + 16);
 });
 
 test("Offer bytes use exact magic, suite ids, and big-endian ct_len", () => {

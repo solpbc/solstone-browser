@@ -33,7 +33,7 @@ async function main() {
   }
   if (sw) {
     const swProbe = `(async () => { const r = await chrome.storage.local.get(['cfg','seg']); const cfg=r.cfg||{}, seg=r.seg||{}, sites=seg.sites||{};
-      return JSON.stringify({ connection: globalThis.SolstoneStatus.connection(globalThis.SolstoneStatus.normalize(cfg)), stream: cfg.stream, hostname: cfg.hostname, segmentSec: cfg.segmentSec, paused: cfg.paused, health: cfg.health,
+      return JSON.stringify({ connection: globalThis.SolstoneStatus.connection(globalThis.SolstoneStatus.normalize(cfg)), hostname: cfg.hostname, segmentSec: cfg.segmentSec, paused: cfg.paused, health: cfg.health,
         seg_day: seg.day, seg_sites: Object.fromEntries(Object.entries(sites).map(([k,v])=>[k,{active:v.active,lines:(v.lines||[]).length}])) }); })()`;
     console.log("SW STORAGE:", await evalOn(sw, swProbe));
   }

@@ -20,6 +20,7 @@
 
   const PAIR_DIAL_PATH = "/session/pair-dial";
   const DATA_DIAL_PATH = "/session/dial";
+  const ENROLL_DEVICE_PATH = "/enroll/device";
   const CHUNK_BYTES = 64 * 1024;
 
   function wsUrl(relayOrigin, path) {
@@ -139,11 +140,41 @@
     return connect(u, []);
   }
 
+  async function enrollDevice(relayOrigin, body) {
+    const url = relayOrigin.replace(/\/+$/, "") + ENROLL_DEVICE_PATH;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    let parsed = null;
+    try {
+      parsed = await resp.json();
+    } catch (_e) {
+      /* non-JSON */
+    }
+    if (!resp.ok) {
+      const err = new Error(`enroll failed: HTTP ${resp.status}${parsed ? " " + JSON.stringify(parsed) : ""}`);
+      err.status = resp.status;
+      throw err;
+    }
+    return parsed || {};
+  }
+
   function sendChunked(ws, bytes) {
     for (let off = 0; off < bytes.byteLength; off += CHUNK_BYTES) {
       ws.sendBinary(bytes.slice(off, off + CHUNK_BYTES));
     }
   }
 
-  globalThis.SolstoneRemoteTunnel = { PAIR_DIAL_PATH, DATA_DIAL_PATH, CHUNK_BYTES, dialPair, dialData, sendChunked };
+  globalThis.SolstoneRemoteTunnel = {
+    PAIR_DIAL_PATH,
+    DATA_DIAL_PATH,
+    ENROLL_DEVICE_PATH,
+    CHUNK_BYTES,
+    dialPair,
+    dialData,
+    enrollDevice,
+    sendChunked,
+  };
 })();

@@ -21,20 +21,14 @@ test("options HTML fixes the region, heading, and form contract", () => {
     assert.equal((html.match(new RegExp(`<h2>${heading}<\\/h2>`, "g")) || []).length, 1, heading);
   }
 
-  const choiceStart = html.indexOf('<fieldset id="destinationChoice">');
   const connectionStart = html.indexOf('<form id="connForm"');
   const connectionEnd = html.indexOf("</form>", connectionStart);
   const connectionForm = html.slice(connectionStart, connectionEnd);
-  const remoteStart = html.indexOf('<div id="remoteDestination"');
-  assert.ok(choiceStart < connectionStart);
   assert.match(connectionForm, /id="hostname"/);
   assert.match(connectionForm, /id="segmentSec"/);
-  assert.match(connectionForm, /id="streamLabel"/);
   assert.match(connectionForm, /id="saveBtn"/);
-  assert.match(connectionForm, /id="localDestination"[\s\S]*id="journalUrl"[\s\S]*id="registerBtn"/);
   assert.equal((connectionForm.match(/<form\b/g) || []).length, 1);
-  assert.ok(connectionEnd < remoteStart);
-  assert.match(html.slice(remoteStart), /id="pairForm"[\s\S]*id="pairBtn"[\s\S]*id="unpairBtn"/);
+  assert.match(html.slice(connectionEnd), /id="pairForm"[\s\S]*id="pairBtn"[\s\S]*id="unpairBtn"/);
 });
 
 test("options consumes shared derivations and removes every retired selector", () => {
@@ -56,11 +50,17 @@ test("options consumes shared derivations and removes every retired selector", (
   const retired = [
     "waitingDetails", "waitingSummary", "waitingBody", "connStatus",
     "pairStatus", "remoteState", "addStatus",
+    "destinationChoice", "destinationLocal", "destinationRemote", "localDestination",
+    "remoteDestination", "journalUrl", "registerBtn", "streamLabel", "journalLink",
   ];
   for (const id of retired) {
     assert.doesNotMatch(html, new RegExp(`id=["']${id}["']`), id);
     assert.doesNotMatch(optionsSource, new RegExp(`\\(["']${id}["']\\)`), id);
   }
+  for (const match of optionsSource.matchAll(/\$\("([^"]+)"\)/g)) {
+    assert.match(html, new RegExp(`id="${match[1]}"`), match[1]);
+  }
+  assert.doesNotMatch(optionsSource, /journalUrl|localRegistered|journalPermission|protocolVersion|streamName/);
 });
 
 test("options keeps technical journal details behind the details disclosure", () => {
@@ -77,13 +77,10 @@ test("options keeps technical journal details behind the details disclosure", ()
 });
 
 test("options applies the shared accessibility and color layer", () => {
-  assert.match(html, /<fieldset id="destinationChoice">[\s\S]*<legend>where your journal lives<\/legend>/);
-  assert.match(html, /id="destinationLocal" type="radio" name="journalDestination"/);
-  assert.match(html, /id="destinationRemote" type="radio" name="journalDestination"/);
-  assert.match(html, /id="firstRunChange"[^>]+aria-label="change where your journal lives"[^>]*>change<\/button>/);
+  assert.match(html, /id="firstRunChange"[^>]+aria-label="set up your journal"[^>]*>set up<\/button>/);
   assert.match(html, /id="actionMessage"[^>]+aria-live="polite"/);
   assert.match(html, /\[hidden\]\s*\{\s*display:\s*none !important;/);
-  assert.match(html, /button:focus-visible,\s*a:focus-visible,\s*input:focus-visible,\s*summary:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--focus\)[^}]*outline-offset:\s*2px/s);
+  assert.match(html, /button:focus-visible,\s*input:focus-visible,\s*summary:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--focus\)[^}]*outline-offset:\s*2px/s);
   assert.doesNotMatch(html, /outline\s*:\s*(?:none|0)\b/i);
   assert.match(html, /--focus:\s*#B06A1A;/);
   assert.match(html, /--field-line:\s*#96896F;/);
@@ -92,15 +89,16 @@ test("options applies the shared accessibility and color layer", () => {
   assert.match(html, /\.site button\s*\{[^}]*min-height:\s*24px[^}]*font-size:\s*12px/s);
   assert.match(html, /\.action-message\.ok\s*\{[^}]*color:\s*var\(--success-ink\)/);
   assert.match(html, /\.action-message\.bad\s*\{[^}]*color:\s*var\(--bad\)/);
+  assert.doesNotMatch(html, /<a\b|<code\b|<fieldset\b|<legend\b|type="radio"/);
+  assert.doesNotMatch(html, /\ba\s*\{|a:focus-visible|\.stream-row|\.destination-options|input\[type="radio"\]/);
 });
 
 test("options source fixes the predicates, destination state, and install opening", () => {
   assert.match(optionsSource, /allowlist\.length !== 0/);
-  assert.match(optionsSource, /!!\(state && state\.journalUrl\) && connection\.kind\.startsWith\("local-"\)/);
   assert.match(optionsSource, /row\.hidden = total === 0/);
   assert.match(optionsSource, /loss\.hidden = Number\(dropped\.segments \|\| 0\) <= 0/);
-  assert.match(optionsSource, /destinationOverride === derived/);
-  assert.match(optionsSource, /destinationOverride \|\| derived/);
+  assert.match(optionsSource, /firstRunChange"\)\.addEventListener\("click", \(\) => \{\s*\$?\("pairLink"\)\.focus\(\)/);
+  assert.doesNotMatch(optionsSource, /selectedDestination|showDestination|renderDestination|destinationOverride/);
   assert.match(optionsSource, /Disclosure\.addSite\(host, state\)/);
   assert.match(optionsSource, /disclose: presentDisclosure/);
   assert.match(backgroundSource, /onInstalled\.addListener\(\(details\) => \{[\s\S]*details\.reason === "install"[\s\S]*openOptionsPage\(\)[\s\S]*init\(\)/);
@@ -161,20 +159,22 @@ class FakeNode {
 function optionsState(overrides = {}) {
   return Object.assign({
     ok: true,
-    journalUrl: "http://localhost:5015",
     hostname: "laptop",
-    streamName: "laptop.browser",
     segmentSec: 300,
     showPageIndicator: false,
-    version: "0.0.13",
-    localRegistered: true,
-    journalPermission: "granted",
+    version: "0.2.0",
     paused: false,
     allowlist: [],
     pausedHosts: {},
     siteErrors: {},
     health: { lastError: null, lastUploadAt: 20, segmentsUploaded: 1, lastStatus: 200, consecutiveFailures: 0 },
-    remote: { paired: false, pending: false, instanceId: "", relayOrigin: "", pairedAt: null },
+    remote: {
+      paired: true,
+      pending: false,
+      instanceId: "instance-8cf0e2",
+      relayOrigin: "https://relay.example",
+      pairedAt: 10,
+    },
     activeSites: [],
     waiting: 0,
     dropped: { segments: 0, lines: 0 },
@@ -197,15 +197,14 @@ function descendantText(node) {
   return [node.textContent, ...node.children.flatMap((child) => descendantText(child))].join(" ");
 }
 
-test("the options binder drives disclosure, destinations, details, waiting, and loss", async () => {
+test("the options binder drives pair-only settings, disclosure, details, waiting, and loss", async () => {
   const ids = [
     "actionMessage", "firstRun", "firstRunHeading", "firstRunComposition", "firstRunCovenant",
     "firstRunScope", "firstRunWhat", "firstRunUnsent", "firstRunNever", "firstRunAbsolutes", "firstRunDestination",
     "firstRunDestinationDetail", "firstRunNothingYet", "firstRunChange", "journalCard",
-    "journalLead", "journalStateChip", "destinationLocal", "destinationRemote",
-    "localDestination", "remoteDestination", "connForm", "hostname", "segmentSec", "streamLabel",
-    "saveBtn", "journalUrl", "registerBtn", "pairForm", "pairLink", "pairBtn", "unpairBtn",
-    "flushBtn", "journalLink", "journalDetails", "pairInstanceId", "pairRelayOrigin", "journalError",
+    "journalLead", "journalStateChip", "connForm", "hostname", "segmentSec",
+    "saveBtn", "pairForm", "pairLink", "pairBtn", "unpairBtn",
+    "flushBtn", "journalDetails", "pairInstanceId", "pairRelayOrigin", "journalError",
     "lastSyncDetail", "waitingRow", "waitingPreview", "lossDetail", "sitesMain", "addForm", "newHost",
     "addBtn", "siteList", "siteDisclosure", "siteDisclosureTitle", "siteDisclosureWhat", "siteDisclosureUnsent",
     "siteDisclosureDestination", "siteDisclosureDestinationDetail", "siteDisclosureChrome",
@@ -234,22 +233,9 @@ test("the options binder drives disclosure, destinations, details, waiting, and 
         sent.push(message);
         if (message.cmd === "getState") callback(liveState);
         else if (message.cmd === "getBufferedPreview") callback(preview);
-        else if (message.cmd === "journalIntent") {
-          callback({
-            ok: true,
-            journalUrl: message.journalUrl,
-            changed: message.journalUrl !== liveState.journalUrl,
-            previous: {
-              journalUrl: liveState.journalUrl,
-              journalPermission: liveState.journalPermission,
-            },
-          });
-        } else if (message.cmd === "journalIntentResolve") {
-          callback({ ok: true, granted: true });
-        } else if (message.cmd === "setConfig") {
+        else if (message.cmd === "setConfig") {
           liveState = optionsState(Object.assign({}, liveState, {
             hostname: typeof message.hostname === "string" ? message.hostname : liveState.hostname,
-            journalUrl: typeof message.journalUrl === "string" ? message.journalUrl : liveState.journalUrl,
             segmentSec: typeof message.segmentSec === "number" ? message.segmentSec : liveState.segmentSec,
           }));
           callback({ ok: true });
@@ -289,21 +275,12 @@ test("the options binder drives disclosure, destinations, details, waiting, and 
   assert.equal(nodes.firstRun.hidden, false);
   assert.equal(nodes.firstRunDestination.textContent, expectedDisclosure.destination.label);
   assert.equal(nodes.firstRunDestinationDetail.textContent, expectedDisclosure.destination.detail);
-  assert.equal(nodes.journalLink.hidden, false);
-  assert.equal(nodes.journalLink.href, liveState.journalUrl);
   assert.equal(nodes.waitingRow.hidden, true);
   assert.equal(nodes.lossDetail.hidden, true);
   assert.equal(nodes.actionMessage.textContent, "");
 
   nodes.firstRunChange.listeners.click();
-  assert.equal(nodes.destinationLocal.focusCount, 1);
-
-  nodes.destinationRemote.checked = true;
-  nodes.destinationLocal.checked = false;
-  nodes.destinationRemote.listeners.change();
-  await globalThis.SolstoneOptions.refresh();
-  assert.equal(nodes.destinationRemote.checked, true, "a manual choice survives refresh");
-  assert.equal(nodes.remoteDestination.hidden, false);
+  assert.equal(nodes.pairLink.focusCount, 1);
 
   const instanceId = "instance-8cf0e2";
   const relayOrigin = "https://relay.example";
@@ -312,66 +289,27 @@ test("the options binder drives disclosure, destinations, details, waiting, and 
   });
   await globalThis.SolstoneOptions.refresh();
   expectedDisclosure = globalThis.SolstoneDisclosure.firstRun(liveState);
-  assert.equal(nodes.destinationRemote.checked, true);
   assert.equal(nodes.firstRunDestination.textContent, expectedDisclosure.destination.label);
   assert.equal(nodes.firstRunDestinationDetail.textContent, expectedDisclosure.destination.detail);
-  assert.equal(nodes.journalLink.hidden, true, "a stale local URL never exposes a remote journal link");
-  assert.equal(nodes.journalLink.href, undefined);
   assert.match(descendantText(nodes.pairInstanceId), new RegExp(instanceId));
   assert.match(descendantText(nodes.pairRelayOrigin), new RegExp(relayOrigin));
-  for (const id of [
-    "journalLead", "journalStateChip", "hostname", "segmentSec", "streamLabel", "journalUrl",
-    "localDestination", "remoteDestination",
-  ]) {
+  for (const id of ["journalLead", "journalStateChip", "hostname", "segmentSec"]) {
     assert.doesNotMatch(descendantText(nodes[id]), new RegExp(`${instanceId}|${relayOrigin}`), id);
   }
 
-  liveState = optionsState();
-  await globalThis.SolstoneOptions.refresh();
-  assert.equal(
-    nodes.destinationLocal.checked,
-    true,
-    "the override clears once state catches up, so a later unpair re-derives",
-  );
-  assert.equal(nodes.destinationRemote.checked, false);
-  assert.equal(nodes.localDestination.hidden, false);
-  assert.equal(nodes.remoteDestination.hidden, true);
-
-  nodes.destinationRemote.checked = true;
-  nodes.destinationLocal.checked = false;
-  nodes.destinationRemote.listeners.change();
   nodes.hostname.value = "remote-laptop";
   nodes.segmentSec.value = "120";
-  nodes.journalUrl.value = "";
-  const preservedJournalUrl = liveState.journalUrl;
   let permissionsBefore = permissionRequests;
   let sentBefore = sent.length;
   await nodes.connForm.listeners.submit({ preventDefault() {} });
-  assert.equal(permissionRequests, permissionsBefore, "remote save never requests permission for the hidden local address");
+  assert.equal(permissionRequests, permissionsBefore, "settings save does not request relay or site permission");
   assert.deepEqual(
     sent.slice(sentBefore).find((message) => message.cmd === "setConfig"),
-    { cmd: "setConfig", hostname: "remote-laptop", journalUrl: preservedJournalUrl, segmentSec: 120 },
-    "remote save persists shared fields and preserves the stored local address",
+    { cmd: "setConfig", hostname: "remote-laptop", segmentSec: 120 },
   );
+  assert.equal(sent.slice(sentBefore).some((message) => message.cmd === "probe"), false);
   assert.equal(nodes.actionMessage.textContent, "settings saved.");
   assert.equal(nodes.actionMessage.className, "action-message ok");
-
-  nodes.destinationLocal.checked = true;
-  nodes.destinationRemote.checked = false;
-  nodes.destinationLocal.listeners.change();
-  nodes.hostname.value = "local-laptop";
-  nodes.segmentSec.value = "90";
-  nodes.journalUrl.value = "http://localhost:6015";
-  permissionsBefore = permissionRequests;
-  sentBefore = sent.length;
-  await nodes.connForm.listeners.submit({ preventDefault() {} });
-  assert.equal(permissionRequests, permissionsBefore + 1, "local save keeps the journal permission flow");
-  assert.equal(sent.slice(sentBefore).some((message) => message.cmd === "journalIntent"), true);
-  assert.equal(sent.slice(sentBefore).some((message) => message.cmd === "journalIntentResolve"), true);
-  assert.deepEqual(
-    sent.slice(sentBefore).find((message) => message.cmd === "setConfig"),
-    { cmd: "setConfig", hostname: "local-laptop", journalUrl: "http://localhost:6015", segmentSec: 90 },
-  );
 
   nodes.segmentSec.value = "29";
   await nodes.connForm.listeners.submit({ preventDefault() {} });

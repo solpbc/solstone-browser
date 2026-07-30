@@ -7,6 +7,7 @@
   const DB = globalThis.SolstoneDB;
   const O = globalThis.SolstoneOutbox;
   const U = globalThis.SolstoneUuid;
+  const REMOTE_ONLY_MIGRATION_KEY = "migratedRemoteOnlyV1";
 
   function normalizeDropped(dropped) {
     return {
@@ -108,5 +109,36 @@
     await DB.put("outbox", current);
   }
 
-  globalThis.SolstoneOutboxStore = { enqueue, head, removeHeadIf, all, counts, getDropped, clearDropped, setBackoff, setDropped };
+  async function migrateRemoteOnly() {
+    if (await DB.get("meta", REMOTE_ONLY_MIGRATION_KEY)) return false;
+    await DB.tx(["outbox", "meta"], "readwrite", (_os, transaction) => {
+      const outbox = transaction.objectStore("outbox");
+      const meta = transaction.objectStore("meta");
+      const cursorReq = outbox.openCursor();
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result;
+        if (cursor) {
+          if (cursor.value.mode !== "remote") cursor.update(Object.assign({}, cursor.value, { mode: "remote" }));
+          cursor.continue();
+          return;
+        }
+        meta.put(true, REMOTE_ONLY_MIGRATION_KEY);
+      };
+    });
+    return true;
+  }
+
+  globalThis.SolstoneOutboxStore = {
+    REMOTE_ONLY_MIGRATION_KEY,
+    enqueue,
+    head,
+    removeHeadIf,
+    all,
+    counts,
+    getDropped,
+    clearDropped,
+    setBackoff,
+    setDropped,
+    migrateRemoteOnly,
+  };
 })();

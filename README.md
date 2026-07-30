@@ -3,8 +3,8 @@
 A Chromium (Manifest V3) **semantic browser observer** for
 [solstone](https://solpbc.org). It experiences the web apps you choose
 along with you, taking in their rendered text and rough layout. **Never pixels.
-Never raw HTML.** It delivers what it reads to your journal on this computer or
-to your journal at your paired home as its own `browser` stream.
+Never raw HTML.** It delivers what it reads to your journal at your paired home
+as its own `browser` stream.
 
 A browser extension isn't a new product; it's a new **observer surface**, and
 the most *semantic* one in the fleet. The OS screen observer already owns the
@@ -14,8 +14,7 @@ Slack message, a PR review request, as clean text, in background tabs, the
 moment the page changes.
 
 This is a Chromium desktop Web Store candidate. It is opt-in per site and
-delivers directly to your journal on this computer by default, with an optional
-paired remote home. See [`INSTALL.md`](INSTALL.md) to install it.
+delivers only to a paired home. See [`INSTALL.md`](INSTALL.md) to install it.
 
 ## How it works
 
@@ -27,8 +26,7 @@ paired remote home. See [`INSTALL.md`](INSTALL.md) to install it.
    per-app adapters, MutationObserver        accumulate deltas in storage
    change-gating, debounced)                        │  every segment (5 min)
   optional on-page marker                          ▼
-                                            local: multipart upload → journal
-                                            remote: HPKE-sealed relay tunnel
+                                            HPKE-sealed relay tunnel
                                                    │
                                                    ▼
                                        chronicle/{day}/{host}.browser/{segment}/
@@ -39,8 +37,7 @@ paired remote home. See [`INSTALL.md`](INSTALL.md) to install it.
   asks for a per-site Chrome permission grant (`optional_host_permissions` +
   `permissions.request()`). If Chrome removes access, sol pauses the site but
   keeps your choice so you can allow it again; unused grants are released unless
-  their hostname is also used by your configured journal or a paired or pending
-  remote-home relay.
+  their hostname is also used by a paired or pending relay.
 - **Semantic-only.** It gates elements with
   `Element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })`
   and a rendered-box fallback. There is no viewport or clip test, so rendered
@@ -51,18 +48,17 @@ paired remote home. See [`INSTALL.md`](INSTALL.md) to install it.
   labels pages hand to screen readers and tooltips, which sometimes aren't drawn
   on screen. It never calls
   `captureVisibleTab`. Never pixels. Never raw HTML.
-- **Self-contained observer.** In local mode, the worker registers as its own
-  observer and uploads finished segments straight to the journal's localhost
-  ingest API. In remote mode, the durable outbox keeps waiting entries locally,
-  and the worker seals each entry with HPKE immediately before sending it through
-  the paired relay. The pair link carries the home's fingerprint, which sol
+- **Self-contained observer.** The durable outbox keeps waiting entries on this
+  device, and the worker seals each entry with HPKE immediately before sending
+  it through the paired relay. The pair link carries the home's fingerprint, which sol
   verifies before trusting the home. The relay carries sealed content bytes and
   cannot read them, but it sees routing and authentication data, offer metadata,
   and Ready/ACK framing. See the [release compatibility gate](RELEASE.md#cut-a-tagged-release-like-our-other-surfaces).
   MV3 service-worker ephemerality is handled with `chrome.storage`, IndexedDB,
   and `chrome.alarms`.
-- **Trust controls.** The toolbar icon is a live status light for connected, connecting,
-  needs permission, paired · waiting for first sync, pairing not finished, can't reach, paused, paused by browser, and attention states. Pin sol to
+- **Trust controls.** The toolbar icon is a live status light for connected,
+  paired · waiting for first sync, pairing not finished, not paired, can't
+  reach, paused, paused by browser, and attention states. Pin sol to
   keep it visible; the on-page marker is an opt-in Options setting.
 
 ## The journal output (`browser.jsonl`)
@@ -87,8 +83,7 @@ so deltas key to the right message across virtualized-list node recycling.
 ```
 extension/            the unpacked-loadable MV3 extension
   manifest.json
-  background.js       service worker: registration, segment buffer, rotation, local/remote delivery, per-site lifecycle
-  journal.js          HTTP client for /app/observer/{register,ingest} and remote enroll
+  background.js       service worker: segment buffer, rotation, sealed delivery, per-site lifecycle
   content.js          per-tab orchestrator: skim on load + on settled change, optional marker, relay
   skim.js             the visibility-aware semantic DOM walker
   adapters.js         Gmail + Slack adapters + generic fallback (data, not code)
@@ -107,7 +102,7 @@ extension/            the unpacked-loadable MV3 extension
   lib/pairlink.js     pure 0x06 pair-link parse/build + RK derivation
   lib/uuid.js         pure UUIDv7 helpers
   lib/remote_blob.js  tar/gzip/blob shaping + HPKE seal/open helpers
-  lib/remote_tunnel.js relay WebSocket dial helpers
+  lib/remote_tunnel.js relay WebSocket dial and device-enrollment helpers
   vendor/hpke/        vendored @hpke/core IIFE + license + regen notes
   icons/
 test/
@@ -116,11 +111,11 @@ test/
   pairlink.test.mjs   Section 9 pair-link vector equality
   hpke.test.mjs       Section 10 HPKE interop vector equality
   remote_blob.test.mjs tar/blob/offer/ack pure tests
+  network_surface.test.mjs exact shipped network-operation inventory
   uuid.test.mjs       UUIDv7 pure tests
   vocabulary.mjs      shared owner-vocabulary regex + pure surface scanners
   vocabulary.test.mjs scanner regressions + real-tree owner-copy guard
   skim.cdp.mjs        real-Chrome skim smoke over CDP (zero-dep)
-  relay_roundtrip.mjs end-to-end register+ingest against a real local journal
 ```
 
 ## Tests
@@ -130,15 +125,14 @@ npm test          # pure-logic unit tests, pair-link/HPKE vectors, remote blob b
 npm run test:idb  # production outbox transactions against fake IndexedDB (needs dev deps)
 make ci           # locked dev install + pure units + real-IDB + vendor reproducibility
 npm run smoke     # real headless Chrome: skim the Gmail/Slack/article fixtures
-npm run relay-check   # run ON the journal machine: register + upload + verify a segment landed
-npm run e2e       # agentic integration: content script -> service worker -> journal/relay, under
+npm run e2e       # agentic integration: content script -> service worker -> relay, under
                   #   Playwright new-headless (one-time: `npx playwright install chromium`)
 ```
 
-Two ways to exercise the live path (content script → worker → journal/relay):
+Two ways to exercise the live path (content script → worker → relay):
 
 - **Agentic:** `npm run e2e` (a.k.a. `make e2e`) drives it under headless
-  automation against a stub journal/relay, including the dynamic
+  automation against a stub relay, including the dynamic
   `registerContentScripts` injection and the paired HPKE relay path. See
   [AGENTS.md](AGENTS.md) § agentic e2e.
 - **Guided:** [test/GUIDED.md](test/GUIDED.md) is the human-in-the-loop

@@ -87,6 +87,10 @@
     return { v: v == null ? 1 : v, day, segment, host, meta: meta || {} };
   }
 
+  function uploadMeta(hostname) {
+    return { host: hostname || "local", platform: "browser" };
+  }
+
   function requireLen(bytes, len, name) {
     const b = bytesFrom(bytes, name);
     if (b.byteLength !== len) throw new Error(`${name} must be ${len} bytes`);
@@ -178,6 +182,20 @@
     return collect(new Blob([tarBytes]).stream().pipeThrough(new CompressionStream("gzip")));
   }
 
+  async function packOutboxEntry(entry, hostname) {
+    const meta = uploadMeta((entry.meta && entry.meta.host) || hostname);
+    return {
+      blob_id: entry.blob_id,
+      plaintext: await packPlaintext(entry.files, {
+        v: 1,
+        day: entry.day,
+        segment: entry.segment,
+        host: meta.host,
+        meta,
+      }),
+    };
+  }
+
   function suite() {
     const H = globalThis.SolstoneHpke;
     return new H.CipherSuite({
@@ -226,12 +244,14 @@
     tar,
     untar,
     blobJson,
+    uploadMeta,
     offerBytes,
     parseReady,
     parseAck,
     ackTag,
     blobInfo,
     packPlaintext,
+    packOutboxEntry,
     sealBlob,
     sealBase,
     openBaseSealed,

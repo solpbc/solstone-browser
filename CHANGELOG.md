@@ -109,7 +109,7 @@ states, plain language, and one-tap symmetry.
 - **Pin suggestion.** The popup suggests pinning solstone when Chrome has tucked
   the icon away, so the status light stays visible.
 - **Port-safe live broadcasts.** Pause-all and the marker toggle now reach
-  observed tabs on port-bearing hosts (e.g. `example.test:8443`), not only portless
+  observed tabs on port-bearing hosts (e.g. `localhost:5015`), not only portless
   domains — the broadcasts use the same port-stripped match pattern as
   registration.
 

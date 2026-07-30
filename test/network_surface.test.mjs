@@ -197,7 +197,12 @@ test("port 5015 remains only in the production host-pattern explanation", () => 
     .filter((file) => fs.readFileSync(file, "utf8").includes("5015"))
     .map((file) => path.relative(root, file));
   assert.deepEqual(matches, ["extension/lib/hosts.js"]);
-  for (const relativeName of ["README.md", "INSTALL.md", "test/GUIDED.md", "AGENTS.md", "RELEASE.md", "CHANGELOG.md"]) {
+  // CHANGELOG.md is deliberately absent. Shipped sections are the release notes
+  // a published GitHub release was generated from, so they are a historical
+  // record and are never edited — a blanket check here would demand rewriting
+  // one, which is exactly what it did before this exemption. Live setup guidance
+  // is what this guard is for, and every document that carries it is listed.
+  for (const relativeName of ["README.md", "INSTALL.md", "test/GUIDED.md", "AGENTS.md", "RELEASE.md"]) {
     assert.equal(fs.readFileSync(path.join(root, relativeName), "utf8").includes("5015"), false, relativeName);
   }
 });

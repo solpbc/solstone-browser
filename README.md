@@ -1,5 +1,9 @@
 # solstone-browser
 
+> **status: parked.** this extension is not abandoned. it will return bundled
+> with native sol and deliver through a native app link. this version does not
+> currently deliver to any journal.
+
 A Chromium (Manifest V3) **semantic browser observer** for
 [solstone](https://solpbc.org). It experiences the web apps you choose
 along with you, taking in their rendered text and rough layout. **Never pixels.

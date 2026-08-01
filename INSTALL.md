@@ -1,5 +1,9 @@
 # Install solstone browser
 
+> **status: parked.** this extension is not abandoned. it will return bundled
+> with native sol and deliver through a native app link. this version does not
+> currently deliver to any journal.
+
 sol is a Chromium desktop extension that experiences the sites you choose,
 taking in their rendered text and rough layout. Never pixels. Never raw HTML.
 It delivers a distinct `<hostname>.browser` stream to your journal at a paired

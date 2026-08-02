@@ -117,8 +117,6 @@ test/
   remote_blob.test.mjs tar/blob/offer/ack pure tests
   network_surface.test.mjs exact shipped network-operation inventory
   uuid.test.mjs       UUIDv7 pure tests
-  vocabulary.mjs      shared owner-vocabulary regex + pure surface scanners
-  vocabulary.test.mjs scanner regressions + real-tree owner-copy guard
   skim.cdp.mjs        real-Chrome skim smoke over CDP (zero-dep)
 ```
 

@@ -175,20 +175,6 @@ All `.js` source files begin with:
 // Copyright (c) 2026 sol pbc
 ```
 
-## Brand canon
-
-solstone-browser's in-product self-name is **sol**. In owner-facing copy (INSTALL,
-popup/options text, the on-page marker, the toolbar tooltip) the app is **sol**,
-its memory is **your journal**, and **solstone** is the platform/family both are
-part of — also the store-listing name (`solstone browser`) and the repo/identity
-strings. Describe sol as something that **experiences / reads / takes in** the
-pages the owner chooses, along with them — never *captures, records, monitors,
-watches, or tracks*, and retire *observe / observing / observed / observation*
-from owner-facing strings. (In code and architecture it is still an observer —
-see the overview above.) Internal code vocabulary (`skim`, module/class names,
-the `Solstone*` globals, the `/app/observer/*` endpoints, the `[solstone]` log
-tag) stays as-is in code-only contexts.
-
 ## License
 
 AGPL-3.0-only. Copyright (c) 2026 sol pbc.

@@ -82,8 +82,6 @@ test("popup color tokens keep orange out of normal-size text and strengthen cont
   assert.match(html, /button\.primary\s*\{[^}]*border-color:\s*var\(--orange\)/s);
 });
 
-// test/vocabulary.test.mjs owns the repository-wide owner-copy guard.
-
 test("the empty loss block and its competing predicates are gone", () => {
   assert.doesNotMatch(`${html}\n${popupSource}`, /lossBtn|lossText|id=["']loss["']|dropped\.segments\s*>/);
 });

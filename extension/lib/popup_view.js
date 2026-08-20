@@ -53,7 +53,7 @@
     let siteAction;
 
     if (!page.ok) {
-      pageState = "sol can't take in this page";
+      pageState = "this page can't be added";
       siteAction = { id: "add-site", label: "add this site", disabled: true, primary: true };
     } else if (!pageRow) {
       pageState = "not added";

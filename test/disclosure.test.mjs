@@ -26,7 +26,7 @@ test("paired destination copy names the home and relay boundary exactly", () => 
 test("unpaired and unfinished-pair destinations use the pinned nowhere copy", () => {
   const expected = {
     label: "nowhere yet",
-    detail: "set up your journal first, or what sol takes in will just pile up here.",
+    detail: "set up your journal first. until then, browser updates wait here.",
   };
   assert.deepEqual(D.addSite("mail.example", {}).destination, expected);
   assert.deepEqual(D.addSite("mail.example", {
@@ -37,10 +37,10 @@ test("unpaired and unfinished-pair destinations use the pinned nowhere copy", ()
 test("first-run disclosure carries the pinned sealed-plaintext sentence byte for byte", () => {
   const copy = D.firstRun({});
   assert.equal(copy.neverReceives,
-    "sol pbc can never read it. it reaches your home sealed, and we hold no key.");
+    "browser updates can wait in this browser while your journal is unavailable. before their content crosses the relay, it is sealed for your journal. the browser sends the relay the sealed content, not the key needed to open it.");
   assert.deepEqual(copy.destination, {
     label: "nowhere yet",
-    detail: "set up your journal first, or what sol takes in will just pile up here.",
+    detail: "set up your journal first. until then, browser updates wait here.",
   });
   assert.equal(copy.nothingYet, "nothing is taken in until you add your first site.");
 });

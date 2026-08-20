@@ -37,17 +37,17 @@
     }
     return {
       label: "nowhere yet",
-      detail: "set up your journal first, or what sol takes in will just pile up here.",
+      detail: "set up your journal first. until then, browser updates wait here.",
     };
   }
 
   function addSite(host, status) {
     return {
       title: `add ${host}?`,
-      whatSolTakesIn: "sol will take in the rendered text of this site, along with you, whenever a tab on it is open, and keep it in your journal. that includes background tabs, and text you'd only see by scrolling.",
-      unsentText: "if the site has a message box, that can include what you've typed but haven't sent. sol skips the compose box on gmail and slack, and nowhere else yet.",
+      whatSolTakesIn: "the solstone app takes in what you share with it on this site whenever a tab is open. all of it goes into your journal: rendered text and rough layout, including background tabs and text you'd only see by scrolling. never pixels.",
+      unsentText: "rendered text can include words you've typed but haven't sent.",
       destination: destinationFor(status),
-      whatChromeDoes: "chrome will ask you to allow this next. you can remove the site any time.",
+      whatChromeDoes: "Chrome will ask you to allow this next. you can remove the site any time.",
       confirmLabel: "add this site",
       cancelLabel: "cancel",
     };
@@ -56,14 +56,14 @@
   function firstRun(status) {
     return {
       kinship: [
-        "this is sol, part of solstone.",
-        "sol lives on your devices, experiences your day with you, and keeps it all in your journal.",
+        "welcome to solstone.",
+        "the solstone app takes in what you share with it, and all of it goes into your journal.",
         "your journal is always private, only yours.",
       ],
-      scope: "in your browser, sol takes in only the sites you add.",
-      whatSolTakesIn: "on a site you add, sol takes in the page's rendered text and rough layout, along with you, and keeps it in your journal. that is the text the page has drawn, what you can see now and what you'd see by scrolling, plus the labels pages hand to screen readers and tooltips, which sometimes aren't drawn on screen. never pixels. never raw HTML. never a site you didn't add.",
-      unsentText: "on a site with a message box, that can include what you've typed but haven't sent. sol skips the compose box on gmail and slack, and nowhere else yet.",
-      neverReceives: "sol pbc can never read it. it reaches your home sealed, and we hold no key.",
+      scope: "you choose which browser sites to share with the solstone app.",
+      whatSolTakesIn: "on a site you add, the solstone app takes in what you share with it. all of it goes into your journal: the page's rendered text and rough layout, what you can see now and what you'd see by scrolling, plus some labels pages provide to screen readers and tooltips that sometimes aren't drawn on screen. never pixels. never raw HTML. never a site you didn't add.",
+      unsentText: "rendered text can include words you've typed but haven't sent.",
+      neverReceives: "browser updates can wait in this browser while your journal is unavailable. before their content crosses the relay, it is sealed for your journal. the browser sends the relay the sealed content, not the key needed to open it.",
       absolutes: "no analytics. no telemetry. no phone home. nobody counted.",
       destination: destinationFor(status),
       nothingYet: "nothing is taken in until you add your first site.",

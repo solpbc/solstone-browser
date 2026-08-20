@@ -115,7 +115,7 @@ test("page descriptors cover add, remove, unsupported, and pause actions", () =>
   assert.equal(remove.state, "reload this tab to begin");
 
   const unsupported = View.arrange(verdict(), state(), { host: "", ok: false }).find((s) => s.id === "page");
-  assert.equal(unsupported.state, "sol can't take in this page");
+  assert.equal(unsupported.state, "this page can't be added");
   assert.equal(unsupported.siteAction.disabled, true);
 
   const paused = View.arrange(verdict(), state({ paused: true }), { host: "example.com", ok: true }).find((s) => s.id === "page");

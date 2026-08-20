@@ -18,6 +18,8 @@
     `<svg width="15" height="15" viewBox="2.5 2.5 27 27" aria-hidden="true">` +
     `<path fill="#FFCF33" d="${RAYS}"/>` +
     `<circle cx="16" cy="16" r="6.5" fill="none" stroke="#E8923A" stroke-width="1.7"/></svg>`;
+  const TITLE_ON = "the solstone app takes in what you share with it on this page. all of it goes into your journal.";
+  const TITLE_PAUSED = "this page is paused.";
 
   let hostEl = null;
   let labelEl = null;
@@ -46,7 +48,6 @@
     labelEl.textContent = "on";
     pill.appendChild(mark);
     pill.appendChild(labelEl);
-    pill.title = "sol is experiencing this page with you, kept in your journal";
     root.appendChild(pill);
     (document.body || document.documentElement).appendChild(hostEl);
   }
@@ -55,6 +56,7 @@
     ensure();
     if (labelEl) labelEl.textContent = paused ? "paused" : "on";
     if (pillEl) pillEl.style.background = paused ? "rgba(91,82,70,0.95)" : "rgba(26,26,26,0.92)";
+    if (pillEl) pillEl.title = paused ? TITLE_PAUSED : TITLE_ON;
     if (hostEl) hostEl.style.opacity = "1";
   }
 

@@ -124,7 +124,7 @@ test("connection returns exactly five kinds with exact owner copy", () => {
         stateLabel: "can't reach",
         destination: "your home",
         destinationDetail: "your home, reached over a sealed link",
-        consequence: "your home isn't answering. what sol takes in is kept here, waiting to sync.",
+        consequence: "the connection to your journal is unavailable. browser updates wait here until they can go into your journal.",
       },
     },
     {
@@ -146,7 +146,7 @@ test("connection returns exactly five kinds with exact owner copy", () => {
         stateLabel: "not paired",
         destination: "nowhere yet",
         destinationDetail: "your journal at your home, once you pair it",
-        consequence: "set up your journal first, or what sol takes in will just pile up here.",
+        consequence: "set up your journal first. until then, browser updates wait here.",
       },
     },
   ];
@@ -186,13 +186,13 @@ test("every verdict rung has exact copy, actions, and icon", () => {
         tone: "attention",
         headline: "some updates couldn't be kept",
         sub: "kept here, going to your journal at your home when it answers",
-        reason: "sol was offline too long and dropped the oldest to make room.",
+        reason: "the oldest waiting updates were dropped to make room.",
         actions: [],
         also: [],
       },
       icon: {
         prefix: "icon-error-",
-        title: "sol · some updates couldn't be kept · kept here, going to your journal at your home when it answers",
+        title: "solstone · some updates couldn't be kept · kept here, going to your journal at your home when it answers",
         badge: "!",
       },
     },
@@ -204,13 +204,13 @@ test("every verdict rung has exact copy, actions, and icon", () => {
         tone: "attention",
         headline: "can't reach your journal",
         sub: "kept here, going to your journal at your home when it answers",
-        reason: "your home isn't answering. what sol takes in is kept here, waiting to sync.",
+        reason: "the connection to your journal is unavailable. browser updates wait here until they can go into your journal.",
         actions: [{ id: "try-now", label: "try now" }],
         also: [],
       },
       icon: {
         prefix: "icon-half-",
-        title: "sol · can't reach your journal · kept here, going to your journal at your home when it answers",
+        title: "solstone · can't reach your journal · kept here, going to your journal at your home when it answers",
         badge: "",
       },
     },
@@ -226,7 +226,7 @@ test("every verdict rung has exact copy, actions, and icon", () => {
         actions: [],
         also: [],
       },
-      icon: { prefix: "icon-paused-", title: "sol · paused", badge: "" },
+      icon: { prefix: "icon-paused-", title: "solstone · paused", badge: "" },
     },
     {
       status: normalized({ pausedHosts: { "example.com": true } }),
@@ -236,13 +236,13 @@ test("every verdict rung has exact copy, actions, and icon", () => {
         tone: "attention",
         headline: "1 site paused by your browser",
         sub: "going to your journal at your home, sealed on the way",
-        reason: "chrome took back access. sol paused rather than quietly forgetting.",
+        reason: "site access is no longer available. allow it again to resume the affected sites.",
         actions: [],
         also: [],
       },
       icon: {
         prefix: "icon-error-",
-        title: "sol · 1 site paused by your browser · going to your journal at your home, sealed on the way",
+        title: "solstone · 1 site paused by your browser · going to your journal at your home, sealed on the way",
         badge: "!",
       },
     },
@@ -260,7 +260,7 @@ test("every verdict rung has exact copy, actions, and icon", () => {
       },
       icon: {
         prefix: "icon-error-",
-        title: "sol · 1 site needs attention · going to your journal at your home, sealed on the way",
+        title: "solstone · 1 site needs attention · going to your journal at your home, sealed on the way",
         badge: "!",
       },
     },
@@ -276,7 +276,7 @@ test("every verdict rung has exact copy, actions, and icon", () => {
         actions: [{ id: "set-up", label: "set up your journal" }],
         also: [],
       },
-      icon: { prefix: "icon-paused-", title: "sol · no journal yet", badge: "" },
+      icon: { prefix: "icon-paused-", title: "solstone · no journal yet", badge: "" },
     },
     {
       status: S.normalize({
@@ -293,7 +293,7 @@ test("every verdict rung has exact copy, actions, and icon", () => {
         actions: [{ id: "set-up", label: "finish pairing" }],
         also: [],
       },
-      icon: { prefix: "icon-paused-", title: "sol · pairing isn't finished", badge: "" },
+      icon: { prefix: "icon-paused-", title: "solstone · pairing isn't finished", badge: "" },
     },
     {
       status: normalized({ allowlist: [] }),
@@ -302,12 +302,12 @@ test("every verdict rung has exact copy, actions, and icon", () => {
         kind: "no-sites",
         tone: "calm",
         headline: "no sites yet",
-        sub: "sol takes in nothing until you add a site",
+        sub: "nothing is taken in until you add a site.",
         reason: "",
         actions: [],
         also: [],
       },
-      icon: { prefix: "icon-paused-", title: "sol · no sites yet", badge: "" },
+      icon: { prefix: "icon-paused-", title: "solstone · no sites yet", badge: "" },
     },
     {
       status: normalized({ health: {} }),
@@ -323,7 +323,7 @@ test("every verdict rung has exact copy, actions, and icon", () => {
       },
       icon: {
         prefix: "icon-half-",
-        title: "sol · paired, nothing sent yet · going to your journal at your home, sealed on the way",
+        title: "solstone · paired, nothing sent yet · going to your journal at your home, sealed on the way",
         badge: "",
       },
     },
@@ -341,7 +341,7 @@ test("every verdict rung has exact copy, actions, and icon", () => {
       },
       icon: {
         prefix: "icon",
-        title: "sol · on · going to your journal at your home, sealed on the way",
+        title: "solstone · on · going to your journal at your home, sealed on the way",
         badge: "",
       },
     },
@@ -359,7 +359,7 @@ test("every verdict rung has exact copy, actions, and icon", () => {
       },
       icon: {
         prefix: "icon",
-        title: "sol · on · going to your journal at your home, sealed on the way",
+        title: "solstone · on · going to your journal at your home, sealed on the way",
         badge: "",
       },
     },
@@ -375,7 +375,7 @@ test("every verdict rung has exact copy, actions, and icon", () => {
         actions: [{ id: "open-settings", label: "open settings" }],
         also: [],
       },
-      icon: { prefix: "icon-half-", title: "sol · status unavailable", badge: "" },
+      icon: { prefix: "icon-half-", title: "solstone · status unavailable", badge: "" },
     },
   ];
 
@@ -481,7 +481,7 @@ test("iconState accepts the legacy positional entryMatchHosts map", () => {
     "localhost:3000": "localhost",
   }), {
     prefix: "icon-error-",
-    title: "sol · 2 sites paused by your browser · going to your journal at your home, sealed on the way",
+    title: "solstone · 2 sites paused by your browser · going to your journal at your home, sealed on the way",
     badge: "!",
   });
 });

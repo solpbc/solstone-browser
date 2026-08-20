@@ -16,7 +16,7 @@ test("popup HTML fixes the section order and heading contract", () => {
   assert.ok(positions.every((position) => position >= 0));
   assert.deepEqual(positions, positions.slice().sort((a, b) => a - b));
   assert.match(html, /<img[^>]+alt=""/);
-  assert.match(html, />sol<\/span>\s*<span class="desc">in your browser</);
+  assert.match(html, />solstone<\/span>\s*<span class="desc">in your browser</);
   assert.match(html, /<section id="verdict"[^>]+role="status">/);
   assert.match(html, /<h1 id="verdictHeadline" class="v-head"><\/h1>/);
   assert.match(html, /<section id="disclosure"[^>]+hidden>/);

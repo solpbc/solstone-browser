@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA50W9PjYwnPaiAi30BL9zyFzMbh+SVUC7E5Ys/na+pBPEn2I88WWpvwnX8rlnPoHKxTi0etNN4jbaLJL8QN5JIV/DN0N3XAZom/rfnuP5uzCLM8+n89GKbXf6iVcXHFES5MlJPE+JYS2BgrJpHbZz+/V7V734hWjQnBMyECGChlZo4j81hnaXUJmvCvAvSAUA24LbVVe6dZAo/m5NYQmgqHw51KJVCRspjhQhOrxQerB4JPPk34Hl7dvHkzooOtdR5FX9NKYV7Dtpjb3zvM4BPLgxgtW8w0n97ZdUmznPOutjchZmKhZfZGgp7DPiaHDYIQbkvgWkvnxznimZTNDitwIDAQAB",
-  "name": "solstone browser",
+  "name": "solstone",
   "version": "0.2.0",
-  "description": "sol experiences the sites you choose, taking in their visible text, never pixels, and keeps it in your journal.",
+  "description": "the solstone app takes in what you share with it on added sites. rendered text and rough layout go into your journal, never pixels.",
   "minimum_chrome_version": "120",
   "permissions": ["storage", "unlimitedStorage", "alarms", "scripting", "activeTab"],
   "optional_host_permissions": ["*://*/*"],
@@ -12,7 +12,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "sol",
+    "default_title": "solstone",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

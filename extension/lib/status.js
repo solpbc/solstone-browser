@@ -17,7 +17,7 @@
     paused: "nothing is being taken in",
     "no-journal": "nothing is being taken in, and nothing is going anywhere",
     "pairing-unfinished": "nowhere yet. pairing isn't finished.",
-    "no-sites": "sol takes in nothing until you add a site",
+    "no-sites": "nothing is taken in until you add a site.",
     unavailable: "",
   };
   const DESTINATION_SUB_KINDS = new Set([
@@ -106,7 +106,7 @@
     let stateLabel = "not paired";
     let destination = "nowhere yet";
     let destinationDetail = "your journal at your home, once you pair it";
-    let consequence = "set up your journal first, or what sol takes in will just pile up here.";
+    let consequence = "set up your journal first. until then, browser updates wait here.";
     if (kind === "remote-connected") {
       stateLabel = "connected";
       destination = "your home";
@@ -121,7 +121,7 @@
       stateLabel = "can't reach";
       destination = "your home";
       destinationDetail = "your home, reached over a sealed link";
-      consequence = "your home isn't answering. what sol takes in is kept here, waiting to sync.";
+      consequence = "the connection to your journal is unavailable. browser updates wait here until they can go into your journal.";
     } else if (kind === "remote-pending") {
       stateLabel = "pairing not finished";
       destination = "your home";
@@ -211,10 +211,10 @@
         tone = "attention";
         headline = "some updates couldn't be kept";
         if (journalUnreachable) {
-          reason = "your journal hasn't answered for a while. sol kept what it could here, and dropped the oldest to make room.";
+          reason = "the connection to your journal was unavailable for a while. the oldest waiting updates were dropped to make room.";
           actions = [{ id: "try-now", label: "try now" }];
         } else {
-          reason = "sol was offline too long and dropped the oldest to make room.";
+          reason = "the oldest waiting updates were dropped to make room.";
           if (extras.outbox && extras.outbox.lines === 0) actions = [{ id: "dismiss", label: "dismiss" }];
         }
         break;
@@ -229,14 +229,14 @@
       case "paused":
         tone = "calm";
         headline = "paused";
-        if (status.waiting > 0) reason = "what sol took in earlier is waiting to sync.";
+        if (status.waiting > 0) reason = "what you shared earlier is waiting to go into your journal.";
         break;
       case "browser-paused":
         tone = "attention";
         headline = browserPausedCount === 1
           ? "1 site paused by your browser"
           : `${browserPausedCount} sites paused by your browser`;
-        reason = "chrome took back access. sol paused rather than quietly forgetting.";
+        reason = "site access is no longer available. allow it again to resume the affected sites.";
         break;
       case "site-error":
         tone = "attention";
@@ -295,7 +295,7 @@
       : { entryMatchHosts: secondArg || {} };
     const result = verdict(status, extras);
     const icon = ICON_BY_KIND[result.kind];
-    let title = `sol · ${result.headline}`;
+    let title = `solstone · ${result.headline}`;
     if (DESTINATION_SUB_KINDS.has(result.kind)) title += ` · ${result.sub}`;
     return { prefix: icon.prefix, title, badge: icon.badge };
   }

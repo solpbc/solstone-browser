@@ -4,7 +4,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>sol settings</title>
+    <title>solstone settings</title>
     <style>
       @font-face { font-family: "Comfortaa"; src: url("fonts/comfortaa.woff2") format("woff2"); font-weight: 700; font-display: swap; }
       @font-face { font-family: "InterBody"; src: url("fonts/inter.woff2") format("woff2"); font-weight: 400 600; font-display: swap; }
@@ -166,10 +166,10 @@
       <header id="pageHeader">
         <h1 id="pageTitle">
           <img src="brand/sol-ring.svg" width="24" height="24" alt="" />
-          sol <span class="desc">settings</span>
+          solstone <span class="desc">settings</span>
         </h1>
       </header>
-      <p id="intro" class="muted">pair your journal, manage your sites, and decide whether sol shows its on-page marker.</p>
+      <p id="intro" class="muted">pair your journal, manage your sites, and choose whether added pages show the on-page marker.</p>
 
       <section id="firstRun" class="card first-run" hidden>
         <h2 id="firstRunHeading"></h2>
@@ -206,7 +206,7 @@
             <div>
               <label for="segmentSec">send to your journal every (seconds)</label>
               <input id="segmentSec" type="number" min="30" step="30" placeholder="300" />
-              <div class="muted">how often sol sends a batch to your journal. default 300.</div>
+              <div class="muted">automatic browser batch interval, in seconds. default: 300.</div>
             </div>
           </div>
           <div class="actions"><button id="saveBtn" class="primary" type="submit">save</button></div>
@@ -241,7 +241,7 @@
 
       <section id="sitesCard" class="card">
         <h2>your sites</h2>
-        <p class="muted">sol takes in the rendered text and rough layout of only the sites you add, along with you, and keeps it in your journal. chrome asks before a site is added, and you can remove it any time.</p>
+        <p class="muted">the solstone app takes in what you share with it only on sites you add: rendered text and rough layout, never pixels. all of it goes into your journal. Chrome asks before a site is added, and you can remove it any time.</p>
         <div id="sitesMain">
           <form id="addForm" novalidate>
             <div class="addrow">
@@ -281,7 +281,7 @@
       </section>
 
       <div id="actionMessage" class="action-message" aria-live="polite"></div>
-      <footer id="pageFooter">solstone browser <span id="ver"></span> · semantic only · opt in</footer>
+      <footer id="pageFooter">solstone <span id="ver"></span> · semantic only · opt in</footer>
     </div>
     <script src="lib/hosts.js"></script>
     <script src="lib/status.js"></script>

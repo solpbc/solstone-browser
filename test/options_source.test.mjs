@@ -15,8 +15,8 @@ test("options HTML fixes the region, heading, and form contract", () => {
   const positions = ids.map((id) => html.indexOf(`id="${id}"`));
   assert.ok(positions.every((position) => position >= 0));
   assert.deepEqual(positions, positions.slice().sort((a, b) => a - b));
-  assert.match(html, /<title>sol settings<\/title>/);
-  assert.match(html, /<h1 id="pageTitle">[\s\S]*?sol\s*<span class="desc">settings<\/span>[\s\S]*?<\/h1>/);
+  assert.match(html, /<title>solstone settings<\/title>/);
+  assert.match(html, /<h1 id="pageTitle">[\s\S]*?solstone\s*<span class="desc">settings<\/span>[\s\S]*?<\/h1>/);
   for (const heading of ["your journal", "your sites", "on-page marker"]) {
     assert.equal((html.match(new RegExp(`<h2>${heading}<\\/h2>`, "g")) || []).length, 1, heading);
   }

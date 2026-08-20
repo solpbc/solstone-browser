@@ -10,7 +10,7 @@
 # (dev-only dependency; the shipped extension stays dependency-free). See
 # INSTALL.md / test/GUIDED.md / AGENTS.md.
 
-.PHONY: install test test-idb verify-vendor-hpke ci format clean smoke popup-check e2e e2e-deps dist cws cws-status cws-stage cws-publish-staged cws-cancel package-check set-version
+.PHONY: install test test-idb verify-vendor-hpke ci format brand-sync clean smoke popup-check e2e e2e-deps dist cws cws-status cws-stage cws-publish-staged cws-cancel package-check set-version
 
 # Install locked development tools. Nothing from node_modules ships in extension/.
 install:
@@ -37,6 +37,33 @@ ci:
 # No formatter configured yet.
 format:
 	@echo "no formatter configured yet — see the 'ci' note in the Makefile."
+
+# Re-vendor brand assets from the canonical brand source. CI verifies the
+# committed output (it does not run brand-sync) — run this locally when the
+# brand spec updates, then commit the diff.
+#
+# Requires rsvg-convert (librsvg) for the toolbar icon ladder, which has no
+# committed raster in the brand source and is rendered from the vendored state
+# SVGs at each declared size.
+#   apt: librsvg2-bin   brew: librsvg
+BRAND_SVGS = sol-ring sol-ring-paused sol-ring-icon sol-ring-icon-error sol-ring-icon-half sol-ring-icon-paused
+BRAND_ICON_SIZES = 16 48 128
+
+brand-sync:
+	@test -n "$(BRAND_DIR)" || { echo "brand: BRAND_DIR is required — point it at your brand asset directory (BRAND_DIR=/path/to/brand make brand-sync)"; exit 1; }
+	@test -d "$(BRAND_DIR)" || { echo "brand: BRAND_DIR=$(BRAND_DIR) not found"; exit 1; }
+	@command -v rsvg-convert >/dev/null 2>&1 || { echo "brand: rsvg-convert (librsvg) not found — apt install librsvg2-bin, or brew install librsvg"; exit 1; }
+	@set -e; for f in $(BRAND_SVGS); do cp "$(BRAND_DIR)/$$f.svg" "extension/brand/$$f.svg"; done
+	@# Toolbar icon ladder — rendered from the vendored state SVGs at every size
+	@# the manifest and chrome.action.setIcon declare, each straight from the
+	@# vector (never downsampled from one raster). Prefixes match lib/status.js.
+	@set -e; for size in $(BRAND_ICON_SIZES); do \
+	  rsvg-convert -w $$size -h $$size extension/brand/sol-ring-icon.svg        -o extension/icons/icon$$size.png; \
+	  rsvg-convert -w $$size -h $$size extension/brand/sol-ring-icon-half.svg   -o extension/icons/icon-half-$$size.png; \
+	  rsvg-convert -w $$size -h $$size extension/brand/sol-ring-icon-paused.svg -o extension/icons/icon-paused-$$size.png; \
+	  rsvg-convert -w $$size -h $$size extension/brand/sol-ring-icon-error.svg  -o extension/icons/icon-error-$$size.png; \
+	done
+	@echo "brand: synced from $(BRAND_DIR)"
 
 # Real-Chrome CDP skim smoke (needs a Chrome on this machine).
 smoke:

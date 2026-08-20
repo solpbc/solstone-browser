@@ -153,7 +153,7 @@ it is not a runtime npm or CDN dependency.
 - **Opt-in, least authorization.** Install with zero site access
   (`optional_host_permissions`); request each site on an explicit user gesture;
   honor a browser-side revoke (`permissions.onRemoved`).
-- **Visible + pausable.** The toolbar icon is the always-visible four-state
+- **Visible + pausable.** The toolbar icon is the always-visible six-state
   observation signal; the on-page marker is opt-in and off by default. Pause-all
   is one tap. No silent observation.
 - **Privacy in the data.** Keep rendered text + structure: what you can see now

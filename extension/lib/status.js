@@ -30,16 +30,16 @@
     "site-error",
   ]);
   const ICON_BY_KIND = {
-    dropped: { prefix: "icon-error-", badge: "!" },
-    "browser-paused": { prefix: "icon-error-", badge: "!" },
-    "site-error": { prefix: "icon-error-", badge: "!" },
+    dropped: { prefix: "icon-attention-", badge: "!" },
+    "browser-paused": { prefix: "icon-attention-", badge: "!" },
+    "site-error": { prefix: "icon-attention-", badge: "!" },
     paused: { prefix: "icon-paused-", badge: "" },
     "no-sites": { prefix: "icon-paused-", badge: "" },
     "no-journal": { prefix: "icon-paused-", badge: "" },
     "pairing-unfinished": { prefix: "icon-paused-", badge: "" },
-    unreachable: { prefix: "icon-half-", badge: "" },
-    "first-sync-pending": { prefix: "icon-half-", badge: "" },
-    unavailable: { prefix: "icon-half-", badge: "" },
+    unreachable: { prefix: "icon-offline-", badge: "" },
+    "first-sync-pending": { prefix: "icon", badge: "" },
+    unavailable: { prefix: "icon-error-", badge: "" },
     on: { prefix: "icon", badge: "" },
     idle: { prefix: "icon", badge: "" },
   };

@@ -46,7 +46,7 @@ format:
 # committed raster in the brand source and is rendered from the vendored state
 # SVGs at each declared size.
 #   apt: librsvg2-bin   brew: librsvg
-BRAND_SVGS = sol-ring sol-ring-paused sol-ring-icon sol-ring-icon-error sol-ring-icon-half sol-ring-icon-paused
+BRAND_SVGS = mark-healthy mark-paused mark-attention mark-offline mark-error
 BRAND_ICON_SIZES = 16 48 128
 
 brand-sync:
@@ -58,10 +58,11 @@ brand-sync:
 	@# the manifest and chrome.action.setIcon declare, each straight from the
 	@# vector (never downsampled from one raster). Prefixes match lib/status.js.
 	@set -e; for size in $(BRAND_ICON_SIZES); do \
-	  rsvg-convert -w $$size -h $$size extension/brand/sol-ring-icon.svg        -o extension/icons/icon$$size.png; \
-	  rsvg-convert -w $$size -h $$size extension/brand/sol-ring-icon-half.svg   -o extension/icons/icon-half-$$size.png; \
-	  rsvg-convert -w $$size -h $$size extension/brand/sol-ring-icon-paused.svg -o extension/icons/icon-paused-$$size.png; \
-	  rsvg-convert -w $$size -h $$size extension/brand/sol-ring-icon-error.svg  -o extension/icons/icon-error-$$size.png; \
+	  rsvg-convert -w $$size -h $$size extension/brand/mark-healthy.svg   -o extension/icons/icon$$size.png; \
+	  rsvg-convert -w $$size -h $$size extension/brand/mark-paused.svg    -o extension/icons/icon-paused-$$size.png; \
+	  rsvg-convert -w $$size -h $$size extension/brand/mark-attention.svg -o extension/icons/icon-attention-$$size.png; \
+	  rsvg-convert -w $$size -h $$size extension/brand/mark-offline.svg   -o extension/icons/icon-offline-$$size.png; \
+	  rsvg-convert -w $$size -h $$size extension/brand/mark-error.svg     -o extension/icons/icon-error-$$size.png; \
 	done
 	@echo "brand: synced from $(BRAND_DIR)"
 

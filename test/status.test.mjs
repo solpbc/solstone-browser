@@ -176,215 +176,247 @@ test("verdict carries the pinned remote destination copy byte for byte", () => {
   "kept here, going to your journal at your home when it answers");
 });
 
-test("every verdict rung has exact copy, actions, and icon", () => {
-  const cases = [
-    {
-      status: normalized({}, { dropped: { segments: 1, lines: 2 } }),
-      extras: { outbox: { lines: 1 } },
-      verdict: {
-        kind: "dropped",
-        tone: "attention",
-        headline: "some updates couldn't be kept",
-        sub: "kept here, going to your journal at your home when it answers",
-        reason: "the oldest waiting updates were dropped to make room.",
-        actions: [],
-        also: [],
-      },
-      icon: {
-        prefix: "icon-error-",
-        title: "solstone · some updates couldn't be kept · kept here, going to your journal at your home when it answers",
-        badge: "!",
-      },
+const RUNG_CASES = [
+  {
+    status: normalized({}, { dropped: { segments: 1, lines: 2 } }),
+    extras: { outbox: { lines: 1 } },
+    verdict: {
+      kind: "dropped",
+      tone: "attention",
+      headline: "some updates couldn't be kept",
+      sub: "kept here, going to your journal at your home when it answers",
+      reason: "the oldest waiting updates were dropped to make room.",
+      actions: [],
+      also: [],
     },
-    {
-      status: normalized({ health: { lastUploadAt: 100, lastError: "offline" } }),
-      extras: {},
-      verdict: {
-        kind: "unreachable",
-        tone: "attention",
-        headline: "can't reach your journal",
-        sub: "kept here, going to your journal at your home when it answers",
-        reason: "the connection to your journal is unavailable. browser updates wait here until they can go into your journal.",
-        actions: [{ id: "try-now", label: "try now" }],
-        also: [],
-      },
-      icon: {
-        prefix: "icon-half-",
-        title: "solstone · can't reach your journal · kept here, going to your journal at your home when it answers",
-        badge: "",
-      },
+    icon: {
+      prefix: "icon-attention-",
+      title: "solstone · some updates couldn't be kept · kept here, going to your journal at your home when it answers",
+      badge: "!",
     },
-    {
-      status: normalized({ paused: true }),
-      extras: {},
-      verdict: {
-        kind: "paused",
-        tone: "calm",
-        headline: "paused",
-        sub: "nothing is being taken in",
-        reason: "",
-        actions: [],
-        also: [],
-      },
-      icon: { prefix: "icon-paused-", title: "solstone · paused", badge: "" },
+  },
+  {
+    status: normalized({ health: { lastUploadAt: 100, lastError: "offline" } }),
+    extras: {},
+    verdict: {
+      kind: "unreachable",
+      tone: "attention",
+      headline: "can't reach your journal",
+      sub: "kept here, going to your journal at your home when it answers",
+      reason: "the connection to your journal is unavailable. browser updates wait here until they can go into your journal.",
+      actions: [{ id: "try-now", label: "try now" }],
+      also: [],
     },
-    {
-      status: normalized({ pausedHosts: { "example.com": true } }),
-      extras: { entryMatchHosts: { "example.com": "example.com" } },
-      verdict: {
-        kind: "browser-paused",
-        tone: "attention",
-        headline: "1 site paused by your browser",
-        sub: "going to your journal at your home, sealed on the way",
-        reason: "site access is no longer available. allow it again to resume the affected sites.",
-        actions: [],
-        also: [],
-      },
-      icon: {
-        prefix: "icon-error-",
-        title: "solstone · 1 site paused by your browser · going to your journal at your home, sealed on the way",
-        badge: "!",
-      },
+    icon: {
+      prefix: "icon-offline-",
+      title: "solstone · can't reach your journal · kept here, going to your journal at your home when it answers",
+      badge: "",
     },
-    {
-      status: normalized({ siteErrors: { "example.com": "failed" } }),
-      extras: {},
-      verdict: {
-        kind: "site-error",
-        tone: "attention",
-        headline: "1 site needs attention",
-        sub: "going to your journal at your home, sealed on the way",
-        reason: "",
-        actions: [],
-        also: [],
-      },
-      icon: {
-        prefix: "icon-error-",
-        title: "solstone · 1 site needs attention · going to your journal at your home, sealed on the way",
-        badge: "!",
-      },
+  },
+  {
+    status: normalized({ paused: true }),
+    extras: {},
+    verdict: {
+      kind: "paused",
+      tone: "calm",
+      headline: "paused",
+      sub: "nothing is being taken in",
+      reason: "",
+      actions: [],
+      also: [],
     },
-    {
-      status: S.normalize({ allowlist: ["example.com"] }),
-      extras: {},
-      verdict: {
-        kind: "no-journal",
-        tone: "calm",
-        headline: "no journal yet",
-        sub: "nothing is being taken in, and nothing is going anywhere",
-        reason: "",
-        actions: [{ id: "set-up", label: "set up your journal" }],
-        also: [],
-      },
-      icon: { prefix: "icon-paused-", title: "solstone · no journal yet", badge: "" },
+    icon: { prefix: "icon-paused-", title: "solstone · paused", badge: "" },
+  },
+  {
+    status: normalized({ pausedHosts: { "example.com": true } }),
+    extras: { entryMatchHosts: { "example.com": "example.com" } },
+    verdict: {
+      kind: "browser-paused",
+      tone: "attention",
+      headline: "1 site paused by your browser",
+      sub: "going to your journal at your home, sealed on the way",
+      reason: "site access is no longer available. allow it again to resume the affected sites.",
+      actions: [],
+      also: [],
     },
-    {
-      status: S.normalize({
-        allowlist: ["example.com"],
-        remotePending: { relayOrigin: pairedRemote.relayOrigin },
-      }),
-      extras: {},
-      verdict: {
-        kind: "pairing-unfinished",
-        tone: "calm",
-        headline: "pairing isn't finished",
-        sub: "nowhere yet. pairing isn't finished.",
-        reason: "",
-        actions: [{ id: "set-up", label: "finish pairing" }],
-        also: [],
-      },
-      icon: { prefix: "icon-paused-", title: "solstone · pairing isn't finished", badge: "" },
+    icon: {
+      prefix: "icon-attention-",
+      title: "solstone · 1 site paused by your browser · going to your journal at your home, sealed on the way",
+      badge: "!",
     },
-    {
-      status: normalized({ allowlist: [] }),
-      extras: {},
-      verdict: {
-        kind: "no-sites",
-        tone: "calm",
-        headline: "no sites yet",
-        sub: "nothing is taken in until you add a site.",
-        reason: "",
-        actions: [],
-        also: [],
-      },
-      icon: { prefix: "icon-paused-", title: "solstone · no sites yet", badge: "" },
+  },
+  {
+    status: normalized({ siteErrors: { "example.com": "failed" } }),
+    extras: {},
+    verdict: {
+      kind: "site-error",
+      tone: "attention",
+      headline: "1 site needs attention",
+      sub: "going to your journal at your home, sealed on the way",
+      reason: "",
+      actions: [],
+      also: [],
     },
-    {
-      status: normalized({ health: {} }),
-      extras: {},
-      verdict: {
-        kind: "first-sync-pending",
-        tone: "calm",
-        headline: "paired, nothing sent yet",
-        sub: "going to your journal at your home, sealed on the way",
-        reason: "the first pages go out on the next batch.",
-        actions: [],
-        also: [],
-      },
-      icon: {
-        prefix: "icon-half-",
-        title: "solstone · paired, nothing sent yet · going to your journal at your home, sealed on the way",
-        badge: "",
-      },
+    icon: {
+      prefix: "icon-attention-",
+      title: "solstone · 1 site needs attention · going to your journal at your home, sealed on the way",
+      badge: "!",
     },
-    {
-      status: normalized(),
-      extras: { activeSites: [] },
-      verdict: {
-        kind: "idle",
-        tone: "ok",
-        headline: "on",
-        sub: "going to your journal at your home, sealed on the way",
-        reason: "none of your sites are open right now.",
-        actions: [],
-        also: [],
-      },
-      icon: {
-        prefix: "icon",
-        title: "solstone · on · going to your journal at your home, sealed on the way",
-        badge: "",
-      },
+  },
+  {
+    status: S.normalize({ allowlist: ["example.com"] }),
+    extras: {},
+    verdict: {
+      kind: "no-journal",
+      tone: "calm",
+      headline: "no journal yet",
+      sub: "nothing is being taken in, and nothing is going anywhere",
+      reason: "",
+      actions: [{ id: "set-up", label: "set up your journal" }],
+      also: [],
     },
-    {
-      status: normalized(),
-      extras: { activeSites: ["example.com"] },
-      verdict: {
-        kind: "on",
-        tone: "ok",
-        headline: "on",
-        sub: "going to your journal at your home, sealed on the way",
-        reason: "",
-        actions: [],
-        also: [],
-      },
-      icon: {
-        prefix: "icon",
-        title: "solstone · on · going to your journal at your home, sealed on the way",
-        badge: "",
-      },
+    icon: { prefix: "icon-paused-", title: "solstone · no journal yet", badge: "" },
+  },
+  {
+    status: S.normalize({
+      allowlist: ["example.com"],
+      remotePending: { relayOrigin: pairedRemote.relayOrigin },
+    }),
+    extras: {},
+    verdict: {
+      kind: "pairing-unfinished",
+      tone: "calm",
+      headline: "pairing isn't finished",
+      sub: "nowhere yet. pairing isn't finished.",
+      reason: "",
+      actions: [{ id: "set-up", label: "finish pairing" }],
+      also: [],
     },
-    {
-      status: {},
-      extras: {},
-      verdict: {
-        kind: "unavailable",
-        tone: "unavailable",
-        headline: "status unavailable",
-        sub: "",
-        reason: "",
-        actions: [{ id: "open-settings", label: "open settings" }],
-        also: [],
-      },
-      icon: { prefix: "icon-half-", title: "solstone · status unavailable", badge: "" },
+    icon: { prefix: "icon-paused-", title: "solstone · pairing isn't finished", badge: "" },
+  },
+  {
+    status: normalized({ allowlist: [] }),
+    extras: {},
+    verdict: {
+      kind: "no-sites",
+      tone: "calm",
+      headline: "no sites yet",
+      sub: "nothing is taken in until you add a site.",
+      reason: "",
+      actions: [],
+      also: [],
     },
-  ];
+    icon: { prefix: "icon-paused-", title: "solstone · no sites yet", badge: "" },
+  },
+  {
+    status: normalized({ health: {} }),
+    extras: {},
+    verdict: {
+      kind: "first-sync-pending",
+      tone: "calm",
+      headline: "paired, nothing sent yet",
+      sub: "going to your journal at your home, sealed on the way",
+      reason: "the first pages go out on the next batch.",
+      actions: [],
+      also: [],
+    },
+    icon: {
+      prefix: "icon",
+      title: "solstone · paired, nothing sent yet · going to your journal at your home, sealed on the way",
+      badge: "",
+    },
+  },
+  {
+    status: normalized(),
+    extras: { activeSites: [] },
+    verdict: {
+      kind: "idle",
+      tone: "ok",
+      headline: "on",
+      sub: "going to your journal at your home, sealed on the way",
+      reason: "none of your sites are open right now.",
+      actions: [],
+      also: [],
+    },
+    icon: {
+      prefix: "icon",
+      title: "solstone · on · going to your journal at your home, sealed on the way",
+      badge: "",
+    },
+  },
+  {
+    status: normalized(),
+    extras: { activeSites: ["example.com"] },
+    verdict: {
+      kind: "on",
+      tone: "ok",
+      headline: "on",
+      sub: "going to your journal at your home, sealed on the way",
+      reason: "",
+      actions: [],
+      also: [],
+    },
+    icon: {
+      prefix: "icon",
+      title: "solstone · on · going to your journal at your home, sealed on the way",
+      badge: "",
+    },
+  },
+  {
+    status: {},
+    extras: {},
+    verdict: {
+      kind: "unavailable",
+      tone: "unavailable",
+      headline: "status unavailable",
+      sub: "",
+      reason: "",
+      actions: [{ id: "open-settings", label: "open settings" }],
+      also: [],
+    },
+    icon: { prefix: "icon-error-", title: "solstone · status unavailable", badge: "" },
+  },
+];
 
+test("every verdict rung has exact copy, actions, and icon", () => {
   const originalWarn = console.warn;
   console.warn = () => {};
   try {
-    for (const entry of cases) {
+    for (const entry of RUNG_CASES) {
       assert.deepEqual(S.verdict(entry.status, entry.extras), entry.verdict, entry.verdict.kind);
       assert.deepEqual(S.iconState(entry.status, entry.extras), entry.icon, entry.verdict.kind);
+    }
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("iconState prefix and badge match the locked six-state map", () => {
+  const ICON = {
+    on: { prefix: "icon", badge: "" },
+    idle: { prefix: "icon", badge: "" },
+    "first-sync-pending": { prefix: "icon", badge: "" },
+    paused: { prefix: "icon-paused-", badge: "" },
+    "no-sites": { prefix: "icon-paused-", badge: "" },
+    "no-journal": { prefix: "icon-paused-", badge: "" },
+    "pairing-unfinished": { prefix: "icon-paused-", badge: "" },
+    dropped: { prefix: "icon-attention-", badge: "!" },
+    "browser-paused": { prefix: "icon-attention-", badge: "!" },
+    "site-error": { prefix: "icon-attention-", badge: "!" },
+    unreachable: { prefix: "icon-offline-", badge: "" },
+    unavailable: { prefix: "icon-error-", badge: "" },
+  };
+  assert.equal(RUNG_CASES.length, 12);
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    for (const entry of RUNG_CASES) {
+      const icon = S.iconState(entry.status, entry.extras);
+      assert.deepEqual(
+        { prefix: icon.prefix, badge: icon.badge },
+        ICON[entry.verdict.kind],
+        entry.verdict.kind,
+      );
     }
   } finally {
     console.warn = originalWarn;
@@ -480,7 +512,7 @@ test("iconState accepts the legacy positional entryMatchHosts map", () => {
     "localhost:5015": "localhost",
     "localhost:3000": "localhost",
   }), {
-    prefix: "icon-error-",
+    prefix: "icon-attention-",
     title: "solstone · 2 sites paused by your browser · going to your journal at your home, sealed on the way",
     badge: "!",
   });
@@ -557,19 +589,30 @@ test("permission-required is absent from verdict and icon mappings", () => {
   assert.equal(source.includes("permission-required"), false);
 });
 
+test("the retired half mark is gone from the map and the icons", () => {
+  const source = fs.readFileSync(new URL("../extension/lib/status.js", import.meta.url), "utf8");
+  assert.equal(source.includes("icon-half"), false);
+  for (const name of fs.readdirSync(new URL("../extension/icons/", import.meta.url))) {
+    assert.equal(name.includes("half"), false, name);
+  }
+});
+
 test("icon assets exist for every reachable verdict", () => {
-  const statuses = [
-    S.normalize({}),
-    S.normalize({ remotePending: { relayOrigin: "https://relay.example" } }),
-    normalized({ health: {} }),
-    normalized(),
-    normalized({ health: { lastError: "offline" } }),
-  ];
-  for (const status of statuses) {
-    const icon = S.iconState(status, { activeSites: ["example.com"] });
-    for (const size of [16, 48, 128]) {
-      assert.equal(fs.existsSync(new URL(`../extension/icons/${icon.prefix}${size}.png`, import.meta.url)), true);
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    for (const entry of RUNG_CASES) {
+      const icon = S.iconState(entry.status, entry.extras);
+      for (const size of [16, 48, 128]) {
+        assert.equal(
+          fs.existsSync(new URL(`../extension/icons/${icon.prefix}${size}.png`, import.meta.url)),
+          true,
+          `${entry.verdict.kind} ${icon.prefix}${size}.png`,
+        );
+      }
     }
+  } finally {
+    console.warn = originalWarn;
   }
 });
 

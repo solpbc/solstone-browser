@@ -26,7 +26,7 @@ test-idb:
 verify-vendor-hpke:
 	node scripts/verify-vendor-hpke.mjs
 
-# Ordered pre-commit / lode gate: locked install, pure units, real IDB, then
+# Ordered pre-commit gate: locked install, pure units, real IDB, then
 # deterministic vendored-HPKE verification. No formatter or linter is wired yet.
 ci:
 	npm ci

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 //
-// Relay framing for this lode:
+// Relay framing:
 // - Pair WS: ws(s)://<relay-host>/session/pair-dial, subprotocols
 //   ["spl-v1", "spl-pair.<RK hex>"]. Pairing is a length-delimited binary byte
 //   stream: msg1 = bare 5 bytes "SBP1" || 0x01 (no length prefix);
@@ -12,8 +12,8 @@
 //   /session/dial, and an un-echoed offered subprotocol fails the browser
 //   connection). One blob per tunnel: Offer, Ready, Sealed chunks
 //   (<=64 KiB per send), Ack.
-// These paths and frames are this-lode-authoritative and must match sibling
-// relay/home lodes.
+// These paths and frames are authoritative here and must match the sibling
+// relay/home implementations.
 
 (function () {
   "use strict";

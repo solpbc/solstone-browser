@@ -60,6 +60,10 @@ pub fn capture_is_permitted(state: &serde_json::Value) -> bool {
         Some("state" | "hello_ack")
     ) || state.get("capture").and_then(serde_json::Value::as_str) != Some("permitted")
         || state
+            .get("custody")
+            .and_then(|custody| custody.get("full"))
+            .and_then(serde_json::Value::as_bool) == Some(true)
+        || state
             .get("freshness_ms")
             .and_then(crate::codec::nonnegative_integer)
             .is_none_or(|lease| lease == 0)

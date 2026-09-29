@@ -1,5 +1,5 @@
 {
-  "bundle_version": "1.0.1",
+  "bundle_version": "1.1.0",
   "wire_protocol": 1,
   "journal": {
     "id": "solstone-journal-format:browser-jsonl",
@@ -238,6 +238,7 @@
       "destination_generation",
       "period_id",
       "failure",
+      "custody",
       "version"
     ],
     "unsupported": [
@@ -253,6 +254,7 @@
       "destination_generation",
       "period_id",
       "failure",
+      "custody",
       "version"
     ],
     "batch": [

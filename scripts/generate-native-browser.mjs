@@ -91,6 +91,10 @@ function stateSchema(type) {
       destination_generation: { anyOf: [generationSchema, { type: "null" }] },
       period_id: { anyOf: [periodSchema, { type: "null" }] },
       failure: { enum: authority.enums.failure }, version: versionSchema,
+      custody: {
+        type: "object", additionalProperties: true, required: ["full", "stale"],
+        properties: { full: { type: "boolean" }, stale: { type: "boolean" } },
+      },
     },
     allOf: [
       { if: { properties: { capture: { enum: ["unavailable", "not_paired"] } } }, then: { properties: { destination_generation: { type: "null" }, period_id: { type: "null" } } } },
@@ -1395,6 +1399,21 @@ for (const type of ["state", "hello_ack"]) {
   for (const reason of ["resource_exhausted", "queue_full", "age_policy", "unaccepted_lost"]) {
     addVector({ id: type + "_capture_pressure_" + reason, direction: "host_to_extension", payloadObj: { type, capture: "intake_off", delivery: "kept_locally", freshness_ms: 15000, destination_generation: "g1", period_id: null, failure: reason }, expect: "accept" });
   }
+  const custodyBase = { type, capture: "permitted", delivery: "failed", failure: "relay_unavailable", freshness_ms: 15000, destination_generation: "g1", period_id: "p1" };
+  for (const full of [false, true]) {
+    for (const stale of [false, true]) {
+      addVector({ id: type + "_custody_" + full + "_" + stale, direction: "host_to_extension", payloadObj: { ...custodyBase, custody: { full, stale } }, expect: "accept" });
+    }
+  }
+  addVector({ id: type + "_custody_omitted", direction: "host_to_extension", payloadObj: custodyBase, expect: "accept" });
+  addVector({ id: type + "_custody_additive", direction: "host_to_extension", payloadObj: { ...custodyBase, custody: { full: false, stale: true, future_fact: "preserved" } }, expect: "accept" });
+  for (const [suffix, custody] of [
+    ["null", null], ["array", []], ["empty", {}],
+    ["missing_full", { stale: true }], ["missing_stale", { full: true }],
+    ["full_type", { full: 1, stale: false }], ["stale_type", { full: false, stale: "true" }],
+  ]) {
+    addVector({ id: type + "_custody_invalid_" + suffix, direction: "host_to_extension", payloadObj: { ...custodyBase, custody }, expect: "refuse", code: "missing_field" });
+  }
   addVector({ id: type + "_null_unpaired", direction: "host_to_extension", payloadObj: { type, capture: "not_paired", delivery: "unknown", freshness_ms: 0, destination_generation: null, period_id: null }, expect: "accept" });
   addVector({ id: type + "_no_freshness", direction: "host_to_extension", payloadObj: { type, capture: "not_paired", delivery: "unknown" }, expect: "refuse", code: "missing_field" });
 }
@@ -1471,7 +1490,7 @@ for (const rel of artifactRelativePaths) {
 const manifestObj = {
   generator: {
     name: "solstone-native-browser-gen",
-    version: "1.0.1",
+    version: "1.1.0",
   },
   bundle_version: authority.bundle_version,
   wire_protocol: authority.wire_protocol,

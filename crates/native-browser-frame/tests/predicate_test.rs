@@ -97,3 +97,29 @@ fn capture_predicate_requires_a_valid_positive_lease_state() {
     assert!(!may_renew_on_connection(1, 1, 1000, 999, 500));
     assert!(!freshness_authorizes_skim(1000, 1, 999));
 }
+
+
+#[test]
+fn custody_snapshots_preserve_concurrent_facts_and_gate_only_full_custody() {
+    for kind in ["hello_ack", "state"] {
+        let base = serde_json::json!({"type":kind,"capture":"permitted","delivery":"failed","failure":"relay_unavailable","destination_generation":"g","period_id":"p","freshness_ms":15000});
+        for full in [false, true] {
+            for stale in [false, true] {
+                let mut state = base.clone();
+                state["custody"] = serde_json::json!({"full":full,"stale":stale,"future_fact":"preserved"});
+                let bytes = encode(&state).unwrap();
+                match decode(&bytes, Direction::HostToExtension) {
+                    DecodeOutcome::Accept(value) => assert_eq!(value, state),
+                    outcome => panic!("custody snapshot refused: {outcome:?}"),
+                }
+                assert_eq!(capture_is_permitted(&state), !full);
+            }
+        }
+        assert!(capture_is_permitted(&base));
+        for custody in [serde_json::Value::Null, serde_json::json!([]), serde_json::json!({}), serde_json::json!({"full":false}), serde_json::json!({"stale":true}), serde_json::json!({"full":1,"stale":false}), serde_json::json!({"full":false,"stale":"true"})] {
+            let mut state = base.clone();
+            state["custody"] = custody;
+            assert!(!capture_is_permitted(&state));
+        }
+    }
+}

@@ -377,3 +377,23 @@ test("shared container-depth bound is enforced before decoding and recursive enc
   const cycle = {...hello}; cycle.extra = cycle;
   assert.throws(() => Codec.encode(cycle), {code: "bad_json"});
 });
+
+
+test("custody snapshots preserve concurrent facts and gate only full custody", () => {
+  for (const type of ["hello_ack", "state"]) {
+    const base = {type, capture: "permitted", delivery: "failed", failure: "relay_unavailable", destination_generation: "g", period_id: "p", freshness_ms: 15000};
+    for (const full of [false, true]) {
+      for (const stale of [false, true]) {
+        const state = {...base, custody: {full, stale, future_fact: "preserved"}};
+        const decoded = Codec.decode(Codec.encode(state), "host_to_extension");
+        assert.equal(decoded.status, "accept");
+        assert.deepEqual(decoded.value, state);
+        assert.equal(Codec.captureIsPermitted(state), !full);
+      }
+    }
+    assert.equal(Codec.captureIsPermitted(base), true);
+    for (const custody of [null, [], {}, {full: false}, {stale: true}, {full: 1, stale: false}, {full: false, stale: "true"}]) {
+      assert.equal(Codec.captureIsPermitted({...base, custody}), false);
+    }
+  }
+});

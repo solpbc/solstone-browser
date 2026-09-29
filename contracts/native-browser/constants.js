@@ -5,7 +5,7 @@
   "use strict";
 
   globalThis.SolstoneNativeBrowserConstants = Object.freeze({
-  "BUNDLE_VERSION": "1.0.1",
+  "BUNDLE_VERSION": "1.1.0",
   "WIRE_PROTOCOL": 1,
   "EXTENSION_TO_HOST_MAX": 33554432,
   "HOST_TO_EXTENSION_MAX": 65536,
@@ -244,6 +244,7 @@
       "destination_generation",
       "period_id",
       "failure",
+      "custody",
       "version"
     ],
     "unsupported": [
@@ -259,6 +260,7 @@
       "destination_generation",
       "period_id",
       "failure",
+      "custody",
       "version"
     ],
     "batch": [

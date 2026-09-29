@@ -445,7 +445,7 @@
   }
 
   function captureIsPermitted(state) {
-    if (!state || !["state", "hello_ack"].includes(state.type) || state.capture !== "permitted" || !freshnessValueAllowed(state.freshness_ms) || state.freshness_ms === 0) return false;
+    if (!state || !["state", "hello_ack"].includes(state.type) || state.capture !== "permitted" || !freshnessValueAllowed(state.freshness_ms) || state.freshness_ms === 0 || state.custody?.full === true) return false;
     try {
       return decode(JSON.stringify(state), "host_to_extension").status === "accept";
     } catch (_error) {

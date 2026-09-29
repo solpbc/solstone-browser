@@ -122,8 +122,10 @@ await run(
     const d = deferred(),
       entered = deferred(),
       oldPut = DB.put;
+    let heldFirstWrite = false;
     DB.put = async (...a) => {
-      if (a[2] === "everConnected") {
+      if (a[2] === "everConnected" && !heldFirstWrite) {
+        heldFirstWrite = true;
         entered.resolve();
         await d.promise;
       }

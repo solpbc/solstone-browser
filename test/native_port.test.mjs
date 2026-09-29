@@ -1360,3 +1360,102 @@ test("port: getStatus().addSiteEligible evaluates eligibility independently of g
   status = controller.getStatus();
   assert.equal(status.addSiteEligible, false);
 });
+
+
+await import(new URL("../extension/lib/status.js", import.meta.url));
+
+function reachFixture() {
+  const ports = [];
+  const clock = { now: 100 };
+  const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+    now: () => clock.now,
+    schedule: () => 0,
+    connectNative: () => {
+      const port = new MockPort();
+      ports.push(port);
+      return port;
+    },
+  });
+  controller.connect();
+  return { controller, ports, clock };
+}
+function reachState(type, capture) {
+  const paired = !["unavailable", "not_paired"].includes(capture);
+  return {
+    type, capture, delivery: "kept_locally",
+    freshness_ms: capture === "permitted" ? 15000 : 0,
+    destination_generation: paired ? "reach-generation" : null,
+    period_id: paired ? "reach-period" : null,
+  };
+}
+
+test("first app reach can arrive in a later state on the same port", async () => {
+  for (const capture of ["permitted", "not_paired", "paused"]) {
+    await resetDB();
+    const { controller, ports } = reachFixture();
+    await ports[0].receive(reachState("hello_ack", "unavailable"));
+    assert.equal(controller.everConnected, false);
+    assert.equal(await DB.get("meta", "everConnected"), undefined);
+    await ports[0].receive(reachState("state", capture));
+    assert.equal(controller.everConnected, true, capture);
+    assert.equal(await DB.get("meta", "everConnected"), true, capture);
+    ports[0].disconnect();
+    const view = globalThis.SolstoneStatus.derive(controller.getStatus());
+    assert.equal(view.kind, "cant-reach-app");
+    assert.equal(view.mark, "offline", capture);
+  }
+});
+
+test("invalid, unhandshaken, late and old-port input cannot establish app reach", async () => {
+  for (const scenario of ["invalid", "pending-state", "late-hello", "old-port"]) {
+    await resetDB();
+    const { controller, ports, clock } = reachFixture();
+    if (scenario === "invalid") {
+      await ports[0].receive(reachState("hello_ack", "unavailable"));
+      await ports[0].receive({ ...reachState("state", "permitted"), freshness_ms: -1 });
+    } else if (scenario === "pending-state") {
+      await ports[0].receive(reachState("state", "permitted"));
+    } else if (scenario === "late-hello") {
+      clock.now += 6000;
+      await ports[0].receive(reachState("hello_ack", "permitted"));
+    } else {
+      await ports[0].receive(reachState("hello_ack", "unavailable"));
+      controller.connect();
+      await ports[1].receive(reachState("hello_ack", "unavailable"));
+      await ports[0].receive(reachState("state", "permitted"));
+    }
+    assert.equal(controller.everConnected, false, scenario);
+    assert.equal(await DB.get("meta", "everConnected"), undefined, scenario);
+    assert.equal(controller.getStatus().capturePermitted, false, scenario);
+  }
+});
+
+test("failed reach persistence stays closed and a later live state retries", async () => {
+  await resetDB();
+  const { controller, ports } = reachFixture();
+  await ports[0].receive(reachState("hello_ack", "unavailable"));
+  const put = DB.put;
+  let attempts = 0;
+  DB.put = async (...args) => {
+    if (args[0] === "meta" && args[2] === "everConnected") {
+      attempts++;
+      throw new Error("fixture persistence failure");
+    }
+    return put(...args);
+  };
+  try {
+    await ports[0].receive(reachState("state", "permitted"));
+    assert.equal(attempts, 1);
+    assert.equal(controller.everConnected, false);
+    assert.equal(await DB.get("meta", "everConnected"), undefined);
+    assert.equal(controller.getStatus().capturePermitted, false);
+  } finally {
+    DB.put = put;
+  }
+  await ports[0].receive(reachState("state", "permitted"));
+  assert.equal(controller.everConnected, true);
+  assert.equal(await DB.get("meta", "everConnected"), true);
+  assert.equal(controller.getStatus().capturePermitted, true);
+});

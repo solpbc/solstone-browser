@@ -483,7 +483,7 @@
             }
           }
           if (!current()) return;
-          if (val.type === "hello_ack" && val.capture !== "unavailable" && !this.everConnected) {
+          if (val.capture !== "unavailable" && !this.everConnected) {
             await DB.put("meta", true, "everConnected");
             if (!current()) return;
             this.everConnected = true;

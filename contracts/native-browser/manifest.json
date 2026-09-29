@@ -1,0 +1,44 @@
+{
+  "generator": {
+    "name": "solstone-native-browser-gen",
+    "version": "1.0.0"
+  },
+  "bundle_version": "1.0.0",
+  "wire_protocol": 1,
+  "journal": {
+    "id": "solstone-journal-format:browser-jsonl",
+    "revision": "3b99f1af61d4e82c5c9c3748d90c1242c28c1e5b",
+    "path": "contracts/native-browser/browser.schema.json",
+    "sha256": "c14e66318587b8fa451ef1363e113885bdd80a41ce680b0c62fcc9033460a2e1"
+  },
+  "artifacts": {
+    "contracts/native-browser/authority.json": "70cb5efb9bc70f774e49ed22f23c35153ecdeccc65f94ad8396d89aafb4ee3d1",
+    "contracts/native-browser/browser.schema.json": "c14e66318587b8fa451ef1363e113885bdd80a41ce680b0c62fcc9033460a2e1",
+    "contracts/native-browser/envelope.schema.json": "ca254d60a105e5c991aba6f568f81b4a0b835ef02b44c1365cece3f1976e538f",
+    "contracts/native-browser/constants.js": "b5aa28aac7de800b6aa1042ece18e3467b755c30280b326eb1a8342619e41a31",
+    "crates/native-browser-frame/src/constants.rs": "e90c13d0e861ed03c0b2a50b13a81ae05499c6bc6ec6c55e6deb4ea4c83e0e8d",
+    "contracts/native-browser/corpus.json": "85dc485d17ca90bcfd41d5bb184b3711cc35cf3405b9dcd7e696665a2e42c14e",
+    "contracts/native-browser/recipes.json": "bcc81b8c7e13f62d821f8d18aca129f1b00ed18c5cb092d4f01e08f98b6da6fe",
+    "contracts/native-browser/swift.json": "9a31970f3645ed63a93cac3510394b1c63b2f65c833dfc998aa56b9191313dbb",
+    "contracts/native-browser/adoption.schema.json": "4686f4000247b276f42504e2ed298adaba449957e4ddbe2dc00a3da1ee8c8573",
+    "contracts/native-browser/registration/production/chrome/linux.json": "e7875ae358fe40c95821e9a5420af9aba668141c4c2c662ace30c57e5091b9e8",
+    "contracts/native-browser/registration/production/chrome/macos.json": "e7875ae358fe40c95821e9a5420af9aba668141c4c2c662ace30c57e5091b9e8",
+    "contracts/native-browser/registration/production/chrome/windows.json": "e7875ae358fe40c95821e9a5420af9aba668141c4c2c662ace30c57e5091b9e8",
+    "contracts/native-browser/registration/production/edge/linux.json": "e7875ae358fe40c95821e9a5420af9aba668141c4c2c662ace30c57e5091b9e8",
+    "contracts/native-browser/registration/production/edge/macos.json": "e7875ae358fe40c95821e9a5420af9aba668141c4c2c662ace30c57e5091b9e8",
+    "contracts/native-browser/registration/production/edge/windows.json": "e7875ae358fe40c95821e9a5420af9aba668141c4c2c662ace30c57e5091b9e8",
+    "contracts/native-browser/registration/production/firefox/linux.json": "ee991f599a40f4583765000c90351b16aeff18bfbdbb880b427a79f1bc4f543b",
+    "contracts/native-browser/registration/production/firefox/macos.json": "ee991f599a40f4583765000c90351b16aeff18bfbdbb880b427a79f1bc4f543b",
+    "contracts/native-browser/registration/production/firefox/windows.json": "ee991f599a40f4583765000c90351b16aeff18bfbdbb880b427a79f1bc4f543b",
+    "contracts/native-browser/registration/dev/chrome/linux.json": "c8fed9d08db03b8b5b4a54b7114949abe877fdf6a927411ce46edbf146e006bd",
+    "contracts/native-browser/registration/dev/chrome/macos.json": "c8fed9d08db03b8b5b4a54b7114949abe877fdf6a927411ce46edbf146e006bd",
+    "contracts/native-browser/registration/dev/chrome/windows.json": "c8fed9d08db03b8b5b4a54b7114949abe877fdf6a927411ce46edbf146e006bd",
+    "contracts/native-browser/registration/dev/edge/linux.json": "c8fed9d08db03b8b5b4a54b7114949abe877fdf6a927411ce46edbf146e006bd",
+    "contracts/native-browser/registration/dev/edge/macos.json": "c8fed9d08db03b8b5b4a54b7114949abe877fdf6a927411ce46edbf146e006bd",
+    "contracts/native-browser/registration/dev/edge/windows.json": "c8fed9d08db03b8b5b4a54b7114949abe877fdf6a927411ce46edbf146e006bd",
+    "contracts/native-browser/registration/dev/firefox/linux.json": "dc981e662fc7a2b0841e33f736f6c883917acae0e08975b84c95f9828b707444",
+    "contracts/native-browser/registration/dev/firefox/macos.json": "dc981e662fc7a2b0841e33f736f6c883917acae0e08975b84c95f9828b707444",
+    "contracts/native-browser/registration/dev/firefox/windows.json": "dc981e662fc7a2b0841e33f736f6c883917acae0e08975b84c95f9828b707444"
+  },
+  "swift_check": "swift test --filter SolstoneNativeBrowserContract"
+}

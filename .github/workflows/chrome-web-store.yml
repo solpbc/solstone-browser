@@ -67,6 +67,11 @@ jobs:
           node-version: "22"
           cache: npm
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
+        with:
+          toolchain: "1.97.1"
+
       - id: google-auth
         name: Mint short-lived Chrome Web Store token
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3

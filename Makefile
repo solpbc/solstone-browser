@@ -26,13 +26,16 @@ test-idb:
 verify-vendor-hpke:
 	node scripts/verify-vendor-hpke.mjs
 
-# Ordered pre-commit gate: locked install, pure units, real IDB, then
-# deterministic vendored-HPKE verification. No formatter or linter is wired yet.
+# Ordered pre-commit gate: locked install, pure units, real IDB, deterministic
+# vendored-HPKE verification, native-browser frame tests, and contract drift check.
+# No formatter or linter is wired yet.
 ci:
 	npm ci
 	npm test
 	npm run test:idb
 	node scripts/verify-vendor-hpke.mjs
+	cargo test -p native-browser-frame
+	node scripts/check-native-browser.mjs
 
 # No formatter configured yet.
 format:

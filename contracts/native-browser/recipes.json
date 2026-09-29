@@ -1,0 +1,41 @@
+[
+  {
+    "id": "extension_to_host_batch_max",
+    "target_length": 33554432,
+    "sha256": "e538e7b74c15f5cd36f30cb5cc280f6c0e994c01ff5cab70fe67b3fd8ddb6c0e",
+    "expect": "accept"
+  },
+  {
+    "id": "extension_to_host_batch_oversize",
+    "target_length": 33554433,
+    "sha256": "72d174332f89eeaefb728b0f0e28c02c93adb4325ca05ce35feaf793d10c4932",
+    "expect": "refuse",
+    "code": "oversize"
+  },
+  {
+    "id": "control_payload_max",
+    "target_length": 65536,
+    "sha256": "e4c5c7026ea89ae1f65cd6dac066abe37e80378b4a24293256233b956064ca91",
+    "expect": "accept"
+  },
+  {
+    "id": "control_payload_oversize",
+    "target_length": 65537,
+    "sha256": "7cff9856600683e3bff701472ae4e3f6fda433e0e0b6f9459060c9ffc663fc8c",
+    "expect": "refuse",
+    "code": "oversize"
+  },
+  {
+    "id": "batch_delta_cap_3000",
+    "target_length": 183911,
+    "sha256": "84205ef2b63cfb4c47c63b07ff72c923977533b1d8e6b0677ff87298f4765c2d",
+    "expect": "accept"
+  },
+  {
+    "id": "batch_delta_oversize_3001",
+    "target_length": 183977,
+    "sha256": "a8d2b3d64e69194dff6b7f758cfa06e11a80a2e700a93c55233ee1b78726527e",
+    "expect": "refuse",
+    "code": "too_many_deltas"
+  }
+]

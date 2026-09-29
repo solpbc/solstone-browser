@@ -1,0 +1,233 @@
+{
+  "bundle_version": "1.0.0",
+  "wire_protocol": 1,
+  "journal": {
+    "id": "solstone-journal-format:browser-jsonl",
+    "revision": "3b99f1af61d4e82c5c9c3748d90c1242c28c1e5b",
+    "path": "contracts/native-browser/browser.schema.json",
+    "sha256": "c14e66318587b8fa451ef1363e113885bdd80a41ce680b0c62fcc9033460a2e1"
+  },
+  "caps": {
+    "extension_to_host": 33554432,
+    "host_to_extension": 65536,
+    "control": 65536,
+    "delta_records": 3000,
+    "batch_id_hex": 32
+  },
+  "policy": {
+    "file": 50331648,
+    "outbox_bytes": 67108864,
+    "outbox_age_ms": 600000,
+    "spool_bytes": 536870912,
+    "spool_age_ms": 604800000,
+    "future_skew_ms": 60000,
+    "accepted_retention_ms": 1200000,
+    "handshake_ms": 5000,
+    "state_renewal_ms": 5000,
+    "freshness_max_ms": 15000,
+    "partial_frame_ms": 30000,
+    "timestamp_max": 9007199254740991
+  },
+  "directions": {
+    "extension_to_host": [
+      "hello",
+      "batch"
+    ],
+    "host_to_extension": [
+      "hello_ack",
+      "unsupported",
+      "state",
+      "boundary",
+      "accepted",
+      "bye"
+    ]
+  },
+  "enums": {
+    "brand": [
+      "chrome",
+      "edge",
+      "firefox"
+    ],
+    "capture": [
+      "unavailable",
+      "not_paired",
+      "permitted",
+      "paused",
+      "intake_off"
+    ],
+    "delivery": [
+      "unknown",
+      "kept_locally",
+      "delivered",
+      "idle",
+      "failed"
+    ],
+    "failure": [
+      "relay_unavailable",
+      "journal_rejected",
+      "local_io"
+    ],
+    "bye_reason": [
+      "shutdown",
+      "replaced",
+      "update"
+    ],
+    "snapshot_reason": [
+      "delivery_recovery"
+    ],
+    "behind": [
+      "app",
+      "extension"
+    ]
+  },
+  "hosts_and_ids": {
+    "production": {
+      "host": "app.solstone.browser",
+      "chrome_id": "eibbeeoifjoabddfmgeggnageolkcnim",
+      "edge_id": "eibbeeoifjoabddfmgeggnageolkcnim",
+      "firefox_id": "browser@solstone.app"
+    },
+    "dev": {
+      "host": "app.solstone.browser.dev",
+      "chrome_id": "fgfnkcefedeheoeamppkiiloncfekakf",
+      "edge_id": "fgfnkcefedeheoeamppkiiloncfekakf",
+      "firefox_id": "browser.dev@solstone.app"
+    }
+  },
+  "string_bounds": {
+    "version": 64,
+    "generation": 128,
+    "period_id": 128,
+    "failure_code": 64
+  },
+  "registration": {
+    "description": "Solstone browser host",
+    "type": "stdio",
+    "path_placeholder": "__PATH__",
+    "suffixes": {
+      "chrome_linux": ".config/google-chrome/NativeMessagingHosts/<host>.json",
+      "edge_linux": ".config/microsoft-edge/NativeMessagingHosts/<host>.json",
+      "firefox_linux": ".mozilla/native-messaging-hosts/<host>.json",
+      "chrome_macos": "Library/Application Support/Google/Chrome/NativeMessagingHosts/<host>.json",
+      "edge_macos": "Library/Application Support/Microsoft Edge/NativeMessagingHosts/<host>.json",
+      "firefox_macos": "Library/Application Support/Mozilla/NativeMessagingHosts/<host>.json",
+      "chrome_windows": "Software\\Google\\Chrome\\NativeMessagingHosts\\<host>",
+      "edge_windows": "Software\\Microsoft\\Edge\\NativeMessagingHosts\\<host>",
+      "firefox_windows": "Software\\Mozilla\\NativeMessagingHosts\\<host>"
+    }
+  },
+  "receipt_classes": {
+    "retryable": [
+      "snapshot_required",
+      "resource_exhausted"
+    ],
+    "permanent": [
+      "malformed",
+      "oversize",
+      "stale_generation",
+      "expired_unaccepted"
+    ],
+    "backpressure": [
+      "queue_full",
+      "age_policy"
+    ],
+    "loss": [
+      "unaccepted_lost"
+    ]
+  },
+  "canonical_key_order": {
+    "hello": [
+      "type",
+      "protocol",
+      "version",
+      "brand",
+      "inst"
+    ],
+    "hello_ack": [
+      "type",
+      "capture",
+      "delivery",
+      "freshness_ms",
+      "destination_generation",
+      "period_id",
+      "failure",
+      "version"
+    ],
+    "unsupported": [
+      "type",
+      "protocol",
+      "behind"
+    ],
+    "state": [
+      "type",
+      "capture",
+      "delivery",
+      "freshness_ms",
+      "destination_generation",
+      "period_id",
+      "failure",
+      "version"
+    ],
+    "batch": [
+      "type",
+      "destination_generation",
+      "inst",
+      "batch_id",
+      "queued_at_ms",
+      "records"
+    ],
+    "boundary": [
+      "type",
+      "destination_generation",
+      "period_id"
+    ],
+    "accepted": [
+      "type",
+      "destination_generation",
+      "inst",
+      "batch_id",
+      "period_id",
+      "duplicate"
+    ],
+    "bye": [
+      "type",
+      "reason"
+    ],
+    "snapshot_record": [
+      "t",
+      "ts",
+      "rel",
+      "site",
+      "url",
+      "title",
+      "adapter",
+      "ctx",
+      "inst",
+      "n",
+      "blocks",
+      "snapshot_reason"
+    ],
+    "delta_record": [
+      "t",
+      "ts",
+      "rel",
+      "site",
+      "ctx",
+      "inst",
+      "op",
+      "block"
+    ],
+    "block": [
+      "id",
+      "text",
+      "type",
+      "depth",
+      "attrs"
+    ],
+    "block_attrs": [
+      "label",
+      "level",
+      "linkHost"
+    ]
+  }
+}

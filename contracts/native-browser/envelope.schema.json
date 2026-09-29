@@ -1,0 +1,321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "solstone-native-browser:envelope",
+  "title": "Solstone Native Browser Wire Envelope",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/hello"
+    },
+    {
+      "$ref": "#/$defs/hello_ack"
+    },
+    {
+      "$ref": "#/$defs/unsupported"
+    },
+    {
+      "$ref": "#/$defs/state"
+    },
+    {
+      "$ref": "#/$defs/batch"
+    },
+    {
+      "$ref": "#/$defs/boundary"
+    },
+    {
+      "$ref": "#/$defs/accepted"
+    },
+    {
+      "$ref": "#/$defs/bye"
+    }
+  ],
+  "$defs": {
+    "hello": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "type",
+        "protocol",
+        "version",
+        "brand",
+        "inst"
+      ],
+      "properties": {
+        "type": {
+          "const": "hello"
+        },
+        "protocol": {
+          "type": "integer"
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "brand": {
+          "enum": [
+            "chrome",
+            "edge",
+            "firefox"
+          ]
+        },
+        "inst": {
+          "$ref": "solstone-journal-format:browser-jsonl#/$defs/instString"
+        }
+      }
+    },
+    "hello_ack": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "type",
+        "capture",
+        "delivery"
+      ],
+      "properties": {
+        "type": {
+          "const": "hello_ack"
+        },
+        "capture": {
+          "enum": [
+            "unavailable",
+            "not_paired",
+            "permitted",
+            "paused",
+            "intake_off"
+          ]
+        },
+        "delivery": {
+          "enum": [
+            "unknown",
+            "kept_locally",
+            "delivered",
+            "idle",
+            "failed"
+          ]
+        },
+        "freshness_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15000
+        },
+        "destination_generation": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "period_id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "failure": {
+          "enum": [
+            "relay_unavailable",
+            "journal_rejected",
+            "local_io"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 64
+        }
+      }
+    },
+    "unsupported": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "type",
+        "protocol",
+        "behind"
+      ],
+      "properties": {
+        "type": {
+          "const": "unsupported"
+        },
+        "protocol": {
+          "type": "integer"
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "behind": {
+          "enum": [
+            "app",
+            "extension"
+          ]
+        }
+      }
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "type",
+        "capture",
+        "delivery"
+      ],
+      "properties": {
+        "type": {
+          "const": "state"
+        },
+        "capture": {
+          "enum": [
+            "unavailable",
+            "not_paired",
+            "permitted",
+            "paused",
+            "intake_off"
+          ]
+        },
+        "delivery": {
+          "enum": [
+            "unknown",
+            "kept_locally",
+            "delivered",
+            "idle",
+            "failed"
+          ]
+        },
+        "freshness_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15000
+        },
+        "destination_generation": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "period_id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "failure": {
+          "enum": [
+            "relay_unavailable",
+            "journal_rejected",
+            "local_io"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 64
+        }
+      }
+    },
+    "batch": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "type",
+        "destination_generation",
+        "inst",
+        "batch_id",
+        "queued_at_ms",
+        "records"
+      ],
+      "properties": {
+        "type": {
+          "const": "batch"
+        },
+        "destination_generation": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "inst": {
+          "$ref": "solstone-journal-format:browser-jsonl#/$defs/instString"
+        },
+        "batch_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "queued_at_ms": {
+          "$ref": "solstone-journal-format:browser-jsonl#/$defs/timestamp"
+        },
+        "records": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3000,
+          "items": {
+            "$ref": "solstone-journal-format:browser-jsonl"
+          }
+        }
+      }
+    },
+    "boundary": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "type",
+        "destination_generation",
+        "period_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "boundary"
+        },
+        "destination_generation": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "period_id": {
+          "type": "string",
+          "maxLength": 128
+        }
+      }
+    },
+    "accepted": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "type",
+        "destination_generation",
+        "inst",
+        "batch_id",
+        "period_id",
+        "duplicate"
+      ],
+      "properties": {
+        "type": {
+          "const": "accepted"
+        },
+        "destination_generation": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "inst": {
+          "$ref": "solstone-journal-format:browser-jsonl#/$defs/instString"
+        },
+        "batch_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "period_id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "duplicate": {
+          "type": "boolean"
+        }
+      }
+    },
+    "bye": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "type",
+        "reason"
+      ],
+      "properties": {
+        "type": {
+          "const": "bye"
+        },
+        "reason": {
+          "enum": [
+            "shutdown",
+            "replaced",
+            "update"
+          ]
+        }
+      }
+    }
+  }
+}

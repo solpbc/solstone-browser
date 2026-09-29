@@ -1,0 +1,698 @@
+[
+  {
+    "id": "hello_positive",
+    "direction": "extension_to_host",
+    "expect": "accept",
+    "payload": "{\"type\":\"hello\",\"protocol\":1,\"version\":\"1.0.0\",\"brand\":\"chrome\",\"inst\":\"desktop_inst_1\"}"
+  },
+  {
+    "id": "hello_wrong_direction",
+    "direction": "host_to_extension",
+    "expect": "refuse",
+    "code": "bad_direction",
+    "payload": "{\"type\":\"hello\",\"protocol\":1,\"version\":\"1.0.0\",\"brand\":\"chrome\",\"inst\":\"desktop_inst_1\"}"
+  },
+  {
+    "id": "hello_missing_field",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "missing_field",
+    "payload": "{\"type\":\"hello\",\"protocol\":1,\"brand\":\"chrome\",\"inst\":\"desktop_inst_1\"}"
+  },
+  {
+    "id": "hello_ack_positive",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"hello_ack\",\"capture\":\"permitted\",\"delivery\":\"delivered\",\"destination_generation\":\"g1\",\"period_id\":\"p1\"}"
+  },
+  {
+    "id": "hello_ack_wrong_direction",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_direction",
+    "payload": "{\"type\":\"hello_ack\",\"capture\":\"permitted\",\"delivery\":\"delivered\",\"destination_generation\":\"g1\",\"period_id\":\"p1\"}"
+  },
+  {
+    "id": "hello_ack_missing_field",
+    "direction": "host_to_extension",
+    "expect": "refuse",
+    "code": "missing_field",
+    "payload": "{\"type\":\"hello_ack\",\"delivery\":\"delivered\"}"
+  },
+  {
+    "id": "unsupported_positive",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"unsupported\",\"protocol\":2,\"behind\":\"app\"}"
+  },
+  {
+    "id": "unsupported_wrong_direction",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_direction",
+    "payload": "{\"type\":\"unsupported\",\"protocol\":2,\"behind\":\"app\"}"
+  },
+  {
+    "id": "unsupported_missing_field",
+    "direction": "host_to_extension",
+    "expect": "refuse",
+    "code": "missing_field",
+    "payload": "{\"type\":\"unsupported\",\"protocol\":2}"
+  },
+  {
+    "id": "state_positive",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"permitted\",\"delivery\":\"delivered\",\"destination_generation\":\"g1\",\"period_id\":\"p1\"}"
+  },
+  {
+    "id": "state_wrong_direction",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_direction",
+    "payload": "{\"type\":\"state\",\"capture\":\"permitted\",\"delivery\":\"delivered\",\"destination_generation\":\"g1\",\"period_id\":\"p1\"}"
+  },
+  {
+    "id": "state_missing_field",
+    "direction": "host_to_extension",
+    "expect": "refuse",
+    "code": "missing_field",
+    "payload": "{\"type\":\"state\",\"capture\":\"permitted\"}"
+  },
+  {
+    "id": "boundary_positive",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"boundary\",\"destination_generation\":\"g1\",\"period_id\":\"p1\"}"
+  },
+  {
+    "id": "boundary_wrong_direction",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_direction",
+    "payload": "{\"type\":\"boundary\",\"destination_generation\":\"g1\",\"period_id\":\"p1\"}"
+  },
+  {
+    "id": "boundary_missing_field",
+    "direction": "host_to_extension",
+    "expect": "refuse",
+    "code": "missing_field",
+    "payload": "{\"type\":\"boundary\",\"destination_generation\":\"g1\"}"
+  },
+  {
+    "id": "accepted_positive",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"accepted\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"period_id\":\"p1\",\"duplicate\":false}"
+  },
+  {
+    "id": "accepted_wrong_direction",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_direction",
+    "payload": "{\"type\":\"accepted\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"period_id\":\"p1\",\"duplicate\":false}"
+  },
+  {
+    "id": "accepted_missing_field",
+    "direction": "host_to_extension",
+    "expect": "refuse",
+    "code": "missing_field",
+    "payload": "{\"type\":\"accepted\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"period_id\":\"p1\"}"
+  },
+  {
+    "id": "bye_positive",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"bye\",\"reason\":\"shutdown\"}"
+  },
+  {
+    "id": "bye_wrong_direction",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_direction",
+    "payload": "{\"type\":\"bye\",\"reason\":\"shutdown\"}"
+  },
+  {
+    "id": "bye_missing_field",
+    "direction": "host_to_extension",
+    "expect": "refuse",
+    "code": "missing_field",
+    "payload": "{\"type\":\"bye\"}"
+  },
+  {
+    "id": "batch_positive",
+    "direction": "extension_to_host",
+    "expect": "accept",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"segment_start\",\"ts\":100,\"blocks\":[{\"id\":\"b1\",\"text\":\"Hello\"}]}]}"
+  },
+  {
+    "id": "batch_wrong_direction",
+    "direction": "host_to_extension",
+    "expect": "refuse",
+    "code": "bad_direction",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"remove\",\"block\":{\"id\":\"d1\"}}]}"
+  },
+  {
+    "id": "batch_missing_field",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "missing_field",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"remove\",\"block\":{\"id\":\"d1\"}}]}"
+  },
+  {
+    "id": "hello_invalid_brand",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "invalid_enum",
+    "payload": "{\"type\":\"hello\",\"protocol\":1,\"version\":\"1.0.0\",\"brand\":\"safari\",\"inst\":\"inst1\"}"
+  },
+  {
+    "id": "hello_ack_invalid_capture",
+    "direction": "host_to_extension",
+    "expect": "refuse",
+    "code": "invalid_enum",
+    "payload": "{\"type\":\"hello_ack\",\"capture\":\"unknown_capture\",\"delivery\":\"idle\"}"
+  },
+  {
+    "id": "unsupported_invalid_behind",
+    "direction": "host_to_extension",
+    "expect": "refuse",
+    "code": "invalid_enum",
+    "payload": "{\"type\":\"unsupported\",\"protocol\":2,\"behind\":\"unknown_behind\"}"
+  },
+  {
+    "id": "state_invalid_capture",
+    "direction": "host_to_extension",
+    "expect": "refuse",
+    "code": "invalid_enum",
+    "payload": "{\"type\":\"state\",\"capture\":\"unknown_capture\",\"delivery\":\"idle\"}"
+  },
+  {
+    "id": "batch_record_invalid_snapshot_reason",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "invalid_enum",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"segment_start\",\"ts\":100,\"blocks\":[{\"id\":\"b1\",\"text\":\"text\"}],\"snapshot_reason\":\"unknown_reason\"}]}"
+  },
+  {
+    "id": "bye_invalid_reason",
+    "direction": "host_to_extension",
+    "expect": "refuse",
+    "code": "invalid_enum",
+    "payload": "{\"type\":\"bye\",\"reason\":\"crash\"}"
+  },
+  {
+    "id": "accepted_invalid_duplicate_enum",
+    "direction": "host_to_extension",
+    "expect": "refuse",
+    "code": "invalid_enum",
+    "payload": "{\"type\":\"accepted\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"period_id\":\"p1\",\"duplicate\":\"not_a_boolean\"}"
+  },
+  {
+    "id": "hello_protocol_unsupported_app",
+    "direction": "extension_to_host",
+    "expect": "unsupported",
+    "behind": "app",
+    "payload": "{\"type\":\"hello\",\"protocol\":2,\"version\":\"2.0.0\",\"brand\":\"chrome\",\"inst\":\"inst_app\"}"
+  },
+  {
+    "id": "hello_protocol_unsupported_extension",
+    "direction": "extension_to_host",
+    "expect": "unsupported",
+    "behind": "extension",
+    "payload": "{\"type\":\"hello\",\"protocol\":0,\"version\":\"0.1.0\",\"brand\":\"chrome\",\"inst\":\"inst_ext\"}"
+  },
+  {
+    "id": "hello_protocol_version_skew_accepted",
+    "direction": "extension_to_host",
+    "expect": "accept",
+    "payload": "{\"type\":\"hello\",\"protocol\":1,\"version\":\"9.9.9\",\"brand\":\"edge\",\"inst\":\"inst2\"}"
+  },
+  {
+    "id": "hello_protocol_float_integral",
+    "direction": "extension_to_host",
+    "raw": "{\"type\":\"hello\",\"protocol\":1.0,\"version\":\"1.0.0\",\"brand\":\"firefox\",\"inst\":\"inst3\"}",
+    "expect": "accept"
+  },
+  {
+    "id": "hello_protocol_bad_number",
+    "direction": "extension_to_host",
+    "raw": "{\"type\":\"hello\",\"protocol\":2.5,\"version\":\"2.5.0\",\"brand\":\"chrome\",\"inst\":\"inst\"}",
+    "expect": "refuse",
+    "code": "bad_number"
+  },
+  {
+    "id": "state_matrix_unavailable_unknown",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"unavailable\",\"delivery\":\"unknown\"}"
+  },
+  {
+    "id": "state_matrix_unavailable_kept_locally",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"unavailable\",\"delivery\":\"kept_locally\"}"
+  },
+  {
+    "id": "state_matrix_unavailable_delivered",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"unavailable\",\"delivery\":\"delivered\"}"
+  },
+  {
+    "id": "state_matrix_unavailable_idle",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"unavailable\",\"delivery\":\"idle\"}"
+  },
+  {
+    "id": "state_matrix_unavailable_failed",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"unavailable\",\"delivery\":\"failed\",\"failure\":\"relay_unavailable\"}"
+  },
+  {
+    "id": "state_matrix_not_paired_unknown",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"not_paired\",\"delivery\":\"unknown\"}"
+  },
+  {
+    "id": "state_matrix_not_paired_kept_locally",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"not_paired\",\"delivery\":\"kept_locally\"}"
+  },
+  {
+    "id": "state_matrix_not_paired_delivered",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"not_paired\",\"delivery\":\"delivered\"}"
+  },
+  {
+    "id": "state_matrix_not_paired_idle",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"not_paired\",\"delivery\":\"idle\"}"
+  },
+  {
+    "id": "state_matrix_not_paired_failed",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"not_paired\",\"delivery\":\"failed\",\"failure\":\"relay_unavailable\"}"
+  },
+  {
+    "id": "state_matrix_permitted_unknown",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"permitted\",\"delivery\":\"unknown\",\"destination_generation\":\"gen_1\",\"period_id\":\"per_1\"}"
+  },
+  {
+    "id": "state_matrix_permitted_kept_locally",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"permitted\",\"delivery\":\"kept_locally\",\"destination_generation\":\"gen_1\",\"period_id\":\"per_1\"}"
+  },
+  {
+    "id": "state_matrix_permitted_delivered",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"permitted\",\"delivery\":\"delivered\",\"destination_generation\":\"gen_1\",\"period_id\":\"per_1\"}"
+  },
+  {
+    "id": "state_matrix_permitted_idle",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"permitted\",\"delivery\":\"idle\",\"destination_generation\":\"gen_1\",\"period_id\":\"per_1\"}"
+  },
+  {
+    "id": "state_matrix_permitted_failed",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"permitted\",\"delivery\":\"failed\",\"destination_generation\":\"gen_1\",\"period_id\":\"per_1\",\"failure\":\"relay_unavailable\"}"
+  },
+  {
+    "id": "state_matrix_paused_unknown",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"paused\",\"delivery\":\"unknown\",\"destination_generation\":\"gen_1\"}"
+  },
+  {
+    "id": "state_matrix_paused_kept_locally",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"paused\",\"delivery\":\"kept_locally\",\"destination_generation\":\"gen_1\"}"
+  },
+  {
+    "id": "state_matrix_paused_delivered",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"paused\",\"delivery\":\"delivered\",\"destination_generation\":\"gen_1\",\"period_id\":\"per_1\"}"
+  },
+  {
+    "id": "state_matrix_paused_idle",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"paused\",\"delivery\":\"idle\",\"destination_generation\":\"gen_1\"}"
+  },
+  {
+    "id": "state_matrix_paused_failed",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"paused\",\"delivery\":\"failed\",\"destination_generation\":\"gen_1\",\"failure\":\"relay_unavailable\"}"
+  },
+  {
+    "id": "state_matrix_intake_off_unknown",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"intake_off\",\"delivery\":\"unknown\",\"destination_generation\":\"gen_1\"}"
+  },
+  {
+    "id": "state_matrix_intake_off_kept_locally",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"intake_off\",\"delivery\":\"kept_locally\",\"destination_generation\":\"gen_1\"}"
+  },
+  {
+    "id": "state_matrix_intake_off_delivered",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"intake_off\",\"delivery\":\"delivered\",\"destination_generation\":\"gen_1\",\"period_id\":\"per_1\"}"
+  },
+  {
+    "id": "state_matrix_intake_off_idle",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"intake_off\",\"delivery\":\"idle\",\"destination_generation\":\"gen_1\"}"
+  },
+  {
+    "id": "state_matrix_intake_off_failed",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"intake_off\",\"delivery\":\"failed\",\"destination_generation\":\"gen_1\",\"failure\":\"relay_unavailable\"}"
+  },
+  {
+    "id": "state_freshness_boundary_0",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"permitted\",\"delivery\":\"delivered\",\"freshness_ms\":0,\"destination_generation\":\"g1\",\"period_id\":\"p1\"}"
+  },
+  {
+    "id": "state_freshness_boundary_15000",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"state\",\"capture\":\"permitted\",\"delivery\":\"delivered\",\"freshness_ms\":15000,\"destination_generation\":\"g1\",\"period_id\":\"p1\"}"
+  },
+  {
+    "id": "state_freshness_out_of_range_15001",
+    "direction": "host_to_extension",
+    "expect": "refuse",
+    "code": "freshness_range",
+    "payload": "{\"type\":\"state\",\"capture\":\"permitted\",\"delivery\":\"delivered\",\"freshness_ms\":15001,\"destination_generation\":\"g1\",\"period_id\":\"p1\"}"
+  },
+  {
+    "id": "state_illegal_failure_when_not_failed",
+    "direction": "host_to_extension",
+    "expect": "refuse",
+    "code": "bad_state_ids",
+    "payload": "{\"type\":\"state\",\"capture\":\"permitted\",\"delivery\":\"delivered\",\"destination_generation\":\"g1\",\"period_id\":\"p1\",\"failure\":\"relay_unavailable\"}"
+  },
+  {
+    "id": "state_illegal_ids_when_not_paired",
+    "direction": "host_to_extension",
+    "expect": "refuse",
+    "code": "bad_state_ids",
+    "payload": "{\"type\":\"state\",\"capture\":\"not_paired\",\"delivery\":\"idle\",\"destination_generation\":\"g1\",\"period_id\":\"p1\"}"
+  },
+  {
+    "id": "state_illegal_missing_ids_when_permitted",
+    "direction": "host_to_extension",
+    "expect": "refuse",
+    "code": "bad_state_ids",
+    "payload": "{\"type\":\"state\",\"capture\":\"permitted\",\"delivery\":\"delivered\"}"
+  },
+  {
+    "id": "id_missing_snapshot",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_record",
+    "cause": "missing",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"segment_start\",\"ts\":100,\"blocks\":[{\"text\":\"content\"}]}]}"
+  },
+  {
+    "id": "id_empty_snapshot",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_record",
+    "cause": "empty",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"segment_start\",\"ts\":100,\"blocks\":[{\"id\":\"\",\"text\":\"content\"}]}]}"
+  },
+  {
+    "id": "id_max_len_snapshot",
+    "direction": "extension_to_host",
+    "expect": "accept",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"segment_start\",\"ts\":100,\"blocks\":[{\"id\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"text\":\"content\"}]}]}"
+  },
+  {
+    "id": "id_over_max_len_snapshot",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_record",
+    "cause": "too_long",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"segment_start\",\"ts\":100,\"blocks\":[{\"id\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"text\":\"content\"}]}]}"
+  },
+  {
+    "id": "id_short_snapshot",
+    "direction": "extension_to_host",
+    "expect": "accept",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"segment_start\",\"ts\":100,\"blocks\":[{\"id\":\"b1\",\"text\":\"content\"}]}]}"
+  },
+  {
+    "id": "id_missing_add",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_record",
+    "cause": "missing",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"add\",\"block\":{\"text\":\"content\"}}]}"
+  },
+  {
+    "id": "id_empty_add",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_record",
+    "cause": "empty",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"add\",\"block\":{\"id\":\"\",\"text\":\"content\"}}]}"
+  },
+  {
+    "id": "id_max_len_add",
+    "direction": "extension_to_host",
+    "expect": "accept",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"add\",\"block\":{\"id\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"text\":\"content\"}}]}"
+  },
+  {
+    "id": "id_over_max_len_add",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_record",
+    "cause": "too_long",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"add\",\"block\":{\"id\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"text\":\"content\"}}]}"
+  },
+  {
+    "id": "id_short_add",
+    "direction": "extension_to_host",
+    "expect": "accept",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"add\",\"block\":{\"id\":\"b1\",\"text\":\"content\"}}]}"
+  },
+  {
+    "id": "id_missing_update",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_record",
+    "cause": "missing",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"update\",\"block\":{\"text\":\"content\"}}]}"
+  },
+  {
+    "id": "id_empty_update",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_record",
+    "cause": "empty",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"update\",\"block\":{\"id\":\"\",\"text\":\"content\"}}]}"
+  },
+  {
+    "id": "id_max_len_update",
+    "direction": "extension_to_host",
+    "expect": "accept",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"update\",\"block\":{\"id\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"text\":\"content\"}}]}"
+  },
+  {
+    "id": "id_over_max_len_update",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_record",
+    "cause": "too_long",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"update\",\"block\":{\"id\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"text\":\"content\"}}]}"
+  },
+  {
+    "id": "id_short_update",
+    "direction": "extension_to_host",
+    "expect": "accept",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"update\",\"block\":{\"id\":\"b1\",\"text\":\"content\"}}]}"
+  },
+  {
+    "id": "id_missing_remove",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_record",
+    "cause": "missing",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"remove\",\"block\":{}}]}"
+  },
+  {
+    "id": "id_empty_remove",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_record",
+    "cause": "empty",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"remove\",\"block\":{\"id\":\"\"}}]}"
+  },
+  {
+    "id": "id_max_len_remove",
+    "direction": "extension_to_host",
+    "expect": "accept",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"remove\",\"block\":{\"id\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}}]}"
+  },
+  {
+    "id": "id_over_max_len_remove",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_record",
+    "cause": "too_long",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"remove\",\"block\":{\"id\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}}]}"
+  },
+  {
+    "id": "id_short_remove",
+    "direction": "extension_to_host",
+    "expect": "accept",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"remove\",\"block\":{\"id\":\"b1\"}}]}"
+  },
+  {
+    "id": "batch_id_short_31",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_batch_id",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcde\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"remove\",\"block\":{\"id\":\"d1\"}}]}"
+  },
+  {
+    "id": "batch_id_long_33",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_batch_id",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef0\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"remove\",\"block\":{\"id\":\"d1\"}}]}"
+  },
+  {
+    "id": "batch_id_uppercase",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_batch_id",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789ABCDEF0123456789ABCDEF\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"remove\",\"block\":{\"id\":\"d1\"}}]}"
+  },
+  {
+    "id": "batch_id_hyphenated",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_batch_id",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"01234567-89ab-cdef-0123-456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"remove\",\"block\":{\"id\":\"d1\"}}]}"
+  },
+  {
+    "id": "batch_queued_at_ms_fraction_1000_0",
+    "direction": "extension_to_host",
+    "raw": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":1000.0,\"records\":[{\"t\":\"segment_start\",\"ts\":0,\"blocks\":[{\"id\":\"b1\",\"text\":\"x\"}]}]}",
+    "expect": "accept"
+  },
+  {
+    "id": "batch_queued_at_ms_exponential_1e3",
+    "direction": "extension_to_host",
+    "raw": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":1e3,\"records\":[{\"t\":\"segment_start\",\"ts\":0,\"blocks\":[{\"id\":\"b1\",\"text\":\"x\"}]}]}",
+    "expect": "accept"
+  },
+  {
+    "id": "batch_queued_at_ms_above_max",
+    "direction": "extension_to_host",
+    "raw": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":9007199254740992,\"records\":[{\"t\":\"segment_start\",\"ts\":0,\"blocks\":[{\"id\":\"b1\",\"text\":\"x\"}]}]}",
+    "expect": "refuse",
+    "code": "bad_number"
+  },
+  {
+    "id": "batch_queued_at_ms_negative",
+    "direction": "extension_to_host",
+    "raw": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":-10,\"records\":[{\"t\":\"delta\",\"ts\":100,\"op\":\"remove\",\"block\":{\"id\":\"d1\"}}]}",
+    "expect": "refuse",
+    "code": "bad_number"
+  },
+  {
+    "id": "batch_retry_1",
+    "direction": "extension_to_host",
+    "expect": "accept",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"retry_gen\",\"inst\":\"retry_inst\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":1700000000000,\"records\":[{\"t\":\"delta\",\"ts\":1700000000000,\"op\":\"add\",\"block\":{\"id\":\"b1\",\"text\":\"try1\"}}]}"
+  },
+  {
+    "id": "batch_retry_2",
+    "direction": "extension_to_host",
+    "expect": "accept",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"retry_gen\",\"inst\":\"retry_inst\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":1700000000000,\"records\":[{\"t\":\"delta\",\"ts\":1700000000000,\"op\":\"add\",\"block\":{\"id\":\"b1\",\"text\":\"try2\"}}]}"
+  },
+  {
+    "id": "batch_recovery_snapshot",
+    "direction": "extension_to_host",
+    "expect": "accept",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"retry_gen\",\"inst\":\"retry_inst\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":1700000000000,\"records\":[{\"t\":\"segment_start\",\"ts\":1700000000000,\"site\":\"example.com\",\"n\":1,\"blocks\":[{\"id\":\"b1\",\"text\":\"Recovery snapshot\"}],\"snapshot_reason\":\"delivery_recovery\"}]}"
+  },
+  {
+    "id": "boundary_recovery",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"boundary\",\"destination_generation\":\"retry_gen\",\"period_id\":\"p_boundary\"}"
+  },
+  {
+    "id": "accepted_recovery_duplicate",
+    "direction": "host_to_extension",
+    "expect": "accept",
+    "payload": "{\"type\":\"accepted\",\"destination_generation\":\"retry_gen\",\"inst\":\"retry_inst\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"period_id\":\"p_original\",\"duplicate\":true}"
+  },
+  {
+    "id": "batch_inst_mismatch_record_inst",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_record",
+    "cause": "mismatch",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"segment_start\",\"ts\":100,\"inst\":\"mismatched_inst\",\"n\":1,\"blocks\":[{\"id\":\"b1\",\"text\":\"x\"}]}]}"
+  },
+  {
+    "id": "batch_mixed_context",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "mixed_context",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"delta\",\"ts\":100,\"ctx\":\"ctx_a\",\"op\":\"remove\",\"block\":{\"id\":\"d1\"}},{\"t\":\"delta\",\"ts\":100,\"ctx\":\"ctx_b\",\"op\":\"remove\",\"block\":{\"id\":\"d2\"}}]}"
+  },
+  {
+    "id": "unicode_astral_and_escapes",
+    "direction": "extension_to_host",
+    "expect": "accept",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"segment_start\",\"ts\":100,\"n\":1,\"blocks\":[{\"id\":\"b1\",\"text\":\"Astral: 😀, Control: \\u0001, Separators:   \"}]}]}"
+  },
+  {
+    "id": "lone_surrogate_raw",
+    "direction": "extension_to_host",
+    "raw": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"segment_start\",\"ts\":100,\"n\":1,\"blocks\":[{\"id\":\"b1\",\"text\":\"\\uD800 alone\"}]}]}",
+    "expect": "refuse",
+    "code": "lone_surrogate"
+  },
+  {
+    "id": "sentinel_planted_in_failing_record",
+    "direction": "extension_to_host",
+    "expect": "refuse",
+    "code": "bad_record",
+    "cause": "empty",
+    "payload": "{\"type\":\"batch\",\"destination_generation\":\"g1\",\"inst\":\"inst1\",\"batch_id\":\"0123456789abcdef0123456789abcdef\",\"queued_at_ms\":100,\"records\":[{\"t\":\"segment_start\",\"ts\":100,\"url\":\"https://example.com/ZQ_SENTINEL_do_not_echo\",\"title\":\"ZQ_SENTINEL_do_not_echo in title\",\"n\":1,\"blocks\":[{\"id\":\"\",\"text\":\"ZQ_SENTINEL_do_not_echo in text\"}]}]}"
+  }
+]

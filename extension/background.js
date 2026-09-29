@@ -142,6 +142,10 @@ async function updateBadge(status) {
 function refreshOpenTabs() {
   if (!port) return;
   const generation = ++openTabsGeneration;
+  const knownDocuments = new Map();
+  for (const entry of Object.values(port.truncationByOrigin || {})) {
+    for (const [slot, doc] of Object.entries(entry.documents || {})) knownDocuments.set(slot, doc);
+  }
   let settled = false;
   const finish = (tabs, failed) => {
     if (settled) return;
@@ -151,6 +155,11 @@ function refreshOpenTabs() {
       port.openTabs = { generation, known: false, openOrigins: null, anyGrantedTabOpen: null };
     } else {
       for (const tab of tabs) if (tab.id != null) leaseTabs.add(tab.id);
+
+      const liveIds = new Set(tabs.map(tab => String(tab.id)));
+      port.pruneTruncationDocuments?.((slot, doc) =>
+        generation !== openTabsGeneration || !/^[0-9]+:[0-9]+$/.test(slot) ||
+        knownDocuments.get(slot) !== doc || liveIds.has(slot.split(":")[0]));
       const projected = Status.projectOpenTabs(tabs, { grantedOrigins: Array.from(port.grantedOrigins || []) });
       port.openTabs = { generation, ...projected };
     }
@@ -554,6 +563,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   leaseTabs.delete(tabId);
+  port?.pruneTruncationDocuments?.(slot => slot.split(":")[0] !== String(tabId));
   Router.destroyBinding(tabId);
   refreshOpenTabs();
 });

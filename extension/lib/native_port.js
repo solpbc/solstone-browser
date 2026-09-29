@@ -194,62 +194,114 @@
       return operation;
     }
 
-    recordTruncation(origin, id) {
-      return this.serializeTruncation(() => this.recordTruncationNow(origin, id));
+    normalizeTruncation(entry) {
+      if (!entry) return { count: 0, sequence: 0, dismissedThrough: 0, newestId: "", documents: {} };
+      if (Number.isSafeInteger(entry.sequence)) return entry;
+      // Preserve every retained pre-repair identity, including stale UI actions.
+      const dismissed = [...new Set(entry.dismissed || [])];
+      if (entry.dismissThroughId && !dismissed.includes(entry.dismissThroughId)) dismissed.push(entry.dismissThroughId);
+      const pending = [...new Set(entry.pending || [])].filter(id => !dismissed.includes(id));
+      const count = Math.max(pending.length, Number.isSafeInteger(entry.count) ? entry.count : 0);
+      const legacy = Object.fromEntries([...dismissed, ...pending].map((id, i) => [id, i + 1]));
+      return { count, sequence: dismissed.length + count, dismissedThrough: dismissed.length,
+        newestId: count ? `trunc-${dismissed.length + count}` : "", documents: {}, legacy };
     }
 
-    async recordTruncationNow(origin, id) {
-      const previous = this.truncationByOrigin;
-      const next = { ...(previous || {}) };
-      const entry = { ...(next[origin] || { count: 0, newestId: "", dismissThroughId: "", pending: [], dismissed: [] }) };
-      entry.pending = Array.isArray(entry.pending) ? entry.pending.slice() : [];
-      entry.dismissed = Array.isArray(entry.dismissed) ? entry.dismissed.slice() : [];
-      if (entry.pending.includes(id) || entry.dismissed.includes(id) || entry.dismissThroughId === id) return { ok: true, recorded: false };
-      entry.pending.push(id);
-      if (entry.pending.length > 16) entry.pending.shift();
-      entry.newestId = id;
-      entry.count = entry.pending.length;
-      next[origin] = entry;
-      this.truncationByOrigin = next;
-      try {
-        await DB.put("meta", next, "truncationByOrigin");
-      } catch (_e) {
-        this.truncationByOrigin = previous;
-        return { ok: false, error: "storage_error" };
+    // Counts and dismissal sequences are independent of outbox history.
+    prepareTruncation(origin, id, { slot = id, documentId = id, omitted = true, legacyId = null } = {}) {
+      const next = { ...this.truncationByOrigin };
+      const current = this.normalizeTruncation(next[origin]);
+      const last = current.documents?.[slot];
+      if (!omitted && !last && !current.legacy) return null;
+      if (last?.documentId === documentId && last.omitted === omitted && (!omitted || last.id === id)) return null;
+      // A slot has one current document, even across origin changes.
+      for (const [otherOrigin, value] of Object.entries(next)) {
+        if (otherOrigin !== origin && Object.hasOwn(value.documents || {}, slot)) {
+          const documents = { ...value.documents }; delete documents[slot];
+          next[otherOrigin] = { ...value, documents };
+        }
       }
-      this.notify();
-      return { ok: true, recorded: true };
+      const wasLegacy = !last && legacyId && Object.hasOwn(current.legacy || {}, legacyId);
+      const sequence = current.sequence + (omitted && !wasLegacy ? 1 : 0);
+      if (!Number.isSafeInteger(sequence)) throw Object.assign(new Error("notice capacity"), { code: "storage_error" });
+      next[origin] = { ...current, sequence,
+        count: sequence - current.dismissedThrough,
+        newestId: omitted ? `trunc-${sequence}` : current.newestId,
+        documents: { ...current.documents, [slot]: { documentId, id, omitted } },
+      };
+      // Refuse more metadata rather than lose notices or retain page bodies.
+      // The outbox transaction aborts too; the existing site-error exposes it.
+      if (new TextEncoder().encode(JSON.stringify(next)).length > 1024 * 1024) {
+        throw Object.assign(new Error("notice capacity"), { code: "storage_error" });
+      }
+      return next;
+    }
+
+    recordTruncation(origin, id, observation) {
+      return this.serializeTruncation(async () => {
+        try {
+          const next = this.prepareTruncation(origin, id, observation);
+          if (!next) return { ok: true, recorded: false };
+          await DB.put("meta", next, "truncationByOrigin");
+          this.truncationByOrigin = next;
+          this.notify();
+          return { ok: true, recorded: observation?.omitted !== false };
+        } catch (_e) { return { ok: false, error: "storage_error" }; }
+      });
+    }
+
+    enqueueObservedSkim(args, origin, observation) {
+      args = { ...args, blocks: structuredClone(args.blocks) };
+      return this.serializeTruncation(async () => {
+        const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([args.blocks, observation.omitted, observation.clips])));
+        const id = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
+        const legacyId = `${observation.documentId}:${globalThis.SolstoneBlocks.hashStr(JSON.stringify(args.blocks))}:${observation.omitted}:${observation.clips.join(",")}`;
+        const next = this.prepareTruncation(origin, id, { ...observation, legacyId });
+        const result = await Outbox.enqueueSkim({ ...args,
+          writeObservation: next ? meta => meta.put(next, "truncationByOrigin") : null,
+        });
+        if (next) { this.truncationByOrigin = next; this.notify(); }
+        return result;
+      });
+    }
+
+    pruneTruncationDocuments(keepSlot) {
+      return this.serializeTruncation(async () => {
+        const next = { ...this.truncationByOrigin };
+        let changed = false;
+        for (const [origin, entry] of Object.entries(next)) {
+          const documents = { ...entry.documents };
+          for (const slot of Object.keys(documents)) if (!keepSlot(slot, documents[slot])) { delete documents[slot]; changed = true; }
+          next[origin] = { ...entry, documents };
+        }
+        if (!changed) return true;
+        try {
+          await DB.put("meta", next, "truncationByOrigin");
+          this.truncationByOrigin = next;
+          return true;
+        } catch (_e) { return false; }
+      });
     }
 
     dismissTruncation(origin, id) {
-      return this.serializeTruncation(() => this.dismissTruncationNow(origin, id));
-    }
-
-    async dismissTruncationNow(origin, id) {
-      const previous = this.truncationByOrigin;
-      const current = previous?.[origin];
-      const pending = Array.isArray(current?.pending) ? current.pending : [];
-      const through = pending.indexOf(id);
-      if (!current || through < 0) return { ok: true, dismissed: false };
-      const dismissed = Array.isArray(current.dismissed) ? current.dismissed.slice() : [];
-      dismissed.push(...pending.slice(0, through + 1));
-      if (dismissed.length > 16) dismissed.splice(0, dismissed.length - 16);
-      const next = { ...(previous || {}), [origin]: {
-        ...current,
-        dismissed,
-        dismissThroughId: id,
-        pending: pending.slice(through + 1),
-        count: pending.length - through - 1,
-      } };
-      this.truncationByOrigin = next;
-      try {
-        await DB.put("meta", next, "truncationByOrigin");
-      } catch (_e) {
-        this.truncationByOrigin = previous;
-        return { ok: false, error: "storage_error" };
-      }
-      this.notify();
-      return { ok: true, dismissed: true };
+      return this.serializeTruncation(async () => {
+        const existing = this.truncationByOrigin[origin];
+        if (!existing) return { ok: true, dismissed: false };
+        const current = this.normalizeTruncation(existing);
+        const match = /^trunc-([1-9][0-9]*)$/.exec(id);
+        const through = match ? Number(match[1]) : current.legacy?.[id];
+        if (!current || !Number.isSafeInteger(through) || through <= current.dismissedThrough || through > current.sequence) {
+          return { ok: true, dismissed: false };
+        }
+        const next = { ...this.truncationByOrigin, [origin]: {
+          ...current, dismissedThrough: through, count: current.sequence - through,
+        } };
+        try { await DB.put("meta", next, "truncationByOrigin"); }
+        catch (_e) { return { ok: false, error: "storage_error" }; }
+        this.truncationByOrigin = next;
+        this.notify();
+        return { ok: true, dismissed: true };
+      });
     }
 
     getStatus() {

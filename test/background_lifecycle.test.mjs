@@ -520,7 +520,7 @@ test("lifecycle: worker restart reloads truncation occurrences and exact-origin 
   const newerId = "document-b:hash:true:label";
   await first.bg.port.recordTruncation(origin, olderId);
   await first.bg.port.recordTruncation(origin, newerId);
-  const dismissed = await first.bg.port.dismissTruncation(origin, newerId);
+  const dismissed = await first.bg.port.dismissTruncation(origin, first.bg.port.truncationByOrigin[origin].newestId);
   assert.equal(dismissed.ok, true);
   assert.equal(dismissed.dismissed, true);
   await first.bg.port.setRegistration(origin, "failed");
@@ -529,8 +529,8 @@ test("lifecycle: worker restart reloads truncation occurrences and exact-origin 
   const second = await startWorker();
   const status = second.bg.port.getStatus();
   assert.equal(status.truncationByOrigin[origin].count, 0);
-  assert.equal(status.truncationByOrigin[origin].newestId, newerId);
-  assert.deepEqual(status.truncationByOrigin[origin].dismissed, [olderId, newerId]);
+  assert.equal(status.truncationByOrigin[origin].newestId, "trunc-2");
+  assert.equal(status.truncationByOrigin[origin].dismissedThrough, 2);
   assert.equal(status.registration[origin], "failed");
   assert.equal(status.enqueue[origin], "outbox-full");
   assert.equal((await second.bg.port.recordTruncation(origin, olderId)).recorded, false);
@@ -538,7 +538,7 @@ test("lifecycle: worker restart reloads truncation occurrences and exact-origin 
   assert.equal(second.bg.port.truncationByOrigin[origin].count, 0);
   assert.equal((await second.bg.port.recordTruncation(origin, "document-c:hash:true:label")).recorded, true);
   assert.equal(second.bg.port.truncationByOrigin[origin].count, 1);
-  assert.equal(second.bg.port.truncationByOrigin[origin].newestId, "document-c:hash:true:label");
+  assert.equal(second.bg.port.truncationByOrigin[origin].newestId, "trunc-3");
 });
 
 test("lifecycle: permission withdrawal during initialization cannot restore an old grant", async () => {
@@ -1088,4 +1088,18 @@ test("remove wins add while older permission effect is settling",async()=>{
  assert.equal(added.ok,false);assert.equal(bg.port.grantedOrigins.has(origin),false);
  assert.equal(bg.port.chosenOrigins.has(origin),false);
  assert.equal((await bg.getCfg()).chosenOrigins.includes(origin),false);
+});
+
+test("tab facts prune only previously known closed document fingerprints",async()=>{
+ const {bg,mock}=await startWorker();const origin="https://gc.example";
+ await bg.port.recordTruncation(origin,"old",{slot:"88:0",documentId:"old"});
+ const before=bg.port.truncationByOrigin[origin].count;
+ const callbacks=[];mock.chrome.tabs.query=(_q,callback)=>callbacks.push(callback);
+ mock.listeners.onUpdatedTab[0]();
+ await bg.port.recordTruncation(origin,"new",{slot:"88:0",documentId:"new"});
+ callbacks[0]([]);await bg.port.truncationChain;
+ assert.equal(bg.port.truncationByOrigin[origin].documents["88:0"].documentId,"new");
+ const next=callbacks.length;mock.listeners.onUpdatedTab[0]();callbacks[next]([]);await bg.port.truncationChain;
+ assert.equal(Object.keys(bg.port.truncationByOrigin[origin].documents).length,0);
+ assert.equal(bg.port.truncationByOrigin[origin].count,before+1);
 });

@@ -161,7 +161,8 @@ const R = globalThis.SolstoneRouter,
   O = globalThis.SolstoneNativeOutbox;
 const inst = "00000000-0000-0000-0000-000000000001";
 function port() {
-  return {
+  return Object.assign(new globalThis.SolstoneNativePort({inst, runtimeId:"ext"}), {
+    syncCaptureAuthority() {},
     inst,
     captureEpoch: 0,
     grantedOrigins: new Set(["https://example.test"]),
@@ -183,7 +184,7 @@ function port() {
       O.checkAuthorization?.();
     },
     drain() {},
-  };
+  });
 }
 const sender = {
   id: "ext",
@@ -282,7 +283,8 @@ test("router: omitted unchanged skims record occurrences by retained content and
   assert.equal(p.truncationByOrigin["https://example.test"].count, 1);
   assert.equal(notifications.length, notificationsAfterInitial + 1, "empty enqueue still publishes a new omitted occurrence");
   const firstId = p.truncationByOrigin["https://example.test"].newestId;
-  assert.match(firstId, new RegExp("^" + docKey + ":"));
+  assert.equal(typeof firstId, "string");
+  assert.ok(firstId);
 
   await R.route(message({omitted:true, clips:["label"]}), sender, deps);
   assert.equal(p.truncationByOrigin["https://example.test"].count, 1, "identical reread is deduplicated");
@@ -308,7 +310,7 @@ test("router: omitted unchanged skims record occurrences by retained content and
   assert.deepEqual(await p.dismissTruncation(origin, newestId), {ok:true, dismissed:true});
   assert.equal(p.truncationByOrigin[origin].count, 0);
 
-  await R.route(message({omitted:true, clips:["label"]}), sender, deps);
+  await R.route(message({omitted:true, clips:["blocks", "label"]}), sender, deps);
   await R.route(otherMessage, otherSender, deps);
   assert.equal(p.truncationByOrigin[origin].count, 0, "dismiss-through suppresses earlier occurrences from both documents");
 
@@ -401,6 +403,7 @@ test("capture epoch fences pre-pause work waiting to enter a transaction", async
     now: () => 9000,
   });
   Object.assign(p, port());
+  delete p.syncCaptureAuthority;
   const deps = { runtimeId: "ext", port: p, confirmRealm: async () => true };
   const response = await R.route(hello("A"), sender, deps);
   const original = D.tx;

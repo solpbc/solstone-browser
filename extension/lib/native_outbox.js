@@ -92,7 +92,7 @@
     return true;
   }
 
-  async function enqueueSkim({ inst, ctx, destinationGeneration, senderUrl, site, title, adapter, blocks, nowMs, monotonicNow, authorize } = {}) {
+  async function enqueueSkim({ inst, ctx, destinationGeneration, senderUrl, site, title, adapter, blocks, nowMs, monotonicNow, authorize, writeObservation } = {}) {
     const mono = monotonicNow ?? performance.now();
     const consts = getConsts();
     const clonedBlocks = structuredClone(blocks || []);
@@ -159,6 +159,7 @@
           if (hasValidCursor) {
             const diff = Seg.diffBlocks(cursor.blocks, clonedBlocks);
             if (diff.added.length === 0 && diff.updated.length === 0 && diff.removed.length === 0) {
+              writeObservation?.(stores.meta);
               t.__result = { enqueued: false, disposition: "empty" };
               return;
             }
@@ -286,6 +287,7 @@
             }
           }
 
+          writeObservation?.(stores.meta);
           outboxStore.add(storedItem);
           producerStore.put(nextCursor);
 

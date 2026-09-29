@@ -1198,7 +1198,7 @@ test("port: accepted receipt does not clear registration or truncation state", a
 
   assert.equal(controller.registration["https://example.com"], "reload");
   assert.equal(controller.registration["https://other.com"], "reload");
-  assert.deepEqual(controller.truncationByOrigin["https://example.com"].pending, ["occurrence-1"]);
+  assert.equal(controller.truncationByOrigin["https://example.com"].count, 1);
 });
 
 test("port: dismissTruncation dismisses through the named occurrence for one origin", async () => {
@@ -1213,12 +1213,12 @@ test("port: dismissTruncation dismisses through the named occurrence for one ori
   await controller.recordTruncation("https://other.com", "x");
 
   assert.equal(controller.truncationByOrigin["https://example.com"].count, 2);
-  const res1 = await controller.dismissTruncation("https://example.com", "1");
+  const res1 = await controller.dismissTruncation("https://example.com", "trunc-1");
   assert.deepEqual(res1, { ok: true, dismissed: true });
-  assert.deepEqual(controller.truncationByOrigin["https://example.com"].pending, ["2"]);
-  assert.deepEqual(controller.truncationByOrigin["https://other.com"].pending, ["x"]);
+  assert.equal(controller.truncationByOrigin["https://example.com"].count, 1);
+  assert.equal(controller.truncationByOrigin["https://other.com"].count, 1);
 
-  const res2 = await controller.dismissTruncation("https://example.com", "2");
+  const res2 = await controller.dismissTruncation("https://example.com", "trunc-2");
   assert.deepEqual(res2, { ok: true, dismissed: true });
   assert.equal(controller.truncationByOrigin["https://example.com"].count, 0);
 });
@@ -1239,9 +1239,9 @@ test("port: dismissed earlier occurrences stay suppressed without affecting anot
   await controller.recordTruncation(otherOrigin, "other-doc");
   const otherBeforeDismiss = structuredClone(controller.truncationByOrigin[otherOrigin]);
 
-  assert.deepEqual(await controller.dismissTruncation(origin, "doc-b"), {ok:true, dismissed:true});
+  assert.deepEqual(await controller.dismissTruncation(origin, "trunc-2"), {ok:true, dismissed:true});
   assert.equal(controller.truncationByOrigin[origin].count, 0);
-  assert.deepEqual(controller.truncationByOrigin[origin].dismissed, ["doc-a", "doc-b"]);
+  assert.equal(controller.truncationByOrigin[origin].dismissedThrough, 2);
   assert.deepEqual(controller.truncationByOrigin[otherOrigin], otherBeforeDismiss);
 
   const beforeRepeats = notifications;
@@ -1252,11 +1252,11 @@ test("port: dismissed earlier occurrences stay suppressed without affecting anot
 
   assert.deepEqual(await controller.recordTruncation(origin, "doc-c"), {ok:true, recorded:true});
   assert.equal(controller.truncationByOrigin[origin].count, 1);
-  assert.equal(controller.truncationByOrigin[origin].newestId, "doc-c");
+  assert.equal(controller.truncationByOrigin[origin].newestId, "trunc-3");
   assert.deepEqual(controller.truncationByOrigin[otherOrigin], otherBeforeDismiss);
 });
 
-test("port: truncation records deduplicate, cap at sixteen, and roll back failed writes", async () => {
+test("port: truncation counts exceed sixteen, deduplicate, and roll back failed writes", async () => {
   await resetDB();
   let notifications = 0;
   const controller = new PortController({
@@ -1270,9 +1270,9 @@ test("port: truncation records deduplicate, cap at sixteen, and roll back failed
   assert.equal(controller.truncationByOrigin[origin].count, 1);
   assert.equal(notifications, 1);
   for (let id = 2; id <= 17; id++) await controller.recordTruncation(origin, String(id));
-  assert.equal(controller.truncationByOrigin[origin].count, 16);
-  assert.equal(controller.truncationByOrigin[origin].pending[0], "2");
-  assert.equal(controller.truncationByOrigin[origin].pending.at(-1), "17");
+  assert.equal(controller.truncationByOrigin[origin].count, 17);
+  assert.equal(controller.truncationByOrigin[origin].documents["1"].id, "1");
+  assert.equal(controller.truncationByOrigin[origin].newestId, "trunc-17");
 
   const previousPut = DB.put;
   DB.put = async () => { throw new Error("fixture storage failure"); };
@@ -1280,10 +1280,10 @@ test("port: truncation records deduplicate, cap at sixteen, and roll back failed
   try {
     const record = await controller.recordTruncation(origin, "18");
     assert.deepEqual(record, {ok:false, error:"storage_error"});
-    assert.equal(controller.truncationByOrigin[origin].count, 16);
-    const dismiss = await controller.dismissTruncation(origin, "2");
+    assert.equal(controller.truncationByOrigin[origin].count, 17);
+    const dismiss = await controller.dismissTruncation(origin, "trunc-2");
     assert.deepEqual(dismiss, {ok:false, error:"storage_error"});
-    assert.equal(controller.truncationByOrigin[origin].pending[0], "2");
+    assert.equal(controller.truncationByOrigin[origin].documents["1"].id, "1");
     assert.equal(notifications, beforeFailure);
   } finally {
     DB.put = previousPut;

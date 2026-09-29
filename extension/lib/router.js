@@ -585,7 +585,7 @@
 
         const clips = Array.isArray(msg.clips) ? Array.from(new Set(msg.clips.filter((clip) => ["blocks", "text", "label"].includes(clip)))).sort() : [];
         try {
-          const result = await Outbox.enqueueSkim({
+          const enqueueArgs = {
             inst: port.inst,
             ctx: binding.ctx,
             destinationGeneration: port.destinationGeneration,
@@ -597,15 +597,13 @@
             nowMs: Date.now(),
             monotonicNow: port.now(),
             authorize,
+          };
+          const result = await port.enqueueObservedSkim(enqueueArgs, senderOrigin, {
+            clips,
+            slot: `${tabId}:${frameId}`, documentId: binding.documentIdentity, omitted: msg.omitted === true,
           });
 
           if (!authorize()) return { ok: false, error: "authority_mismatch" };
-
-          if (msg.omitted === true && port.recordTruncation) {
-            const observationId = `${binding.documentIdentity}:${Blocks.hashStr(JSON.stringify(blocksList))}:${msg.omitted === true}:${clips.join(",")}`;
-            const recorded = await port.recordTruncation(senderOrigin, observationId);
-            if (!recorded?.ok) return { ok: false, error: "storage_error" };
-          }
 
           if (result && result.enqueued) {
             if (result.pressure) port.pressure = result.pressure;

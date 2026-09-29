@@ -632,18 +632,18 @@ test("router: failed truncation dismissal reports storage_error and keeps the ro
   const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
 
   port.truncationByOrigin = { "https://example.com": {
-    count: 1, newestId: "5", dismissThroughId: "", pending: ["5"],
+    count: 1, newestId: "trunc-5", dismissedThrough: 4, sequence: 5, documents: {},
   } };
 
   const originalPut = DB.put;
   DB.put = async () => { throw new Error("fixture storage failure"); };
   try {
-    const res = await Router.route({ cmd: "dismissTruncation", origin: "https://example.com", bound: "5" }, sender, {
+    const res = await Router.route({ cmd: "dismissTruncation", origin: "https://example.com", bound: "trunc-5" }, sender, {
       runtimeId: EXT_ID,
       port,
     });
     assert.deepEqual(res, { ok: false, error: "storage_error" });
-    assert.deepEqual(port.truncationByOrigin["https://example.com"].pending, ["5"]);
+    assert.equal(port.truncationByOrigin["https://example.com"].count, 1);
   } finally {
     DB.put = originalPut;
   }

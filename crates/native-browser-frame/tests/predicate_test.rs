@@ -26,7 +26,9 @@ fn test_predicates_boundaries() {
     assert!(!freshness_value_allowed(15001));
 
     assert!(freshness_authorizes_skim(1000, 5000, 1000));
-    assert!(freshness_authorizes_skim(1000, 5000, 6000));
+    assert!(freshness_authorizes_skim(1000, 5000, 5999));
+    assert!(!freshness_authorizes_skim(1000, 5000, 6000));
+    assert!(!freshness_authorizes_skim(1000, 0, 1000));
     assert!(!freshness_authorizes_skim(1000, 5000, 6001));
     assert!(!freshness_authorizes_skim(2000, 5000, 1000)); // now < issued
 
@@ -52,6 +54,7 @@ fn test_predicates_boundaries() {
     let state_ok = serde_json::json!({
         "type": "state",
         "capture": "permitted",
+        "freshness_ms": 15000,
         "delivery": "delivered",
         "destination_generation": "g1",
         "period_id": "p1",
@@ -67,4 +70,30 @@ fn test_predicates_boundaries() {
         "version": "1.0.0"
     });
     assert!(!capture_is_permitted(&state_paused));
+}
+
+#[test]
+fn capture_predicate_requires_a_valid_positive_lease_state() {
+    let state = serde_json::json!({"type":"state","capture":"permitted","delivery":"kept_locally", "failure":"queue_full", "freshness_ms":1000, "destination_generation":"g", "period_id":"p"});
+    assert!(capture_is_permitted(&state));
+    for (field, value) in [
+        ("freshness_ms", serde_json::json!(0)),
+        ("freshness_ms", serde_json::json!(15001)),
+        ("delivery", serde_json::json!("invented")),
+        ("failure", serde_json::json!("invented")),
+        ("type", serde_json::json!("batch")),
+        ("period_id", serde_json::Value::Null),
+    ] {
+        let mut bad = state.clone();
+        bad[field] = value;
+        assert!(!capture_is_permitted(&bad));
+    }
+    let mut bad = state.clone();
+    bad.as_object_mut().unwrap().remove("type");
+    assert!(!capture_is_permitted(&bad));
+    let mut bad = state;
+    bad.as_object_mut().unwrap().remove("freshness_ms");
+    assert!(!capture_is_permitted(&bad));
+    assert!(!may_renew_on_connection(1, 1, 1000, 999, 500));
+    assert!(!freshness_authorizes_skim(1000, 1, 999));
 }

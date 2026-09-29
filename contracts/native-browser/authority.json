@@ -1,5 +1,5 @@
 {
-  "bundle_version": "1.0.0",
+  "bundle_version": "1.0.1",
   "wire_protocol": 1,
   "journal": {
     "id": "solstone-journal-format:browser-jsonl",
@@ -12,7 +12,8 @@
     "host_to_extension": 65536,
     "control": 65536,
     "delta_records": 3000,
-    "batch_id_hex": 32
+    "batch_id_hex": 32,
+    "json_max_depth": 127
   },
   "policy": {
     "file": 50331648,
@@ -65,7 +66,11 @@
     "failure": [
       "relay_unavailable",
       "journal_rejected",
-      "local_io"
+      "local_io",
+      "resource_exhausted",
+      "queue_full",
+      "age_policy",
+      "unaccepted_lost"
     ],
     "bye_reason": [
       "shutdown",
@@ -78,6 +83,11 @@
     "behind": [
       "app",
       "extension"
+    ],
+    "result": [
+      "accepted",
+      "duplicate",
+      "rejected"
     ]
   },
   "hosts_and_ids": {
@@ -114,24 +124,101 @@
       "chrome_windows": "Software\\Google\\Chrome\\NativeMessagingHosts\\<host>",
       "edge_windows": "Software\\Microsoft\\Edge\\NativeMessagingHosts\\<host>",
       "firefox_windows": "Software\\Mozilla\\NativeMessagingHosts\\<host>"
+    },
+    "argv": {
+      "chrome_macos": {
+        "arguments_after_executable": [
+          "origin"
+        ],
+        "identity_argument": 0,
+        "identity_source": "allowed_origins"
+      },
+      "chrome_linux": {
+        "arguments_after_executable": [
+          "origin"
+        ],
+        "identity_argument": 0,
+        "identity_source": "allowed_origins"
+      },
+      "chrome_windows": {
+        "arguments_after_executable": [
+          "origin",
+          "parent_window"
+        ],
+        "identity_argument": 0,
+        "identity_source": "allowed_origins"
+      },
+      "edge_macos": {
+        "arguments_after_executable": [
+          "origin"
+        ],
+        "identity_argument": 0,
+        "identity_source": "allowed_origins"
+      },
+      "edge_linux": {
+        "arguments_after_executable": [
+          "origin"
+        ],
+        "identity_argument": 0,
+        "identity_source": "allowed_origins"
+      },
+      "edge_windows": {
+        "arguments_after_executable": [
+          "origin",
+          "parent_window"
+        ],
+        "identity_argument": 0,
+        "identity_source": "allowed_origins"
+      },
+      "firefox_macos": {
+        "arguments_after_executable": [
+          "manifest_path",
+          "extension_id"
+        ],
+        "identity_argument": 1,
+        "identity_source": "allowed_extensions"
+      },
+      "firefox_linux": {
+        "arguments_after_executable": [
+          "manifest_path",
+          "extension_id"
+        ],
+        "identity_argument": 1,
+        "identity_source": "allowed_extensions"
+      },
+      "firefox_windows": {
+        "arguments_after_executable": [
+          "manifest_path",
+          "extension_id"
+        ],
+        "identity_argument": 1,
+        "identity_source": "allowed_extensions"
+      }
+    },
+    "windows": {
+      "hive": "HKEY_CURRENT_USER",
+      "value_name": "",
+      "value_type": "REG_SZ",
+      "value": "absolute_manifest_path",
+      "registry_views": [
+        "32",
+        "64"
+      ],
+      "path_contains_view": false
     }
   },
   "receipt_classes": {
     "retryable": [
       "snapshot_required",
-      "resource_exhausted"
+      "resource_exhausted",
+      "queue_full",
+      "age_policy"
     ],
     "permanent": [
       "malformed",
       "oversize",
       "stale_generation",
-      "expired_unaccepted"
-    ],
-    "backpressure": [
-      "queue_full",
-      "age_policy"
-    ],
-    "loss": [
+      "expired_unaccepted",
       "unaccepted_lost"
     ]
   },
@@ -183,11 +270,13 @@
     ],
     "accepted": [
       "type",
+      "result",
       "destination_generation",
       "inst",
       "batch_id",
       "period_id",
-      "duplicate"
+      "reason",
+      "class"
     ],
     "bye": [
       "type",
@@ -229,5 +318,9 @@
       "level",
       "linkHost"
     ]
+  },
+  "json_depth": {
+    "count": "object_and_array_containers_including_root",
+    "overflow_code": "bad_json"
   }
 }

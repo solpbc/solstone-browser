@@ -111,533 +111,233 @@
     throw new Error("unsupported type");
   }
 
-  function encode(msg) {
-    const consts = getConsts();
-    const keyOrder = requireConst(consts, "CANONICAL_KEY_ORDER");
-    const jsonStr = canonicalStringify(msg, keyOrder);
-    return new TextEncoder().encode(jsonStr);
-  }
-
-  // --- Lexeme Scanner & Rewriter ---
-
-  function scanLoneSurrogateEscapes(text) {
-    const re = /\\u([0-9a-fA-F]{4})/g;
-    let match;
-    while ((match = re.exec(text)) !== null) {
-      const code = parseInt(match[1], 16);
-      if (code >= 0xd800 && code <= 0xdbff) {
-        const nextIdx = match.index + 6;
-        const nextSub = text.slice(nextIdx, nextIdx + 6);
-        const nextMatch = /^\\u([0-9a-fA-F]{4})/.exec(nextSub);
-        if (nextMatch) {
-          const nextCode = parseInt(nextMatch[1], 16);
-          if (nextCode >= 0xdc00 && nextCode <= 0xdfff) {
-            re.lastIndex = nextIdx + 6;
-            continue;
-          }
-        }
-        return true;
-      }
-      if (code >= 0xdc00 && code <= 0xdfff) {
-        return true;
+  function exceedsObjectDepth(value, maximum) {
+    const pending = [{value, depth: 0}];
+    while (pending.length) {
+      const item = pending.pop();
+      if (item.value !== null && typeof item.value === "object") {
+        const depth = item.depth + 1;
+        if (depth > maximum) return true;
+        for (const key of Object.keys(item.value)) pending.push({value: item.value[key], depth});
       }
     }
     return false;
   }
 
-  function parseIntegerLexeme(lexeme, timestampMax) {
-    if (typeof lexeme !== "string") return null;
-    const s = lexeme.trim();
-    if (s.startsWith("-")) return { err: "bad_number" };
-    if (s.startsWith("+") || /^0\d/.test(s) || /\.$/.test(s)) return { err: "bad_json" };
-    if (/e/i.test(s)) {
-      const parts = s.split(/[eE]/);
-      if (parts.length !== 2) return { err: "bad_json" };
-      const mantissaStr = parts[0];
-      const expStr = parts[1];
-      const exp = Number(expStr);
-      if (!Number.isInteger(exp)) return { err: "bad_json" };
-      const mNum = Number(mantissaStr);
-      if (Number.isNaN(mNum) || mNum < 0) return { err: "bad_number" };
-      const val = mNum * Math.pow(10, exp);
-      if (!Number.isInteger(val) || val < 0 || val > timestampMax) {
-        return { err: "bad_number" };
-      }
-      return { val: Math.floor(val) };
+  function exceedsJsonDepth(text, maximum) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = 0; index < text.length; index++) {
+      const character = text[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (character === '"') inString = false;
+      } else if (character === '"') inString = true;
+      else if (character === "{" || character === "[") {
+        if (++depth > maximum) return true;
+      } else if (character === "}" || character === "]") depth--;
     }
-    if (s.includes(".")) {
-      const parts = s.split(".");
-      if (parts.length !== 2) return { err: "bad_json" };
-      if (!/^\d+$/.test(parts[0]) || !/^\d+$/.test(parts[1])) return { err: "bad_json" };
-      if (parts[1].replace(/0+$/, "").length > 0) {
-        return { err: "bad_number" };
-      }
-      const val = Number(parts[0]);
-      if (val < 0 || val > timestampMax) return { err: "bad_number" };
-      return { val };
-    }
-    if (!/^\d+$/.test(s)) return { err: "bad_json" };
-    const val = Number(s);
-    if (val < 0 || val > timestampMax) return { err: "bad_number" };
-    return { val };
+    return false;
   }
 
-  function rewriteIntegerLexemes(text, timestampMax) {
-    return text.replace(/"(protocol|queued_at_ms|freshness_ms|ts|n|depth)"\s*:\s*([^,}\]\s]+)/g, (match, key, rawVal) => {
-      if (rawVal.startsWith('"') || rawVal === "null" || rawVal === "true" || rawVal === "false" || rawVal.startsWith("{") || rawVal.startsWith("[")) {
-        return match;
-      }
-      const res = parseIntegerLexeme(rawVal, timestampMax);
-      if (res.err) {
-        const err = new Error("number parsing error");
-        err.code = res.err;
-        throw err;
-      }
-      return `"${key}":${res.val}`;
-    });
+  function encode(msg) {
+    const consts = getConsts();
+    const keyOrder = requireConst(consts, "CANONICAL_KEY_ORDER");
+    if (exceedsObjectDepth(msg, requireConst(consts, "JSON_MAX_DEPTH"))) {
+      const error = new Error("bad_json"); error.code = "bad_json"; throw error;
+    }
+    const jsonStr = canonicalStringify(msg, keyOrder);
+    return new TextEncoder().encode(jsonStr);
   }
 
-  // --- Decoder ---
+  // --- Offline schema validation and decoder ---
+
+  let validateSchema;
+  function validator() {
+    if (!validateSchema) {
+      const schemas = globalThis.SolstoneNativeBrowserSchemas;
+      const evaluator = globalThis.SolstoneNativeBrowserSchemaValidator;
+      if (!schemas || !evaluator) throw new Error("missing native-browser schema bundle or validator");
+      validateSchema = evaluator.compile([schemas.envelope, schemas.journal]);
+    }
+    return validateSchema;
+  }
+
+  function refuse(code, detail) {
+    const error = new Error(code);
+    error.code = code;
+    if (detail) error.recordError = {code, ...detail};
+    return {status: "refuse", error, code, ...detail};
+  }
+
+  function invalidValues(value) {
+    const pending = [value];
+    while (pending.length) {
+      const item = pending.pop();
+      if (typeof item === "string" && isLoneSurrogate(item)) return "lone_surrogate";
+      if (typeof item === "number" && !Number.isFinite(item)) return "bad_number";
+      if (item !== null && typeof item === "object") {
+        for (const key of Object.keys(item)) {
+          if (isLoneSurrogate(key)) return "lone_surrogate";
+          pending.push(item[key]);
+        }
+      }
+    }
+    return null;
+  }
+
+  function schemaRefusal(type, error) {
+    const {path, keyword} = error;
+    const field = path[0];
+    if (field === "records") {
+      if (path.length === 1 && keyword === "maxItems") return refuse("too_many_deltas");
+      if (path.at(-1) === "id" && ["maxLength", "required"].includes(keyword)) {
+        return refuse("bad_record", {row: path[1], field: "id", cause: keyword === "required" ? "missing" : "too_long"});
+      }
+      return refuse("bad_record");
+    }
+    if (type === "accepted") return refuse("invalid_receipt");
+    if (keyword === "required" && !(["state", "hello_ack"].includes(type) && ["destination_generation", "period_id"].includes(field))) return refuse("missing_field");
+    if (field === "batch_id") return refuse("bad_batch_id");
+    if (field === "freshness_ms") return refuse("freshness_range");
+    if (["protocol", "queued_at_ms"].includes(field)) return refuse("bad_number");
+    if (["state", "hello_ack"].includes(type) &&
+        (["destination_generation", "period_id"].includes(field) || keyword === "not")) return refuse("bad_state_ids");
+    if (keyword === "enum" || keyword === "const") return refuse("invalid_enum");
+    return refuse("missing_field");
+  }
 
   function decode(input, direction) {
     const consts = getConsts();
-    const timestampMax = requireConst(consts, "TIMESTAMP_MAX");
-    const brandEnum = requireConst(consts, "BRAND_ENUM");
-    const instMax = requireConst(consts, "INST_STRING_MAX");
-    const versionMax = requireConst(consts, "VERSION_MAX");
     const extCap = requireConst(consts, "EXTENSION_TO_HOST_MAX");
     const controlMax = requireConst(consts, "CONTROL_MAX");
-    const captureEnum = requireConst(consts, "CAPTURE_ENUM");
-    const deliveryEnum = requireConst(consts, "DELIVERY_ENUM");
-    const failureEnum = requireConst(consts, "FAILURE_ENUM");
-    const byeReasonEnum = requireConst(consts, "BYE_REASON_ENUM");
-    const behindEnum = requireConst(consts, "BEHIND_ENUM");
-    const idMax = requireConst(consts, "ID_STRING_MAX");
-    const deltaRecordsMax = requireConst(consts, "DELTA_RECORDS_MAX");
     const directions = requireConst(consts, "DIRECTIONS");
-
+    if (!Object.prototype.hasOwnProperty.call(directions, direction)) return refuse("bad_direction");
+    const maximum = direction === "host_to_extension" ? controlMax : extCap;
     let text;
     let byteLength;
     if (typeof input === "string") {
-      text = input;
+      // UTF-8 is never shorter than the UTF-16 length, including unpaired surrogates.
+      if (input.length > maximum) return refuse("oversize");
       byteLength = new TextEncoder().encode(input).byteLength;
-    } else if (input instanceof Uint8Array || (typeof Buffer !== "undefined" && Buffer.isBuffer(input))) {
+      if (byteLength > maximum) return refuse("oversize");
+      text = input;
+    } else if (input instanceof Uint8Array) {
       byteLength = input.byteLength;
+      if (byteLength > maximum) return refuse("oversize");
       try {
-        text = new TextDecoder("utf-8", { fatal: true }).decode(input);
-      } catch (_e) {
-        const err = new Error("invalid utf-8");
-        err.code = "bad_utf8";
-        return { status: "refuse", error: err, code: "bad_utf8" };
+        text = new TextDecoder("utf-8", {fatal: true, ignoreBOM: true}).decode(input);
+      } catch (_error) {
+        return refuse("bad_utf8");
       }
     } else {
-      const err = new Error("empty payload");
-      err.code = "empty_payload";
-      return { status: "refuse", error: err, code: "empty_payload" };
+      return refuse("empty_payload");
     }
-
-    if (byteLength === 0 || text.trim() === "") {
-      const err = new Error("empty payload");
-      err.code = "empty_payload";
-      return { status: "refuse", error: err, code: "empty_payload" };
-    }
-
-    // Step 1: scan for lone surrogates
-    if (scanLoneSurrogateEscapes(text) || isLoneSurrogate(text)) {
-      const err = new Error("lone surrogate");
-      err.code = "lone_surrogate";
-      return { status: "refuse", error: err, code: "lone_surrogate" };
-    }
-
-    // Step 2: integer-lexeme scanner & rewriter
-    let parsedText = text;
-    try {
-      parsedText = rewriteIntegerLexemes(text, timestampMax);
-    } catch (e) {
-      return { status: "refuse", error: e, code: e.code || "bad_number" };
-    }
-
-    // Step 3: parse JSON
+    if (byteLength === 0 || text.trim() === "") return refuse("empty_payload");
+    if (exceedsJsonDepth(text, requireConst(consts, "JSON_MAX_DEPTH"))) return refuse("bad_json");
     let obj;
     try {
-      obj = JSON.parse(parsedText);
-    } catch (_e) {
-      const err = new Error("bad json");
-      err.code = "bad_json";
-      return { status: "refuse", error: err, code: "bad_json" };
+      // Strict parsing preserves additive fields and never repairs malformed JSON.
+      obj = JSON.parse(text);
+    } catch (_error) {
+      return refuse("bad_json");
     }
-
-    if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
-      const err = new Error("bad json");
-      err.code = "bad_json";
-      return { status: "refuse", error: err, code: "bad_json" };
-    }
-
-    // Step 4: type check
-    if (!("type" in obj)) {
-      const err = new Error("missing type field");
-      err.code = "missing_field";
-      return { status: "refuse", error: err, code: "missing_field" };
-    }
+    const invalid = invalidValues(obj);
+    if (invalid) return refuse(invalid);
+    if (obj === null || typeof obj !== "object" || Array.isArray(obj)) return refuse("bad_json");
+    if (!Object.prototype.hasOwnProperty.call(obj, "type") || typeof obj.type !== "string") return refuse("missing_field");
     const type = obj.type;
-    const knownTypes = ["hello", "hello_ack", "unsupported", "state", "batch", "boundary", "accepted", "bye"];
-    if (!knownTypes.includes(type)) {
-      const err = new Error("bad type");
-      err.code = "bad_type";
-      return { status: "refuse", error: err, code: "bad_type" };
+    const knownTypes = [...directions.extension_to_host, ...directions.host_to_extension];
+    if (!knownTypes.includes(type)) return refuse("bad_type");
+    if (!directions[direction].includes(type)) return refuse("bad_direction");
+    if (type !== "batch" && byteLength > controlMax) return refuse("oversize");
+
+    const schemas = globalThis.SolstoneNativeBrowserSchemas;
+    const check = validator();
+    const schemaError = check(schemas.envelope, "#/$defs/" + type, obj);
+    if (schemaError) return schemaRefusal(type, schemaError);
+
+    if (type === "hello" && obj.protocol !== consts.WIRE_PROTOCOL) {
+      return {status: "unsupported", value: {
+        type: "unsupported", protocol: obj.protocol, version: obj.version,
+        behind: obj.protocol > consts.WIRE_PROTOCOL ? "app" : "extension",
+      }};
     }
 
-    // Step 5: hello loose shape & unsupported check
-    if (type === "hello") {
-      const isProtocolIntegral = typeof obj.protocol === "number" && Number.isInteger(obj.protocol);
-      const hasBrand = Object.prototype.hasOwnProperty.call(obj, "brand");
-      const isBrandEnum = brandEnum.includes(obj.brand);
-      const isInstValid = typeof obj.inst === "string" && obj.inst.length <= instMax;
-      const isVersionValid = typeof obj.version === "string" && obj.version.length <= versionMax;
-      if (!isProtocolIntegral || !hasBrand || !isBrandEnum || !isInstValid || !isVersionValid) {
-        let code = "missing_field";
-        if (!isProtocolIntegral) code = "bad_number";
-        else if (hasBrand && !isBrandEnum) code = "invalid_enum";
-        const err = new Error("malformed hello");
-        err.code = code;
-        return { status: "refuse", error: err, code };
-      }
-      if (obj.protocol !== 1) {
-        return {
-          status: "unsupported",
-          value: {
-            type: "unsupported",
-            protocol: obj.protocol,
-            version: obj.version || "",
-            behind: obj.protocol > 1 ? "app" : "extension",
-          },
-        };
-      }
+    if (type === "state" || type === "hello_ack") {
+      const gen = obj.destination_generation;
+      const period = obj.period_id;
+      const hasGen = typeof gen === "string" && gen.length > 0;
+      const hasPeriod = typeof period === "string" && period.length > 0;
+      if ((obj.capture === "unavailable" || obj.capture === "not_paired") && (gen != null || period != null)) return refuse("bad_state_ids");
+      if (obj.capture === "permitted" && (!hasGen || !hasPeriod)) return refuse("bad_state_ids");
+      if ((obj.capture === "paused" || obj.capture === "intake_off") && !hasGen) return refuse("bad_state_ids");
+      if (hasPeriod && !hasGen) return refuse("bad_state_ids");
     }
 
-    // Step 6: direction check
-    if (direction === "extension_to_host" && !directions.extension_to_host.includes(type)) {
-      const err = new Error("bad direction");
-      err.code = "bad_direction";
-      return { status: "refuse", error: err, code: "bad_direction" };
-    }
-    if (direction === "host_to_extension" && !directions.host_to_extension.includes(type)) {
-      const err = new Error("bad direction");
-      err.code = "bad_direction";
-      return { status: "refuse", error: err, code: "bad_direction" };
+    if (type === "accepted" && obj.result === "rejected") {
+      const reasons = consts.RECEIPT_CLASSES[obj.class];
+      if (!reasons || !reasons.includes(obj.reason)) return refuse("invalid_receipt");
     }
 
-    // Step 7: payload length check
     if (type === "batch") {
-      if (byteLength > extCap) {
-        const err = new Error("oversize batch");
-        err.code = "oversize";
-        return { status: "refuse", error: err, code: "oversize" };
-      }
-    } else {
-      if (byteLength > controlMax) {
-        const err = new Error("oversize control payload");
-        err.code = "oversize";
-        return { status: "refuse", error: err, code: "oversize" };
-      }
-    }
-
-    // Step 8: semantic validation
-    if (type === "hello_ack" || type === "state") {
-      if (!obj.capture || !obj.delivery) {
-        const err = new Error("missing capture or delivery");
-        err.code = "missing_field";
-        return { status: "refuse", error: err, code: "missing_field" };
-      }
-      if (!captureEnum.includes(obj.capture) || !deliveryEnum.includes(obj.delivery)) {
-        const err = new Error("invalid enum in state");
-        err.code = "invalid_enum";
-        return { status: "refuse", error: err, code: "invalid_enum" };
-      }
-
-      if (obj.delivery === "failed") {
-        if (!obj.failure || !failureEnum.includes(obj.failure)) {
-          const err = new Error("invalid or missing failure code");
-          err.code = !obj.failure ? "missing_field" : "invalid_enum";
-          return { status: "refuse", error: err, code: err.code };
-        }
-      } else {
-        if (obj.failure !== undefined && obj.failure !== null) {
-          const err = new Error("failure present when delivery not failed");
-          err.code = "bad_state_ids";
-          return { status: "refuse", error: err, code: "bad_state_ids" };
-        }
-      }
-
-      if (obj.capture === "unavailable" || obj.capture === "not_paired") {
-        if (obj.destination_generation || obj.period_id) {
-          const err = new Error("ids present when capture is unavailable/not_paired");
-          err.code = "bad_state_ids";
-          return { status: "refuse", error: err, code: "bad_state_ids" };
-        }
-      } else if (obj.capture === "permitted") {
-        if (!obj.destination_generation || !obj.period_id) {
-          const err = new Error("ids missing when capture is permitted");
-          err.code = "bad_state_ids";
-          return { status: "refuse", error: err, code: "bad_state_ids" };
-        }
-      } else if (obj.capture === "paused" || obj.capture === "intake_off") {
-        if (!obj.destination_generation) {
-          const err = new Error("destination_generation missing when paused/intake_off");
-          err.code = "bad_state_ids";
-          return { status: "refuse", error: err, code: "bad_state_ids" };
-        }
-      }
-
-      if (obj.freshness_ms !== undefined && obj.freshness_ms !== null) {
-        if (typeof obj.freshness_ms !== "number" || obj.freshness_ms < 0 || obj.freshness_ms > 15000) {
-          const err = new Error("freshness_ms out of range");
-          err.code = "freshness_range";
-          return { status: "refuse", error: err, code: "freshness_range" };
-        }
-      }
-    } else if (type === "unsupported") {
-      if (obj.protocol === undefined || !obj.behind) {
-        const err = new Error("missing field in unsupported");
-        err.code = "missing_field";
-        return { status: "refuse", error: err, code: "missing_field" };
-      }
-      if (!behindEnum.includes(obj.behind)) {
-        const err = new Error("invalid behind in unsupported");
-        err.code = "invalid_enum";
-        return { status: "refuse", error: err, code: "invalid_enum" };
-      }
-    } else if (type === "boundary") {
-      if (!obj.destination_generation || !obj.period_id) {
-        const err = new Error("missing generation or period_id in boundary");
-        err.code = "missing_field";
-        return { status: "refuse", error: err, code: "missing_field" };
-      }
-    } else if (type === "accepted") {
-      if (!obj.destination_generation || !obj.inst || !obj.batch_id || !obj.period_id || obj.duplicate === undefined) {
-        const err = new Error("missing field in accepted");
-        err.code = "missing_field";
-        return { status: "refuse", error: err, code: "missing_field" };
-      }
-      if (typeof obj.duplicate !== "boolean") {
-        const err = new Error("duplicate must be boolean");
-        err.code = "invalid_enum";
-        return { status: "refuse", error: err, code: "invalid_enum" };
-      }
-      if (!/^[0-9a-f]{32}$/.test(obj.batch_id)) {
-        const err = new Error("bad batch id");
-        err.code = "bad_batch_id";
-        return { status: "refuse", error: err, code: "bad_batch_id" };
-      }
-    } else if (type === "bye") {
-      if (!obj.reason) {
-        const err = new Error("missing reason in bye");
-        err.code = "missing_field";
-        return { status: "refuse", error: err, code: "missing_field" };
-      }
-      if (!byeReasonEnum.includes(obj.reason)) {
-        const err = new Error("invalid bye reason");
-        err.code = "invalid_enum";
-        return { status: "refuse", error: err, code: "invalid_enum" };
-      }
-    } else if (type === "batch") {
-      if (!obj.destination_generation || !obj.inst || !obj.batch_id || obj.queued_at_ms === undefined || !obj.records) {
-        const err = new Error("missing field in batch");
-        err.code = "missing_field";
-        return { status: "refuse", error: err, code: "missing_field" };
-      }
-      if (!/^[0-9a-f]{32}$/.test(obj.batch_id)) {
-        const err = new Error("bad batch id");
-        err.code = "bad_batch_id";
-        return { status: "refuse", error: err, code: "bad_batch_id" };
-      }
-      if (typeof obj.queued_at_ms !== "number" || obj.queued_at_ms < 0 || obj.queued_at_ms > timestampMax) {
-        const err = new Error("bad queued_at_ms");
-        err.code = "bad_number";
-        return { status: "refuse", error: err, code: "bad_number" };
-      }
-
-      if (!Array.isArray(obj.records) || obj.records.length === 0) {
-        const err = new Error("bad records");
-        err.code = "bad_record";
-        return { status: "refuse", error: err, code: "bad_record" };
-      }
-      if (obj.records.length > deltaRecordsMax) {
-        const err = new Error("too many deltas");
-        err.code = "too_many_deltas";
-        return { status: "refuse", error: err, code: "too_many_deltas" };
-      }
-
-      const firstRecord = obj.records[0];
-      const isSnapshot = firstRecord.t === "segment_start";
-      if (isSnapshot) {
-        if (obj.records.length !== 1) {
-          const err = new Error("multiple snapshots in batch");
-          err.code = "bad_record";
-          return { status: "refuse", error: err, code: "bad_record" };
-        }
-      }
-
-      let batchCtx = null;
-      let hasCtx = false;
-
-      for (let i = 0; i < obj.records.length; i++) {
-        const rec = obj.records[i];
-        if (isSnapshot && rec.t !== "segment_start") {
-          const err = new Error("mixed snapshot and delta records");
-          err.code = "bad_record";
-          return { status: "refuse", error: err, code: "bad_record" };
-        }
-        if (!isSnapshot && rec.t !== "delta") {
-          const err = new Error("mixed snapshot and delta records");
-          err.code = "bad_record";
-          return { status: "refuse", error: err, code: "bad_record" };
-        }
-
-        if (rec.inst && rec.inst !== obj.inst) {
-          const err = new Error("record inst mismatch");
-          err.code = "bad_record";
-          err.recordError = { code: "bad_record", row: i, field: "inst", cause: "mismatch" };
-          return { status: "refuse", error: err, code: "bad_record", row: i, field: "inst", cause: "mismatch" };
-        }
-
-        if (rec.ctx !== undefined) {
-          if (!hasCtx) {
-            batchCtx = rec.ctx;
-            hasCtx = true;
-          } else if (rec.ctx !== batchCtx) {
-            const err = new Error("mixed context");
-            err.code = "mixed_context";
-            return { status: "refuse", error: err, code: "mixed_context" };
-          }
-        } else if (hasCtx && batchCtx !== undefined) {
-          const err = new Error("mixed context");
-          err.code = "mixed_context";
-          return { status: "refuse", error: err, code: "mixed_context" };
-        }
-
-        if (rec.snapshot_reason && rec.snapshot_reason !== "delivery_recovery") {
-          const err = new Error("invalid snapshot_reason");
-          err.code = "invalid_enum";
-          return { status: "refuse", error: err, code: "invalid_enum" };
-        }
-
-        if (rec.t === "segment_start") {
-          if (!Array.isArray(rec.blocks)) {
-            const err = new Error("missing blocks in snapshot");
-            err.code = "bad_record";
-            return { status: "refuse", error: err, code: "bad_record" };
-          }
-          for (let bIdx = 0; bIdx < rec.blocks.length; bIdx++) {
-            const blk = rec.blocks[bIdx];
-            if (!blk || typeof blk !== "object") {
-              const err = new Error("bad block");
-              err.code = "bad_record";
-              return { status: "refuse", error: err, code: "bad_record" };
-            }
-            if (blk.id === undefined) {
-              const err = new Error("missing block id");
-              err.code = "bad_record";
-              err.recordError = { code: "bad_record", row: bIdx, field: "id", cause: "missing" };
-              return { status: "refuse", error: err, code: "bad_record", row: bIdx, field: "id", cause: "missing" };
-            }
-            if (blk.id === "") {
-              const err = new Error("empty block id");
-              err.code = "bad_record";
-              err.recordError = { code: "bad_record", row: bIdx, field: "id", cause: "empty" };
-              return { status: "refuse", error: err, code: "bad_record", row: bIdx, field: "id", cause: "empty" };
-            }
-            if (typeof blk.id === "string" && blk.id.length > idMax) {
-              const err = new Error("block id too long");
-              err.code = "bad_record";
-              err.recordError = { code: "bad_record", row: bIdx, field: "id", cause: "too_long" };
-              return { status: "refuse", error: err, code: "bad_record", row: bIdx, field: "id", cause: "too_long" };
-            }
-          }
-        } else if (rec.t === "delta") {
-          if (!["add", "update", "remove"].includes(rec.op)) {
-            const err = new Error("invalid delta op");
-            err.code = "invalid_enum";
-            return { status: "refuse", error: err, code: "invalid_enum" };
-          }
-          const blk = rec.block;
-          if (!blk || typeof blk !== "object") {
-            const err = new Error("missing block in delta");
-            err.code = "bad_record";
-            return { status: "refuse", error: err, code: "bad_record" };
-          }
-          if (blk.id === undefined) {
-            const err = new Error("missing block id in delta");
-            err.code = "bad_record";
-            err.recordError = { code: "bad_record", row: i, field: "id", cause: "missing" };
-            return { status: "refuse", error: err, code: "bad_record", row: i, field: "id", cause: "missing" };
-          }
-          if (blk.id === "") {
-            const err = new Error("empty block id in delta");
-            err.code = "bad_record";
-            err.recordError = { code: "bad_record", row: i, field: "id", cause: "empty" };
-            return { status: "refuse", error: err, code: "bad_record", row: i, field: "id", cause: "empty" };
-          }
-          if (typeof blk.id === "string" && blk.id.length > idMax) {
-            const err = new Error("block id too long in delta");
-            err.code = "bad_record";
-            err.recordError = { code: "bad_record", row: i, field: "id", cause: "too_long" };
-            return { status: "refuse", error: err, code: "bad_record", row: i, field: "id", cause: "too_long" };
+      const first = obj.records[0];
+      const snapshot = first.t === "segment_start";
+      if (snapshot && obj.records.length !== 1) return refuse("bad_record");
+      const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
+      for (let row = 0; row < obj.records.length; row++) {
+        const record = obj.records[row];
+        if (record.t !== (snapshot ? "segment_start" : "delta")) return refuse("bad_record");
+        if (!own(record, "ctx") || record.ctx === "") return refuse("bad_record", {row, field: "ctx", cause: own(record, "ctx") ? "empty" : "missing"});
+        if (own(record, "inst") && record.inst !== obj.inst) return refuse("bad_record", {row, field: "inst", cause: "mismatch"});
+        if (own(record, "ctx") !== own(first, "ctx") || record.ctx !== first.ctx) return refuse("mixed_context");
+        if (own(record, "snapshot_reason") && record.snapshot_reason !== "delivery_recovery") return refuse("invalid_enum");
+        const blocks = snapshot ? record.blocks : [record.block];
+        for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+          const block = blocks[blockIndex];
+          // Canonical schema owns type and upper bound; native batches add presence/nonempty.
+          if (!own(block, "id") || block.id === "") {
+            return refuse("bad_record", {row, field: "id", cause: own(block, "id") ? "empty" : "missing"});
           }
         }
       }
     }
-
-    return { status: "accept", value: obj };
+    return {status: "accept", value: obj};
   }
 
   // --- Receipt Builder ---
 
   function buildReply(receipt) {
     const consts = getConsts();
-    const receiptClasses = requireConst(consts, "RECEIPT_CLASSES");
-    if (receipt.outcome === "accepted" || (!receipt.outcome && receipt.period_id)) {
-      return {
-        type: "accepted",
-        destination_generation: receipt.destination_generation,
-        inst: receipt.inst,
-        batch_id: receipt.batch_id,
-        period_id: receipt.period_id,
-        duplicate: Boolean(receipt.duplicate),
-      };
+    let result = receipt.result;
+    if (!result) {
+      if (receipt.reason !== undefined) result = "rejected";
+      else if (receipt.outcome === "accepted" || receipt.outcome === "duplicate") result = receipt.duplicate || receipt.outcome === "duplicate" ? "duplicate" : "accepted";
     }
-
-    let outcome = receipt.outcome;
-    let receiptClass = receipt.class;
-
-    if (!outcome) {
-      if (receipt.reason === "unaccepted_lost") {
-        outcome = "loss";
-      } else if (receipt.reason === "queue_full" || receipt.reason === "age_policy") {
-        outcome = "backpressure";
-      } else {
-        outcome = "rejected";
-      }
+    const has = key => Object.prototype.hasOwnProperty.call(receipt, key);
+    if ((result === "rejected" && has("period_id")) ||
+        (["accepted", "duplicate"].includes(result) && (has("reason") || has("class")))) {
+      throw refuse("invalid_receipt").error;
     }
-
-    if (!receiptClass && receipt.reason) {
-      for (const [cls, reasons] of Object.entries(receiptClasses)) {
-        if (reasons.includes(receipt.reason)) {
-          receiptClass = cls;
-          break;
-        }
-      }
-    }
-
-    const out = {
-      outcome,
-      reason: receipt.reason,
-      class: receiptClass || "permanent",
+    const reply = {
+      type: "accepted", result,
+      destination_generation: receipt.destination_generation,
+      inst: receipt.inst, batch_id: receipt.batch_id,
     };
-    if (receipt.destination_generation) out.destination_generation = receipt.destination_generation;
-    if (receipt.inst) out.inst = receipt.inst;
-    if (receipt.batch_id) out.batch_id = receipt.batch_id;
-    return out;
+    if (result === "accepted" || result === "duplicate") {
+      reply.period_id = receipt.period_id;
+    } else if (result === "rejected") {
+      reply.reason = receipt.reason;
+      reply.class = receipt.class;
+      if (reply.class === undefined) for (const [kind, reasons] of Object.entries(consts.RECEIPT_CLASSES)) {
+        if (reasons.includes(reply.reason)) reply.class = kind;
+      }
+    }
+    const validation = decode(JSON.stringify(reply), "host_to_extension");
+    if (validation.status !== "accept") throw validation.error;
+    return reply;
   }
 
   // --- Registration Renderer ---
@@ -709,11 +409,11 @@
   }
 
   function freshnessValueAllowed(freshnessMs) {
-    return typeof freshnessMs === "number" && freshnessMs >= 0 && freshnessMs <= 15000;
+    return Number.isInteger(freshnessMs) && freshnessMs >= 0 && freshnessMs <= getConsts().FRESHNESS_MS_MAX;
   }
 
   function freshnessAuthorizesSkim(issuedMs, freshnessMs, nowMs) {
-    return freshnessValueAllowed(freshnessMs) && nowMs >= issuedMs && Math.max(0, nowMs - issuedMs) <= freshnessMs;
+    return freshnessValueAllowed(freshnessMs) && nowMs >= issuedMs && nowMs - issuedMs < freshnessMs;
   }
 
   function freshnessAuthorizesDeletion(_issuedMs, _freshnessMs, _nowMs) {
@@ -741,16 +441,16 @@
   }
 
   function mayRenewOnConnection(live, presented, lastMs, nowMs, intervalMs) {
-    return live === presented && Math.max(0, nowMs - lastMs) < intervalMs;
+    return live === presented && nowMs >= lastMs && nowMs - lastMs < intervalMs;
   }
 
   function captureIsPermitted(state) {
-    return (
-      state &&
-      state.capture === "permitted" &&
-      Boolean(state.destination_generation) &&
-      Boolean(state.period_id)
-    );
+    if (!state || !["state", "hello_ack"].includes(state.type) || state.capture !== "permitted" || !freshnessValueAllowed(state.freshness_ms) || state.freshness_ms === 0) return false;
+    try {
+      return decode(JSON.stringify(state), "host_to_extension").status === "accept";
+    } catch (_error) {
+      return false;
+    }
   }
 
   // --- Recipes Builder ---
@@ -774,6 +474,7 @@
           {
             t: "segment_start",
             ts: 0,
+            ctx: "c",
             blocks: [{ id: "b", text: "x" }],
           },
         ],
@@ -791,6 +492,7 @@
           {
             t: "segment_start",
             ts: 0,
+            ctx: "c",
             blocks: [{ id: "b", text: "x" }],
           },
         ],
@@ -819,8 +521,8 @@
     } else if (recipeId === "batch_delta_cap_3000") {
       const deltas = [];
       for (let i = 0; i < 1500; i++) {
-        deltas.push({ t: "delta", ts: 0, op: "add", block: { id: "a" + i, text: "t" } });
-        deltas.push({ t: "delta", ts: 0, op: "remove", block: { id: "r" + i } });
+        deltas.push({ t: "delta", ts: 0, ctx: "c", op: "add", block: { id: "a" + i, text: "t" } });
+        deltas.push({ t: "delta", ts: 0, ctx: "c", op: "remove", block: { id: "r" + i } });
       }
       baseObj = {
         type: "batch",
@@ -835,10 +537,10 @@
     } else if (recipeId === "batch_delta_oversize_3001") {
       const deltas = [];
       for (let i = 0; i < 1500; i++) {
-        deltas.push({ t: "delta", ts: 0, op: "add", block: { id: "a" + i, text: "t" } });
-        deltas.push({ t: "delta", ts: 0, op: "remove", block: { id: "r" + i } });
+        deltas.push({ t: "delta", ts: 0, ctx: "c", op: "add", block: { id: "a" + i, text: "t" } });
+        deltas.push({ t: "delta", ts: 0, ctx: "c", op: "remove", block: { id: "r" + i } });
       }
-      deltas.push({ t: "delta", ts: 0, op: "add", block: { id: "extra", text: "t" } });
+      deltas.push({ t: "delta", ts: 0, ctx: "c", op: "add", block: { id: "extra", text: "t" } });
       baseObj = {
         type: "batch",
         destination_generation: "g",

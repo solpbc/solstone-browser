@@ -10,13 +10,14 @@ pub fn state_renewal_due(last_ms: u64, now_ms: u64, interval_ms: u64) -> bool {
 }
 
 pub fn freshness_value_allowed(freshness_ms: u64) -> bool {
-    freshness_ms <= 15000
+    freshness_ms <= crate::constants::FRESHNESS_MS_MAX
 }
 
 pub fn freshness_authorizes_skim(issued_ms: u64, freshness_ms: u64, now_ms: u64) -> bool {
-    freshness_value_allowed(freshness_ms)
+    freshness_ms > 0
+        && freshness_value_allowed(freshness_ms)
         && now_ms >= issued_ms
-        && now_ms.saturating_sub(issued_ms) <= freshness_ms
+        && now_ms.saturating_sub(issued_ms) < freshness_ms
 }
 
 pub fn freshness_authorizes_deletion(_issued_ms: u64, _freshness_ms: u64, _now_ms: u64) -> bool {
@@ -50,19 +51,25 @@ pub fn may_renew_on_connection(
     now_ms: u64,
     interval_ms: u64,
 ) -> bool {
-    live == presented && now_ms.saturating_sub(last_ms) < interval_ms
+    live == presented && now_ms >= last_ms && now_ms.saturating_sub(last_ms) < interval_ms
 }
 
 pub fn capture_is_permitted(state: &serde_json::Value) -> bool {
-    state.get("capture").and_then(|c| c.as_str()) == Some("permitted")
-        && state
-            .get("destination_generation")
-            .and_then(|g| g.as_str())
-            .map(|s| !s.is_empty())
-            .unwrap_or(false)
-        && state
-            .get("period_id")
-            .and_then(|p| p.as_str())
-            .map(|s| !s.is_empty())
-            .unwrap_or(false)
+    if !matches!(
+        state.get("type").and_then(serde_json::Value::as_str),
+        Some("state" | "hello_ack")
+    ) || state.get("capture").and_then(serde_json::Value::as_str) != Some("permitted")
+        || state
+            .get("freshness_ms")
+            .and_then(crate::codec::nonnegative_integer)
+            .is_none_or(|lease| lease == 0)
+    {
+        return false;
+    }
+    crate::codec::encode(state).is_ok_and(|bytes| {
+        matches!(
+            crate::codec::decode(&bytes, crate::frame::Direction::HostToExtension),
+            crate::codec::DecodeOutcome::Accept(_)
+        )
+    })
 }

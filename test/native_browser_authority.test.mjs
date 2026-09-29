@@ -23,7 +23,7 @@ test("authority and schema digest match pinned hash", () => {
   const authority = JSON.parse(readFileSync(join(ROOT, "contracts/native-browser/authority.json"), "utf8"));
   assert.equal(authority.journal.sha256, PINNED_JOURNAL_SHA256);
   assert.equal(authority.journal.id, "solstone-journal-format:browser-jsonl");
-  assert.equal(authority.bundle_version, "1.0.0");
+  assert.equal(authority.bundle_version, "1.0.1");
   assert.equal(authority.wire_protocol, 1);
 });
 
@@ -50,19 +50,33 @@ test("adoption schema required names and consts", () => {
   assert.deepEqual(adoption.required, expectedRequired);
   assert.equal(adoption.additionalProperties, false);
   assert.equal(adoption.properties.bundle_path.const, "contracts/native-browser");
-  assert.equal(adoption.properties.bundle_version.const, "1.0.0");
+  assert.equal(adoption.properties.bundle_version.const, "1.0.1");
   assert.equal(adoption.properties.wire_protocol.const, 1);
   assert.equal(adoption.properties.journal_schema_sha256.const, PINNED_JOURNAL_SHA256);
 });
 
 test("manifest wire and bundle fields", () => {
   const manifest = JSON.parse(readFileSync(join(ROOT, "contracts/native-browser/manifest.json"), "utf8"));
-  assert.deepEqual(manifest.generator, { name: "solstone-native-browser-gen", version: "1.0.0" });
-  assert.equal(manifest.bundle_version, "1.0.0");
+  assert.deepEqual(manifest.generator, { name: "solstone-native-browser-gen", version: "1.0.1" });
+  assert.equal(manifest.bundle_version, "1.0.1");
   assert.equal(manifest.wire_protocol, 1);
   assert.equal(manifest.journal.sha256, PINNED_JOURNAL_SHA256);
   assert.equal(manifest.swift_check, "swift test --filter SolstoneNativeBrowserContract");
   assert.ok(manifest.artifacts["contracts/native-browser/authority.json"]);
   assert.ok(manifest.artifacts["contracts/native-browser/envelope.schema.json"]);
   assert.ok(manifest.artifacts["crates/native-browser-frame/src/constants.rs"]);
+});
+
+
+test("Swift export carries the same constants and corpus as canonical artifacts", async () => {
+  const swift = JSON.parse(readFileSync(join(ROOT, "contracts/native-browser/swift.json"), "utf8"));
+  const corpus = JSON.parse(readFileSync(join(ROOT, "contracts/native-browser/corpus.json"), "utf8"));
+  await import(new URL("../contracts/native-browser/constants.js", import.meta.url));
+  await import(new URL("../contracts/native-browser/schemas.js", import.meta.url));
+  assert.deepEqual(swift.constants, globalThis.SolstoneNativeBrowserConstants);
+  assert.deepEqual(swift.corpus, corpus);
+  assert.deepEqual(globalThis.SolstoneNativeBrowserSchemas.journal, JSON.parse(readFileSync(join(ROOT, "contracts/native-browser/browser.schema.json"), "utf8")));
+  assert.deepEqual(globalThis.SolstoneNativeBrowserSchemas.envelope, JSON.parse(readFileSync(join(ROOT, "contracts/native-browser/envelope.schema.json"), "utf8")));
+  const manifest = JSON.parse(readFileSync(join(ROOT, "contracts/native-browser/manifest.json"), "utf8"));
+  for (const [path, digest] of Object.entries(manifest.artifacts)) assert.equal(sha256(readFileSync(join(ROOT, path))), digest, path);
 });

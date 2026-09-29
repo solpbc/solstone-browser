@@ -5,13 +5,14 @@
   "use strict";
 
   globalThis.SolstoneNativeBrowserConstants = Object.freeze({
-  "BUNDLE_VERSION": "1.0.0",
+  "BUNDLE_VERSION": "1.0.1",
   "WIRE_PROTOCOL": 1,
   "EXTENSION_TO_HOST_MAX": 33554432,
   "HOST_TO_EXTENSION_MAX": 65536,
   "CONTROL_MAX": 65536,
   "DELTA_RECORDS_MAX": 3000,
   "BATCH_ID_HEX_LEN": 32,
+  "JSON_MAX_DEPTH": 127,
   "FILE_MAX": 50331648,
   "OUTBOX_BYTES_MAX": 67108864,
   "OUTBOX_AGE_MS_MAX": 600000,
@@ -78,7 +79,11 @@
   "FAILURE_ENUM": [
     "relay_unavailable",
     "journal_rejected",
-    "local_io"
+    "local_io",
+    "resource_exhausted",
+    "queue_full",
+    "age_policy",
+    "unaccepted_lost"
   ],
   "BYE_REASON_ENUM": [
     "shutdown",
@@ -91,6 +96,11 @@
   "BEHIND_ENUM": [
     "app",
     "extension"
+  ],
+  "RESULT_ENUM": [
+    "accepted",
+    "duplicate",
+    "rejected"
   ],
   "HOSTS_AND_IDS": {
     "production": {
@@ -120,24 +130,101 @@
       "chrome_windows": "Software\\Google\\Chrome\\NativeMessagingHosts\\<host>",
       "edge_windows": "Software\\Microsoft\\Edge\\NativeMessagingHosts\\<host>",
       "firefox_windows": "Software\\Mozilla\\NativeMessagingHosts\\<host>"
+    },
+    "argv": {
+      "chrome_macos": {
+        "arguments_after_executable": [
+          "origin"
+        ],
+        "identity_argument": 0,
+        "identity_source": "allowed_origins"
+      },
+      "chrome_linux": {
+        "arguments_after_executable": [
+          "origin"
+        ],
+        "identity_argument": 0,
+        "identity_source": "allowed_origins"
+      },
+      "chrome_windows": {
+        "arguments_after_executable": [
+          "origin",
+          "parent_window"
+        ],
+        "identity_argument": 0,
+        "identity_source": "allowed_origins"
+      },
+      "edge_macos": {
+        "arguments_after_executable": [
+          "origin"
+        ],
+        "identity_argument": 0,
+        "identity_source": "allowed_origins"
+      },
+      "edge_linux": {
+        "arguments_after_executable": [
+          "origin"
+        ],
+        "identity_argument": 0,
+        "identity_source": "allowed_origins"
+      },
+      "edge_windows": {
+        "arguments_after_executable": [
+          "origin",
+          "parent_window"
+        ],
+        "identity_argument": 0,
+        "identity_source": "allowed_origins"
+      },
+      "firefox_macos": {
+        "arguments_after_executable": [
+          "manifest_path",
+          "extension_id"
+        ],
+        "identity_argument": 1,
+        "identity_source": "allowed_extensions"
+      },
+      "firefox_linux": {
+        "arguments_after_executable": [
+          "manifest_path",
+          "extension_id"
+        ],
+        "identity_argument": 1,
+        "identity_source": "allowed_extensions"
+      },
+      "firefox_windows": {
+        "arguments_after_executable": [
+          "manifest_path",
+          "extension_id"
+        ],
+        "identity_argument": 1,
+        "identity_source": "allowed_extensions"
+      }
+    },
+    "windows": {
+      "hive": "HKEY_CURRENT_USER",
+      "value_name": "",
+      "value_type": "REG_SZ",
+      "value": "absolute_manifest_path",
+      "registry_views": [
+        "32",
+        "64"
+      ],
+      "path_contains_view": false
     }
   },
   "RECEIPT_CLASSES": {
     "retryable": [
       "snapshot_required",
-      "resource_exhausted"
+      "resource_exhausted",
+      "queue_full",
+      "age_policy"
     ],
     "permanent": [
       "malformed",
       "oversize",
       "stale_generation",
-      "expired_unaccepted"
-    ],
-    "backpressure": [
-      "queue_full",
-      "age_policy"
-    ],
-    "loss": [
+      "expired_unaccepted",
       "unaccepted_lost"
     ]
   },
@@ -189,11 +276,13 @@
     ],
     "accepted": [
       "type",
+      "result",
       "destination_generation",
       "inst",
       "batch_id",
       "period_id",
-      "duplicate"
+      "reason",
+      "class"
     ],
     "bye": [
       "type",

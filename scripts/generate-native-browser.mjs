@@ -36,22 +36,26 @@ if (authority.policy.timestamp_max !== timestampMax) {
   process.exit(1);
 }
 
-// Bounds extracted from schema defs
+// Bounds extracted from the pinned schema; missing definitions are a generation error.
+function schemaBound(value, field) {
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error("missing or invalid canonical bound: " + field);
+  return value;
+}
 const schemaBounds = {
-  inst_string_max: defs.instString?.maxLength || 128,
-  id_string_max: defs.idString?.maxLength || 256,
-  title_string_max: defs.titleString?.maxLength || 8192,
-  url_string_max: defs.urlString?.maxLength || 32768,
-  site_string_max: defs.siteString?.maxLength || 512,
-  adapter_string_max: defs.adapterString?.maxLength || 64,
-  ctx_string_max: defs.ctxString?.maxLength || 256,
-  type_string_max: defs.typeString?.maxLength || 64,
-  link_host_string_max: defs.linkHostString?.maxLength || 512,
-  level_string_max: defs.levelString?.maxLength || 16,
-  label_string_max: defs.blockAttributes?.properties?.label?.maxLength || 300,
-  text_max: defs.textBlock?.properties?.text?.maxLength || 2001,
-  block_depth_max: defs.blockDepth?.maximum || 4096,
-  blocks_max: defs.snapshot?.properties?.blocks?.maxItems || 1500,
+  inst_string_max: schemaBound(defs.instString?.maxLength, "inst_string_max"),
+  id_string_max: schemaBound(defs.idString?.maxLength, "id_string_max"),
+  title_string_max: schemaBound(defs.titleString?.maxLength, "title_string_max"),
+  url_string_max: schemaBound(defs.urlString?.maxLength, "url_string_max"),
+  site_string_max: schemaBound(defs.siteString?.maxLength, "site_string_max"),
+  adapter_string_max: schemaBound(defs.adapterString?.maxLength, "adapter_string_max"),
+  ctx_string_max: schemaBound(defs.ctxString?.maxLength, "ctx_string_max"),
+  type_string_max: schemaBound(defs.typeString?.maxLength, "type_string_max"),
+  link_host_string_max: schemaBound(defs.linkHostString?.maxLength, "link_host_string_max"),
+  level_string_max: schemaBound(defs.levelString?.maxLength, "level_string_max"),
+  label_string_max: schemaBound(defs.blockAttributes?.properties?.label?.maxLength, "label_string_max"),
+  text_max: schemaBound(defs.textBlock?.properties?.text?.maxLength, "text_max"),
+  block_depth_max: schemaBound(defs.blockDepth?.maximum, "block_depth_max"),
+  blocks_max: schemaBound(defs.snapshot?.properties?.blocks?.maxItems, "blocks_max"),
   timestamp_max: timestampMax,
 };
 
@@ -65,130 +69,100 @@ function writeArtifact(relPath, content) {
   writeFileSync(fullPath, content, "utf8");
 }
 
+if (sha256(readFileSync(schemaPath)) !== authority.journal.sha256) {
+  throw new Error("canonical journal schema digest mismatch");
+}
+
 // 1. Generate contracts/native-browser/envelope.schema.json
+const generationSchema = { type: "string", minLength: 1, maxLength: authority.string_bounds.generation };
+const periodSchema = { type: "string", minLength: 1, maxLength: authority.string_bounds.period_id };
+const instSchema = { $ref: "solstone-journal-format:browser-jsonl#/$defs/instString", minLength: 1 };
+const batchIdSchema = { type: "string", pattern: "^[0-9a-f]{32}$" };
+const versionSchema = { type: "string", maxLength: authority.string_bounds.version };
+const protocolSchema = { type: "integer", minimum: 0, maximum: timestampMax };
+const noProperties = (...names) => ({ not: { anyOf: names.map(name => ({ required: [name] })) } });
+function stateSchema(type) {
+  return {
+    type: "object", additionalProperties: true,
+    required: ["type", "capture", "delivery", "freshness_ms"],
+    properties: {
+      type: { const: type }, capture: { enum: authority.enums.capture }, delivery: { enum: authority.enums.delivery },
+      freshness_ms: { type: "integer", minimum: 0, maximum: authority.policy.freshness_max_ms },
+      destination_generation: { anyOf: [generationSchema, { type: "null" }] },
+      period_id: { anyOf: [periodSchema, { type: "null" }] },
+      failure: { enum: authority.enums.failure }, version: versionSchema,
+    },
+    allOf: [
+      { if: { properties: { capture: { enum: ["unavailable", "not_paired"] } } }, then: { properties: { destination_generation: { type: "null" }, period_id: { type: "null" } } } },
+      { if: { properties: { capture: { const: "permitted" } } }, then: { required: ["destination_generation", "period_id"], properties: { destination_generation: generationSchema, period_id: periodSchema } } },
+      { if: { properties: { capture: { enum: ["paused", "intake_off"] } } }, then: { required: ["destination_generation"], properties: { destination_generation: generationSchema } } },
+      { if: { properties: { delivery: { const: "failed" } } }, then: { required: ["failure"] } },
+    ],
+  };
+}
 const envelopeSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $id: "solstone-native-browser:envelope",
   title: "Solstone Native Browser Wire Envelope",
-  oneOf: [
-    { $ref: "#/$defs/hello" },
-    { $ref: "#/$defs/hello_ack" },
-    { $ref: "#/$defs/unsupported" },
-    { $ref: "#/$defs/state" },
-    { $ref: "#/$defs/batch" },
-    { $ref: "#/$defs/boundary" },
-    { $ref: "#/$defs/accepted" },
-    { $ref: "#/$defs/bye" },
-  ],
+  oneOf: ["hello", "hello_ack", "unsupported", "state", "batch", "boundary", "accepted", "bye"].map(name => ({ $ref: "#/$defs/" + name })),
   $defs: {
     hello: {
-      type: "object",
-      additionalProperties: true,
+      type: "object", additionalProperties: true,
       required: ["type", "protocol", "version", "brand", "inst"],
-      properties: {
-        type: { const: "hello" },
-        protocol: { type: "integer" },
-        version: { type: "string", maxLength: authority.string_bounds.version },
-        brand: { enum: authority.enums.brand },
-        inst: { $ref: "solstone-journal-format:browser-jsonl#/$defs/instString" },
-      },
+      properties: { type: { const: "hello" }, protocol: protocolSchema, version: versionSchema, brand: { enum: authority.enums.brand }, inst: instSchema },
     },
-    hello_ack: {
-      type: "object",
-      additionalProperties: true,
-      required: ["type", "capture", "delivery"],
-      properties: {
-        type: { const: "hello_ack" },
-        capture: { enum: authority.enums.capture },
-        delivery: { enum: authority.enums.delivery },
-        freshness_ms: { type: "integer", minimum: 0, maximum: authority.policy.freshness_max_ms },
-        destination_generation: { type: "string", maxLength: authority.string_bounds.generation },
-        period_id: { type: "string", maxLength: authority.string_bounds.period_id },
-        failure: { enum: authority.enums.failure },
-        version: { type: "string", maxLength: authority.string_bounds.version },
-      },
-    },
+    hello_ack: stateSchema("hello_ack"),
     unsupported: {
-      type: "object",
-      additionalProperties: true,
-      required: ["type", "protocol", "behind"],
-      properties: {
-        type: { const: "unsupported" },
-        protocol: { type: "integer" },
-        version: { type: "string", maxLength: authority.string_bounds.version },
-        behind: { enum: authority.enums.behind },
-      },
+      type: "object", additionalProperties: true, required: ["type", "protocol", "behind"],
+      properties: { type: { const: "unsupported" }, protocol: protocolSchema, version: versionSchema, behind: { enum: authority.enums.behind } },
     },
-    state: {
-      type: "object",
-      additionalProperties: true,
-      required: ["type", "capture", "delivery"],
-      properties: {
-        type: { const: "state" },
-        capture: { enum: authority.enums.capture },
-        delivery: { enum: authority.enums.delivery },
-        freshness_ms: { type: "integer", minimum: 0, maximum: authority.policy.freshness_max_ms },
-        destination_generation: { type: "string", maxLength: authority.string_bounds.generation },
-        period_id: { type: "string", maxLength: authority.string_bounds.period_id },
-        failure: { enum: authority.enums.failure },
-        version: { type: "string", maxLength: authority.string_bounds.version },
-      },
-    },
+    state: stateSchema("state"),
     batch: {
-      type: "object",
-      additionalProperties: true,
+      type: "object", additionalProperties: true,
       required: ["type", "destination_generation", "inst", "batch_id", "queued_at_ms", "records"],
       properties: {
-        type: { const: "batch" },
-        destination_generation: { type: "string", maxLength: authority.string_bounds.generation },
-        inst: { $ref: "solstone-journal-format:browser-jsonl#/$defs/instString" },
-        batch_id: { type: "string", pattern: "^[0-9a-f]{32}$" },
+        type: { const: "batch" }, destination_generation: generationSchema, inst: instSchema, batch_id: batchIdSchema,
         queued_at_ms: { $ref: "solstone-journal-format:browser-jsonl#/$defs/timestamp" },
-        records: {
-          type: "array",
-          minItems: 1,
-          maxItems: authority.caps.delta_records,
-          items: { $ref: "solstone-journal-format:browser-jsonl" },
-        },
+        records: { type: "array", minItems: 1, maxItems: authority.caps.delta_records, items: { $ref: "solstone-journal-format:browser-jsonl" } },
       },
     },
     boundary: {
-      type: "object",
-      additionalProperties: true,
-      required: ["type", "destination_generation", "period_id"],
-      properties: {
-        type: { const: "boundary" },
-        destination_generation: { type: "string", maxLength: authority.string_bounds.generation },
-        period_id: { type: "string", maxLength: authority.string_bounds.period_id },
-      },
+      type: "object", additionalProperties: true, required: ["type", "destination_generation", "period_id"],
+      properties: { type: { const: "boundary" }, destination_generation: generationSchema, period_id: periodSchema },
     },
     accepted: {
-      type: "object",
-      additionalProperties: true,
-      required: ["type", "destination_generation", "inst", "batch_id", "period_id", "duplicate"],
+      type: "object", additionalProperties: true,
+      required: ["type", "result", "destination_generation", "inst", "batch_id"],
       properties: {
-        type: { const: "accepted" },
-        destination_generation: { type: "string", maxLength: authority.string_bounds.generation },
-        inst: { $ref: "solstone-journal-format:browser-jsonl#/$defs/instString" },
-        batch_id: { type: "string", pattern: "^[0-9a-f]{32}$" },
-        period_id: { type: "string", maxLength: authority.string_bounds.period_id },
-        duplicate: { type: "boolean" },
+        type: { const: "accepted" }, result: { enum: authority.enums.result },
+        destination_generation: generationSchema, inst: instSchema, batch_id: batchIdSchema,
+        period_id: periodSchema,
+        reason: { enum: Object.values(authority.receipt_classes).flat() },
+        class: { enum: Object.keys(authority.receipt_classes) },
       },
+      oneOf: [
+        { properties: { result: { enum: ["accepted", "duplicate"] } }, required: ["period_id"], ...noProperties("reason", "class") },
+        ...Object.entries(authority.receipt_classes).map(([classification, reasons]) => ({
+          properties: { result: { const: "rejected" }, reason: { enum: reasons }, class: { const: classification } },
+          required: ["reason", "class"], ...noProperties("period_id"),
+        })),
+      ],
     },
     bye: {
-      type: "object",
-      additionalProperties: true,
-      required: ["type", "reason"],
-      properties: {
-        type: { const: "bye" },
-        reason: { enum: authority.enums.bye_reason },
-      },
+      type: "object", additionalProperties: true, required: ["type", "reason"],
+      properties: { type: { const: "bye" }, reason: { enum: authority.enums.bye_reason } },
     },
   },
 };
 
 const envelopeSchemaJson = JSON.stringify(envelopeSchema, null, 2) + "\n";
 writeArtifact("contracts/native-browser/envelope.schema.json", envelopeSchemaJson);
+const schemasJs = `// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 sol pbc
+
+globalThis.SolstoneNativeBrowserSchemas = ${JSON.stringify({ envelope: envelopeSchema, journal: schema }, null, 2)};
+`;
+writeArtifact("contracts/native-browser/schemas.js", schemasJs);
 
 // 2. Generate contracts/native-browser/constants.js
 const constantsObj = {
@@ -199,6 +173,7 @@ const constantsObj = {
   CONTROL_MAX: authority.caps.control,
   DELTA_RECORDS_MAX: authority.caps.delta_records,
   BATCH_ID_HEX_LEN: authority.caps.batch_id_hex,
+  JSON_MAX_DEPTH: authority.caps.json_max_depth,
   FILE_MAX: authority.policy.file,
   OUTBOX_BYTES_MAX: authority.policy.outbox_bytes,
   OUTBOX_AGE_MS_MAX: authority.policy.outbox_age_ms,
@@ -226,6 +201,7 @@ const constantsObj = {
   BYE_REASON_ENUM: authority.enums.bye_reason,
   SNAPSHOT_REASON_ENUM: authority.enums.snapshot_reason,
   BEHIND_ENUM: authority.enums.behind,
+  RESULT_ENUM: authority.enums.result,
   HOSTS_AND_IDS: authority.hosts_and_ids,
   REGISTRATION: authority.registration,
   RECEIPT_CLASSES: authority.receipt_classes,
@@ -255,6 +231,8 @@ pub const HOST_TO_EXTENSION_MAX: usize = ${authority.caps.host_to_extension};
 pub const CONTROL_MAX: usize = ${authority.caps.control};
 pub const DELTA_RECORDS_MAX: usize = ${authority.caps.delta_records};
 pub const BATCH_ID_HEX_LEN: usize = ${authority.caps.batch_id_hex};
+// Object and array containers count toward depth; the root container counts as one.
+pub const JSON_MAX_DEPTH: usize = ${authority.caps.json_max_depth};
 
 pub const FILE_MAX: usize = ${authority.policy.file};
 pub const OUTBOX_BYTES_MAX: usize = ${authority.policy.outbox_bytes};
@@ -296,6 +274,12 @@ pub const FAILURE_ENUM: &[&str] = &[${authority.enums.failure.map((x) => `"${x}"
 pub const BYE_REASON_ENUM: &[&str] = &[${authority.enums.bye_reason.map((x) => `"${x}"`).join(", ")}];
 pub const SNAPSHOT_REASON_ENUM: &[&str] = &[${authority.enums.snapshot_reason.map((x) => `"${x}"`).join(", ")}];
 pub const BEHIND_ENUM: &[&str] = &[${authority.enums.behind.map((x) => `"${x}"`).join(", ")}];
+
+pub const RESULT_ENUM: &[&str] = &[${authority.enums.result.map((x) => `"${x}"`).join(", ")}];
+pub const RETRYABLE_REASONS: &[&str] = &[${authority.receipt_classes.retryable.map((x) => `"${x}"`).join(", ")}];
+pub const PERMANENT_REASONS: &[&str] = &[${authority.receipt_classes.permanent.map((x) => `"${x}"`).join(", ")}];
+pub const REGISTRATION_JSON: &str = r#"${JSON.stringify(authority.registration)}"#;
+pub const CANONICAL_KEY_ORDER_JSON: &str = r#"${JSON.stringify(authority.canonical_key_order)}"#;
 
 pub const REGISTRATION_DESCRIPTION: &str = "${authority.registration.description}";
 pub const REGISTRATION_TYPE: &str = "${authority.registration.type}";
@@ -380,6 +364,8 @@ for (const channel of channels) {
 
 // 6. Generate contracts/native-browser/recipes.json using codec
 globalThis.SolstoneNativeBrowserConstants = constantsObj;
+globalThis.SolstoneNativeBrowserSchemas = { envelope: envelopeSchema, journal: schema };
+await import(pathToFileURL(join(ROOT, "native-browser/schema-validator.js")).href);
 await import(pathToFileURL(join(ROOT, "native-browser/codec.js")).href);
 const Codec = globalThis.SolstoneNativeBrowser;
 
@@ -436,7 +422,12 @@ writeArtifact("contracts/native-browser/recipes.json", recipesJson);
 // 7. Generate contracts/native-browser/corpus.json
 const corpus = [];
 
-function addVector(v) {
+function addVector(v, supplyContext = true) {
+  if (supplyContext && v.payloadObj?.type === "batch" && Array.isArray(v.payloadObj.records)) {
+    for (const record of v.payloadObj.records) {
+      if (!Object.hasOwn(record, "ctx")) record.ctx = "c";
+    }
+  }
   if (v.payloadObj) {
     const encoded = Codec.encode(v.payloadObj);
     v.payload = new TextDecoder().decode(encoded);
@@ -494,6 +485,7 @@ addVector({
   direction: "host_to_extension",
   payloadObj: {
     type: "hello_ack",
+    freshness_ms: authority.policy.freshness_max_ms,
     capture: "permitted",
     delivery: "delivered",
     destination_generation: "g1",
@@ -507,6 +499,7 @@ addVector({
   direction: "extension_to_host",
   payloadObj: {
     type: "hello_ack",
+    freshness_ms: authority.policy.freshness_max_ms,
     capture: "permitted",
     delivery: "delivered",
     destination_generation: "g1",
@@ -521,6 +514,7 @@ addVector({
   direction: "host_to_extension",
   payloadObj: {
     type: "hello_ack",
+    freshness_ms: authority.policy.freshness_max_ms,
     delivery: "delivered",
   },
   expect: "refuse",
@@ -568,6 +562,7 @@ addVector({
   direction: "host_to_extension",
   payloadObj: {
     type: "state",
+    freshness_ms: authority.policy.freshness_max_ms,
     capture: "permitted",
     delivery: "delivered",
     destination_generation: "g1",
@@ -581,6 +576,7 @@ addVector({
   direction: "extension_to_host",
   payloadObj: {
     type: "state",
+    freshness_ms: authority.policy.freshness_max_ms,
     capture: "permitted",
     delivery: "delivered",
     destination_generation: "g1",
@@ -595,6 +591,7 @@ addVector({
   direction: "host_to_extension",
   payloadObj: {
     type: "state",
+    freshness_ms: authority.policy.freshness_max_ms,
     capture: "permitted",
   },
   expect: "refuse",
@@ -646,7 +643,7 @@ addVector({
     inst: "inst1",
     batch_id: "0123456789abcdef0123456789abcdef",
     period_id: "p1",
-    duplicate: false,
+    result: "accepted",
   },
   expect: "accept",
 });
@@ -660,7 +657,7 @@ addVector({
     inst: "inst1",
     batch_id: "0123456789abcdef0123456789abcdef",
     period_id: "p1",
-    duplicate: false,
+    result: "accepted",
   },
   expect: "refuse",
   code: "bad_direction",
@@ -677,7 +674,7 @@ addVector({
     period_id: "p1",
   },
   expect: "refuse",
-  code: "missing_field",
+  code: "invalid_receipt",
 });
 
 // 7. bye
@@ -782,6 +779,7 @@ addVector({
   direction: "host_to_extension",
   payloadObj: {
     type: "hello_ack",
+    freshness_ms: authority.policy.freshness_max_ms,
     capture: "unknown_capture",
     delivery: "idle",
   },
@@ -806,6 +804,7 @@ addVector({
   direction: "host_to_extension",
   payloadObj: {
     type: "state",
+    freshness_ms: authority.policy.freshness_max_ms,
     capture: "unknown_capture",
     delivery: "idle",
   },
@@ -847,7 +846,7 @@ addVector({
 });
 
 addVector({
-  id: "accepted_invalid_duplicate_enum",
+  id: "accepted_invalid_result_enum",
   direction: "host_to_extension",
   payloadObj: {
     type: "accepted",
@@ -855,10 +854,10 @@ addVector({
     inst: "inst1",
     batch_id: "0123456789abcdef0123456789abcdef",
     period_id: "p1",
-    duplicate: "not_a_boolean",
+    result: "invalid",
   },
   expect: "refuse",
-  code: "invalid_enum",
+  code: "invalid_receipt",
 });
 
 // --- 7.3 Hello Protocol and Skew Vectors ---
@@ -935,6 +934,7 @@ for (const cap of authority.enums.capture) {
 
     const stateObj = {
       type: "state",
+      freshness_ms: authority.policy.freshness_max_ms,
       capture: cap,
       delivery: del,
     };
@@ -995,18 +995,18 @@ addVector({
 });
 
 addVector({
-  id: "state_illegal_failure_when_not_failed",
+  id: "state_failure_independent_of_delivery",
   direction: "host_to_extension",
   payloadObj: {
     type: "state",
+    freshness_ms: authority.policy.freshness_max_ms,
     capture: "permitted",
     delivery: "delivered",
     failure: "relay_unavailable",
     destination_generation: "g1",
     period_id: "p1",
   },
-  expect: "refuse",
-  code: "bad_state_ids",
+  expect: "accept",
 });
 
 addVector({
@@ -1014,6 +1014,7 @@ addVector({
   direction: "host_to_extension",
   payloadObj: {
     type: "state",
+    freshness_ms: authority.policy.freshness_max_ms,
     capture: "not_paired",
     delivery: "idle",
     destination_generation: "g1",
@@ -1028,6 +1029,7 @@ addVector({
   direction: "host_to_extension",
   payloadObj: {
     type: "state",
+    freshness_ms: authority.policy.freshness_max_ms,
     capture: "permitted",
     delivery: "delivered",
   },
@@ -1166,21 +1168,21 @@ addVector({
 addVector({
   id: "batch_queued_at_ms_fraction_1000_0",
   direction: "extension_to_host",
-  raw: '{"type":"batch","destination_generation":"g1","inst":"inst1","batch_id":"0123456789abcdef0123456789abcdef","queued_at_ms":1000.0,"records":[{"t":"segment_start","ts":0,"blocks":[{"id":"b1","text":"x"}]}]}',
+  raw: '{"type":"batch","destination_generation":"g1","inst":"inst1","batch_id":"0123456789abcdef0123456789abcdef","queued_at_ms":1000.0,"records":[{"t":"segment_start","ctx":"c","ts":0,"blocks":[{"id":"b1","text":"x"}]}]}',
   expect: "accept",
 });
 
 addVector({
   id: "batch_queued_at_ms_exponential_1e3",
   direction: "extension_to_host",
-  raw: '{"type":"batch","destination_generation":"g1","inst":"inst1","batch_id":"0123456789abcdef0123456789abcdef","queued_at_ms":1e3,"records":[{"t":"segment_start","ts":0,"blocks":[{"id":"b1","text":"x"}]}]}',
+  raw: '{"type":"batch","destination_generation":"g1","inst":"inst1","batch_id":"0123456789abcdef0123456789abcdef","queued_at_ms":1e3,"records":[{"t":"segment_start","ctx":"c","ts":0,"blocks":[{"id":"b1","text":"x"}]}]}',
   expect: "accept",
 });
 
 addVector({
   id: "batch_queued_at_ms_above_max",
   direction: "extension_to_host",
-  raw: '{"type":"batch","destination_generation":"g1","inst":"inst1","batch_id":"0123456789abcdef0123456789abcdef","queued_at_ms":9007199254740992,"records":[{"t":"segment_start","ts":0,"blocks":[{"id":"b1","text":"x"}]}]}',
+  raw: '{"type":"batch","destination_generation":"g1","inst":"inst1","batch_id":"0123456789abcdef0123456789abcdef","queued_at_ms":9007199254740992,"records":[{"t":"segment_start","ctx":"c","ts":0,"blocks":[{"id":"b1","text":"x"}]}]}',
   expect: "refuse",
   code: "bad_number",
 });
@@ -1188,7 +1190,7 @@ addVector({
 addVector({
   id: "batch_queued_at_ms_negative",
   direction: "extension_to_host",
-  raw: '{"type":"batch","destination_generation":"g1","inst":"inst1","batch_id":"0123456789abcdef0123456789abcdef","queued_at_ms":-10,"records":[{"t":"delta","ts":100,"op":"remove","block":{"id":"d1"}}]}',
+  raw: '{"type":"batch","destination_generation":"g1","inst":"inst1","batch_id":"0123456789abcdef0123456789abcdef","queued_at_ms":-10,"records":[{"t":"delta","ctx":"c","ts":100,"op":"remove","block":{"id":"d1"}}]}',
   expect: "refuse",
   code: "bad_number",
 });
@@ -1266,7 +1268,7 @@ addVector({
     inst: "retry_inst",
     batch_id: "0123456789abcdef0123456789abcdef",
     period_id: "p_original",
-    duplicate: true,
+    result: "duplicate",
   },
   expect: "accept",
 });
@@ -1338,7 +1340,7 @@ addVector({
 addVector({
   id: "lone_surrogate_raw",
   direction: "extension_to_host",
-  raw: '{"type":"batch","destination_generation":"g1","inst":"inst1","batch_id":"0123456789abcdef0123456789abcdef","queued_at_ms":100,"records":[{"t":"segment_start","ts":100,"n":1,"blocks":[{"id":"b1","text":"\\uD800 alone"}]}]}',
+  raw: '{"type":"batch","destination_generation":"g1","inst":"inst1","batch_id":"0123456789abcdef0123456789abcdef","queued_at_ms":100,"records":[{"t":"segment_start","ctx":"c","ts":100,"n":1,"blocks":[{"id":"b1","text":"\\uD800 alone"}]}]}',
   expect: "refuse",
   code: "lone_surrogate",
 });
@@ -1368,6 +1370,60 @@ addVector({
   cause: "empty",
 });
 
+// Receipt variants share one family; class and reason are a coupled contract.
+const receiptIdentity = { destination_generation: "g1", inst: "inst1", batch_id: "0123456789abcdef0123456789abcdef" };
+for (const [classification, reasons] of Object.entries(authority.receipt_classes)) {
+  for (const reason of reasons) {
+    const value = { type: "accepted", result: "rejected", ...receiptIdentity, reason, class: classification };
+    addVector({ id: "receipt_rejected_" + reason, direction: "host_to_extension", payloadObj: value, expect: "accept" });
+    addVector({ id: "receipt_wrong_class_" + reason, direction: "host_to_extension", payloadObj: { ...value, class: classification === "retryable" ? "permanent" : "retryable" }, expect: "refuse", code: "invalid_receipt" });
+  }
+}
+for (const result of ["accepted", "duplicate"]) {
+  const value = { type: "accepted", result, ...receiptIdentity, period_id: "p_original" };
+  addVector({ id: "receipt_success_" + result, direction: "host_to_extension", payloadObj: value, expect: "accept" });
+  addVector({ id: "receipt_success_with_reason_" + result, direction: "host_to_extension", payloadObj: { ...value, reason: "snapshot_required", class: "retryable" }, expect: "refuse", code: "invalid_receipt" });
+}
+addVector({ id: "receipt_rejected_with_period", direction: "host_to_extension", payloadObj: { type: "accepted", result: "rejected", ...receiptIdentity, reason: "snapshot_required", class: "retryable", period_id: "p_wrong" }, expect: "refuse", code: "invalid_receipt" });
+addVector({ id: "receipt_unknown_reason", direction: "host_to_extension", payloadObj: { type: "accepted", result: "rejected", ...receiptIdentity, reason: "unknown", class: "permanent" }, expect: "refuse", code: "invalid_receipt" });
+for (const missing of ["destination_generation", "inst", "batch_id"]) {
+  const value = { type: "accepted", result: "rejected", ...receiptIdentity, reason: "snapshot_required", class: "retryable" };
+  delete value[missing];
+  addVector({ id: "receipt_missing_" + missing, direction: "host_to_extension", payloadObj: value, expect: "refuse", code: "invalid_receipt" });
+}
+for (const type of ["state", "hello_ack"]) {
+  for (const reason of ["resource_exhausted", "queue_full", "age_policy", "unaccepted_lost"]) {
+    addVector({ id: type + "_capture_pressure_" + reason, direction: "host_to_extension", payloadObj: { type, capture: "intake_off", delivery: "kept_locally", freshness_ms: 15000, destination_generation: "g1", period_id: null, failure: reason }, expect: "accept" });
+  }
+  addVector({ id: type + "_null_unpaired", direction: "host_to_extension", payloadObj: { type, capture: "not_paired", delivery: "unknown", freshness_ms: 0, destination_generation: null, period_id: null }, expect: "accept" });
+  addVector({ id: type + "_no_freshness", direction: "host_to_extension", payloadObj: { type, capture: "not_paired", delivery: "unknown" }, expect: "refuse", code: "missing_field" });
+}
+
+// Native batches require an explicit stable context even though historical journal rows may omit it.
+const contextBase = { type: "batch", ...receiptIdentity, queued_at_ms: 100 };
+const contextDelta = { t: "delta", ts: 100, ctx: "c", op: "remove", block: { id: "b" } };
+const missingContext = { ...contextDelta };
+delete missingContext.ctx;
+for (const [suffix, records, cause] of [
+  ["missing", [missingContext], "missing"],
+  ["empty", [{ ...contextDelta, ctx: "" }], "empty"],
+  ["missing_first", [missingContext, contextDelta], "missing"],
+  ["missing_last", [contextDelta, missingContext], "missing"],
+]) {
+  addVector({ id: "batch_ctx_" + suffix, direction: "extension_to_host", payloadObj: { ...contextBase, records }, expect: "refuse", code: "bad_record", cause }, false);
+}
+
+// Bound parser resources identically across consumers; root object contributes one container.
+for (const [id, containers, expect] of [
+  ["json_depth_at_limit", authority.caps.json_max_depth, "accept"],
+  ["json_depth_over_limit", authority.caps.json_max_depth + 1, "refuse"],
+]) {
+  let extra = null;
+  for (let depth = 1; depth < containers; depth++) extra = [extra];
+  const raw = JSON.stringify({ type: "hello", protocol: 1, version: "1.0.0", brand: "chrome", inst: "depth", extra });
+  addVector({ id, direction: "extension_to_host", raw, expect, ...(expect === "refuse" ? { code: "bad_json" } : {}) });
+}
+
 const corpusJson = JSON.stringify(corpus, null, 2) + "\n";
 writeArtifact("contracts/native-browser/corpus.json", corpusJson);
 
@@ -1387,6 +1443,7 @@ const artifactRelativePaths = [
   "contracts/native-browser/authority.json",
   "contracts/native-browser/browser.schema.json",
   "contracts/native-browser/envelope.schema.json",
+  "contracts/native-browser/schemas.js",
   "contracts/native-browser/constants.js",
   "crates/native-browser-frame/src/constants.rs",
   "contracts/native-browser/corpus.json",
@@ -1414,7 +1471,7 @@ for (const rel of artifactRelativePaths) {
 const manifestObj = {
   generator: {
     name: "solstone-native-browser-gen",
-    version: "1.0.0",
+    version: "1.0.1",
   },
   bundle_version: authority.bundle_version,
   wire_protocol: authority.wire_protocol,

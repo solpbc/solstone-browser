@@ -188,7 +188,10 @@
       dismiss.type = "button";
       dismiss.textContent = "dismiss";
       dismiss.addEventListener("click", () => runSiteAction({ id: "dismiss-truncation", origin, bound: notice.newestId }));
-      attention.append(sentence, count, dismiss);
+      const site = document.createElement("div");
+      site.className = "site-host";
+      site.textContent = origin;
+      attention.append(site, sentence, count, dismiss);
       list.append(attention);
     }
   }
@@ -314,6 +317,13 @@
         const headline = document.createElement("div");
         headline.className = "status-also";
         headline.textContent = item.headline;
+        if (item.action) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = item.action.label;
+          button.addEventListener("click", () => Actions.run(item.action, sharedActionEffects()));
+          headline.append(button);
+        }
         also.append(headline);
       }
     }
@@ -441,16 +451,34 @@
     if (event.key === "Escape" && $("siteDisclosure") && !$("siteDisclosure").hidden) closeDisclosure(false);
   });
 
-  try {
-    const port = chrome.runtime.connect({ name: "status" });
-    port.onMessage.addListener((msg) => {
-      if (msg?.type === "status" && msg.status) applyStatus(msg.status);
-    });
-    port.onDisconnect.addListener(() => {
-      paintSequence++;
+  let subscriptionEpoch = 0;
+  let reconnectTimer = null;
+  function subscribeStatus() {
+    const generation = ++subscriptionEpoch;
+    appliedCaptureEpoch = -1;
+    const disconnected = () => {
+      if (generation !== subscriptionEpoch) return;
+      subscriptionEpoch++;
+      appliedCaptureEpoch = -1;
+      const closed = { ...(state || {}), connected: false, handshake: "closed",
+        lease: null, hostCapture: null, hostDelivery: null, hostFailure: null,
+        custody: null, capturePermitted: false, addSiteEligible: false };
+      paint(closed, ++paintSequence);
       refresh();
-    });
-  } catch (_e) {}
+      if (reconnectTimer == null) reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        subscribeStatus();
+      }, 1000);
+    };
+    try {
+      const port = chrome.runtime.connect({ name: "status" });
+      port.onMessage.addListener(msg => {
+        if (generation === subscriptionEpoch && msg?.type === "status" && msg.status) applyStatus(msg.status);
+      });
+      port.onDisconnect.addListener(disconnected);
+    } catch (_e) { disconnected(); }
+  }
+  subscribeStatus();
 
   globalThis.SolstoneOptions = { refresh };
   refresh();

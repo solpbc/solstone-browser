@@ -64,6 +64,8 @@ let badgeEpoch = 0;
 let openTabsGeneration = 0;
 let badgeChain = Promise.resolve();
 const statusPorts = new Set();
+// Tabs that may hold a lease must receive withdrawal without a fresh query.
+const leaseTabs = new Set();
 
 async function getCfg() {
   const r = await chrome.storage.local.get("cfg");
@@ -148,6 +150,7 @@ function refreshOpenTabs() {
     if (failed || !Array.isArray(tabs)) {
       port.openTabs = { generation, known: false, openOrigins: null, anyGrantedTabOpen: null };
     } else {
+      for (const tab of tabs) if (tab.id != null) leaseTabs.add(tab.id);
       const projected = Status.projectOpenTabs(tabs, { grantedOrigins: Array.from(port.grantedOrigins || []) });
       port.openTabs = { generation, ...projected };
     }
@@ -165,32 +168,33 @@ function refreshOpenTabs() {
 
 function broadcastLeaseUpdate(status, epoch = badgeEpoch) {
   if (!status) return;
+  const message = {
+    kind: "leaseUpdate", captureEpoch: status.captureEpoch, lease: status.lease,
+    paused: status.paused, consentVersion: status.consentVersion,
+    grantedOrigins: status.grantedOrigins || [], showIndicator: status.showPageIndicator,
+    hostCapture: status.hostCapture, hostDelivery: status.hostDelivery,
+    hostFailure: status.hostFailure, custody: status.custody, pressure: status.pressure,
+    capturePermitted: status.capturePermitted === true,
+    destinationGeneration: status.destinationGeneration,
+    connectionGeneration: status.connectionGeneration || 0,
+    connectionToken: status.connectionToken || null,
+  };
+  const sent = new Set();
+  const send = (tabId) => {
+    if (tabId == null || sent.has(tabId) || epoch !== badgeEpoch) return;
+    sent.add(tabId);
+    try { chrome.tabs.sendMessage(tabId, message, () => void chrome.runtime.lastError); }
+    catch (_e) { /* The tab may have closed. */ }
+  };
+  for (const binding of Router.frameBindings.values()) leaseTabs.add(binding.tabId);
+  for (const tabId of leaseTabs) send(tabId);
+  // Discovery supplements known recipients; it never gates their withdrawal.
   chrome.tabs.query({}, (tabs) => {
     if (epoch !== badgeEpoch) return;
     for (const tab of tabs || []) {
       if (tab.id == null) continue;
-      chrome.tabs.sendMessage(
-        tab.id,
-        {
-          kind: "leaseUpdate",
-          captureEpoch: status.captureEpoch,
-          lease: status.lease,
-          paused: status.paused,
-          consentVersion: status.consentVersion,
-          grantedOrigins: status.grantedOrigins || [],
-          showIndicator: status.showPageIndicator,
-          hostCapture: status.hostCapture,
-          hostDelivery: status.hostDelivery,
-          hostFailure: status.hostFailure,
-          custody: status.custody,
-          pressure: status.pressure,
-          capturePermitted: status.capturePermitted === true,
-          destinationGeneration: status.destinationGeneration,
-          connectionGeneration: status.connectionGeneration || 0,
-          connectionToken: status.connectionToken || null,
-        },
-        () => void chrome.runtime.lastError
-      );
+      leaseTabs.add(tab.id);
+      send(tab.id);
     }
   });
 }
@@ -224,10 +228,31 @@ function requestSnapshots() {
   });
 }
 
+const permissionEffects = new Set();
+async function removePermission(pattern) {
+  const effect = chrome.permissions.remove({ origins: [pattern] });
+  permissionEffects.add(effect);
+  try { return await effect; }
+  finally { permissionEffects.delete(effect); }
+}
+async function settlePermissionEffects() {
+  while (permissionEffects.size) await Promise.allSettled([...permissionEffects]);
+}
+function patternNeeded(pattern) {
+  if (!port) return false;
+  const reservation = port.ownerSites?.reservation;
+  if (reservation?.pattern === pattern && port.now() < reservation.expiresAt) return true;
+  return [...port.chosenOrigins].some(origin => {
+    try { return H.matchPatternFor(new URL(origin).host) === pattern; }
+    catch (_e) { return false; }
+  });
+}
+
 async function registerSite(host) {
   const matchHost = H.matchHostFor(host);
   const id = "cs-" + matchHost;
   const pattern = H.matchPatternFor(host);
+  if (!patternNeeded(pattern)) return "failed";
 
   try {
     await chrome.scripting.unregisterContentScripts({ ids: [id] });
@@ -235,6 +260,7 @@ async function registerSite(host) {
     /* not registered */
   }
 
+  if (!patternNeeded(pattern)) return "failed";
   try {
     await chrome.scripting.registerContentScripts([
       {
@@ -256,10 +282,15 @@ async function registerSite(host) {
     if (!Failures.contentScriptRegistrationSatisfied(id, registered)) return "failed";
   }
 
+  if (!patternNeeded(pattern)) {
+    await unregisterSite(host);
+    return "failed";
+  }
   let hadTabError = false;
   try {
     const tabs = await chrome.tabs.query({ url: pattern });
     for (const tab of tabs) {
+      if (!patternNeeded(pattern)) break;
       if (tab.id == null) continue;
       try {
         await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: CONTENT_SCRIPT_FILES });
@@ -271,6 +302,10 @@ async function registerSite(host) {
     /* host permission not yet effective */
   }
 
+  if (!patternNeeded(pattern)) {
+    await unregisterSite(host);
+    return "failed";
+  }
   return hadTabError ? "reload" : "ready";
 }
 
@@ -297,15 +332,21 @@ async function removeSiteOrigin(exactOrigin) {
 
 async function unregisterSite(host) {
   const matchHost = H.matchHostFor(host);
+  const pattern = H.matchPatternFor(matchHost);
+  if (patternNeeded(pattern)) return;
   try {
     await chrome.scripting.unregisterContentScripts({ ids: ["cs-" + matchHost] });
   } catch (_e) {
     /* not registered */
   }
 
+  // A later add may have completed while unregister was pending. Repair its
+  // registration and never release the permission belonging to that choice.
+  if (patternNeeded(pattern)) { await registerSite(host); return; }
   try {
-    const tabs = await chrome.tabs.query({ url: H.matchPatternFor(matchHost) });
+    const tabs = await chrome.tabs.query({ url: pattern });
     for (const tab of tabs) {
+      if (patternNeeded(pattern)) { await registerSite(host); return; }
       if (tab.id != null) {
         chrome.tabs.sendMessage(tab.id, { kind: "stop" }, () => void chrome.runtime.lastError);
         Router.destroyBinding(tab.id);
@@ -316,7 +357,8 @@ async function unregisterSite(host) {
   }
 
   try {
-    await chrome.permissions.remove({ origins: [H.matchPatternFor(matchHost)] });
+    if (patternNeeded(pattern)) { await registerSite(host); return; }
+    await removePermission(pattern);
   } catch (_e) {
     /* ignore */
   }
@@ -353,7 +395,8 @@ async function runReconcile() {
   for (const action of actions) {
     if (action.op === "release") {
       try {
-        await chrome.permissions.remove({ origins: [action.origin] });
+        if (patternNeeded(action.origin)) continue;
+        await removePermission(action.origin);
       } catch (_e) {
         /* ignore */
       }
@@ -489,6 +532,7 @@ chrome.runtime.onConnect.addListener((p) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (sender?.id === chrome.runtime.id && sender.tab?.id != null) leaseTabs.add(sender.tab.id);
   ensureInit().then(() => {
     const deps = {
       port,
@@ -496,6 +540,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       registerSite,
       unregisterSite,
       removeSiteOrigin,
+      settlePermissionEffects,
       broadcastPause,
       broadcastIndicator,
       refreshOpenTabs,
@@ -508,6 +553,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  leaseTabs.delete(tabId);
   Router.destroyBinding(tabId);
   refreshOpenTabs();
 });

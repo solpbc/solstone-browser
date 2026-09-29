@@ -145,7 +145,11 @@ function optionsState(overrides = {}) {
   }, overrides);
 }
 
-test("the options binder drives Welcome mode, disclosure agreement, and Settings mode", async () => {
+test("the options binder drives Welcome mode, disclosure agreement, and Settings mode", async (t) => {
+  const reconnects = [];
+  const originalTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = fn => { reconnects.push(fn); return reconnects.length; };
+  t.after(() => { globalThis.setTimeout = originalTimeout; });
   const ids = [
     "pageHeader", "pageTitle", "pageSubTitle", "welcomeView", "settingsView",
     "warmCard", "warmKinship0", "warmKinship1", "warmKinship2", "stepsCard",
@@ -276,7 +280,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   // 3. Live permitted host with consent unset and no sites (app-first)
   liveState = optionsState({ hostCapture: "permitted", consentVersion: 0, chosenOrigins: [] });
   await globalThis.SolstoneOptions.refresh();
-  assert.equal(nodes.step1Heading.textContent, "found the solstone app, paired with your journal");
+  assert.equal(nodes.step1Heading.textContent, globalThis.SolstoneStatus.welcomeHold(liveState).heading);
   assert.equal(nodes.step1Check.hidden, false);
   assert.equal(nodes.agreeDisclosureBtn.hidden, false);
   assert.equal(nodes.agreeDisclosureBtn.textContent, "agree and go on");
@@ -285,7 +289,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   // 4. hostCapture: "paused" with consent unset
   liveState = optionsState({ hostCapture: "paused", consentVersion: 0, chosenOrigins: [] });
   await globalThis.SolstoneOptions.refresh();
-  assert.equal(nodes.step1Heading.textContent, "found the solstone app, paired with your journal");
+  assert.equal(nodes.step1Heading.textContent, globalThis.SolstoneStatus.welcomeHold(liveState).heading);
   assert.equal(nodes.step1Check.hidden, false);
   assert.equal(nodes.agreeDisclosureBtn.hidden, false);
 
@@ -435,6 +439,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   holdNextState = true;
   const beforeDisconnect = globalThis.SolstoneOptions.refresh();
   disconnectListener();
+  reconnects.shift()?.();
   await new Promise((resolve) => setImmediate(resolve));
   heldStateCallback(optionsState({captureEpoch:22, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin]}));
   await beforeDisconnect;

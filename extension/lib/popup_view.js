@@ -187,6 +187,9 @@
   }
 
   async function addSite(host, effects) {
+    if (effects.status?.consentVersion !== 1 || effects.status?.addSiteEligible !== true) {
+      return { ok: false, cancelled: true, ineligible: true };
+    }
     const confirmed = await effects.disclose(host);
     if (!confirmed) return { ok: false, cancelled: true };
     return grantSite(host, effects);

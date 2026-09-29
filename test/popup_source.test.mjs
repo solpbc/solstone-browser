@@ -141,7 +141,11 @@ function popupState(overrides = {}) {
   }, overrides);
 }
 
-test("the popup binder keeps refresh and add-action failure paths honest", async () => {
+test("the popup binder keeps refresh and add-action failure paths honest", async (t) => {
+  const reconnects = [];
+  const originalTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = fn => { reconnects.push(fn); return reconnects.length; };
+  t.after(() => { globalThis.setTimeout = originalTimeout; });
   const ids = [
     "actionMessage", "verdict", "verdictDot", "verdictHeadline", "verdictSub",
     "verdictReason", "verdictActions", "siteIssues", "siteIssueRows", "pageHost",
@@ -351,6 +355,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   const preDisconnect = globalThis.SolstonePopup.refresh();
   liveState = status(14, {paused:true});
   disconnectListener();
+  reconnects.shift()?.();
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
   heldStateCallback(status(12));

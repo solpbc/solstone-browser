@@ -465,9 +465,11 @@ test("lifecycle: a delayed tab query cannot publish superseded authority", async
   mock.sentTabMessages.length=0;
   const {permitted,closed}=states(bg);
   await bg.updateBadge(permitted); await bg.updateBadge(closed);
+  assert.equal(mock.sentTabMessages.at(-1).msg.capturePermitted,false);
+  const delivered = mock.sentTabMessages.length;
   callbacks[1](mock.tabsList); callbacks[0](mock.tabsList);
-  assert.equal(mock.sentTabMessages.length,1);
-  assert.equal(mock.sentTabMessages[0].msg.capturePermitted,false);
+  assert.equal(mock.sentTabMessages.length,delivered);
+  assert.equal(mock.sentTabMessages.at(-1).msg.capturePermitted,false);
 });
 
 test("lifecycle: authority closes while action painting is stalled, final icon is current", async () => {
@@ -868,4 +870,222 @@ test("lifecycle: permission prompt onAdded followed by add completes with matchi
   assert.equal(added.ok, true, JSON.stringify(added));
   assert.equal(port.grantedOrigins.has(origin), true);
   assert.equal(port.ownerSites.reservation, null);
+});
+
+function authorizeFixture({mock,bg}) {
+ const p=bg.port;
+ mock.grantedPermissions.clear(); mock.grantedPermissions.add("*://example.com/*");
+ p.hostCapture="permitted"; p.capturePermitted=true; p.consentVersion=1;
+ p.lease={token:"t",generation:"g",receivedAt:p.now(),freshnessMs:10000};
+ const id=mock.chrome.runtime.id;
+ return {sender:{id,url:`chrome-extension://${id}/popup.html`},deps:{runtimeId:id,port:p,setCfg:bg.setCfg,registerSite:bg.registerSite,removeSiteOrigin:bg.removeSiteOrigin}};
+}
+
+function contentHarness(Gate) {
+  let t = 0,
+    reads = 0,
+    listener;
+  const requests = [],
+    intervals = new Map(),
+    sent = [];
+  let id = 0;
+  const ctx = {
+    crypto,
+    console,
+    performance: { now: () => t },
+    location: { origin: "https://example.com", host: "example.com" },
+    document: {
+      readyState: "complete",
+      title: "Example",
+      addEventListener() {},
+      getElementById() {
+        return null;
+      },
+    },
+    window: { addEventListener() {} },
+    chrome: {
+      runtime: {
+        id: "ext",
+        sendMessage(m, cb) {
+          if (m.kind === "hello") requests.push(cb);
+          else sent.push(m);
+        },
+        onMessage: {
+          addListener(fn) {
+            listener = fn;
+          },
+        },
+      },
+    },
+    setTimeout() {
+      return ++id;
+    },
+    clearTimeout() {},
+    setInterval(fn) {
+      intervals.set(++id, fn);
+      return id;
+    },
+    clearInterval(id) {
+      intervals.delete(id);
+    },
+    MutationObserver: class {
+      observe() {}
+      disconnect() {}
+    },
+    SolstoneCaptureGate: Gate,
+    SolstoneAdapters: {
+      adapterForHost() {
+        return { name: "generic" };
+      },
+      pickRoot() {
+        reads++;
+        return { tagName: "DIV", children: [{}] };
+      },
+    },
+    SolstoneSkim: {
+      skim() {
+        return [{ id: "1", type: "text", depth: 0, text: "Hello" }];
+      },
+    },
+    SolstoneIndicator: { show() {}, remove() {} },
+  };
+  vm.runInNewContext(
+    fs.readFileSync(ROOT + "/extension/content.js", "utf8"),
+    ctx,
+  );
+  return {
+    requests,
+    sent,
+    setTime(x) {
+      t = x;
+    },
+    msg(m) {
+      listener(m, { id: "ext" }, () => {});
+    },
+    tick() {
+      for (const fn of [...intervals.values()]) fn();
+    },
+    get reads() {
+      return reads;
+    },
+  };
+}
+
+test("content withdrawal reaches existing leases before tab enumeration settles",async()=>{
+ const fixture=await startWorker(),{mock,bg,sandbox}=fixture;authorizeFixture(fixture);
+ const origin="https://example.com",pattern="*://example.com/*";
+ bg.port.grantedOrigins=new Set([origin]);bg.port.chosenOrigins=new Set([origin]);
+ const content=contentHarness(sandbox.SolstoneCaptureGate);
+ content.requests[0]({ok:true,lease:{token:"t",generation:"g",freshnessMs:10000},paused:false,
+ consentVersion:1,grantedOrigins:[origin],hostCapture:"permitted",capturePermitted:true,connectionGeneration:1,destinationGeneration:"g"});
+ assert.equal(content.reads,0);
+ const callbacks=[];mock.chrome.tabs.query=(_query,callback)=>{callbacks.push(callback);};
+ mock.chrome.tabs.sendMessage=(_id,msg,cb)=>{mock.sentTabMessages.push(msg);content.msg(msg);cb?.();};
+ mock.sentTabMessages.length=0;
+ const snapshot=deferred();mock.chrome.permissions.getAll=()=>snapshot.promise;
+ mock.grantedPermissions.delete(pattern);
+ const removing=mock.listeners.onRemovedPerm[0]({origins:[pattern]});
+ assert.equal(bg.port.getStatus().gate.open,false);
+ assert.ok(mock.sentTabMessages.length>0);
+ content.tick();
+ assert.equal(content.reads,0);
+ assert.equal(content.sent.some(m=>m.kind==="skim"),false);
+ console.log("PROBE delayed closure:",JSON.stringify({backgroundGate:bg.port.getStatus().gate.open,contentReads:content.reads,contentSkims:content.sent.filter(m=>m.kind==="skim").length,tabMessages:mock.sentTabMessages.length}));
+ for(const callback of callbacks)callback?.(mock.tabsList);
+ const reads=content.reads;content.tick();assert.equal(content.reads,reads);
+ snapshot.reject(Error("probe cleanup"));await removing;
+});
+
+test("stale reconciliation preserves a completed new choice", async()=>{
+ const h=await startWorker(), {mock,bg,sandbox}=h, {sender,deps}=authorizeFixture(h);
+ const held=deferred(), entered=deferred(); const getAll=mock.chrome.permissions.getAll;
+ let once=true;
+ mock.chrome.permissions.getAll=()=>{if(once){once=false;entered.resolve();return held.promise;}return getAll();};
+ const reconcile=bg.runReconcile(); await entered.promise;
+ const added=await sandbox.SolstoneRouter.route({cmd:"addGrantedOrigin",origin:"https://example.com"},sender,deps);
+ assert.equal(added.ok,true);
+ held.resolve({origins:["*://example.com/*"]}); await reconcile;
+ assert.equal(mock.grantedPermissions.has("*://example.com/*"),true);
+ assert.equal(bg.port.chosenOrigins.has("https://example.com"),true);
+ console.log("PROBE stale reconcile:",JSON.stringify({added,chosen:[...bg.port.chosenOrigins],permissions:[...mock.grantedPermissions]}));
+});
+test("delayed registration is cleaned after completed owner removal",async()=>{
+ const h=await startWorker(),{mock,bg,sandbox}=h,{sender,deps}=authorizeFixture(h);
+ const origin="https://example.com";
+ bg.port.chosenOrigins=new Set([origin]); await bg.setCfg({chosenOrigins:[origin]});
+ const held=deferred(),entered=deferred();const register=mock.chrome.scripting.registerContentScripts;
+ mock.chrome.scripting.registerContentScripts=async scripts=>{entered.resolve();await held.promise;return register(scripts);};
+ const added=mock.listeners.onAddedPerm[0]({origins:["*://example.com/*"]});await entered.promise;
+ const removed=await sandbox.SolstoneRouter.route({cmd:"removeGrantedOrigin",origin},sender,deps);
+ assert.equal(removed.ok,true);assert.equal(mock.registeredScripts.has("cs-example.com"),false);
+ held.resolve();await added;
+ assert.equal(mock.registeredScripts.has("cs-example.com"),false);
+ assert.equal(bg.port.chosenOrigins.has(origin),false);assert.equal(bg.port.grantedOrigins.has(origin),false);
+ console.log("PROBE late registration:",JSON.stringify({removed,registered:[...mock.registeredScripts.keys()],chosen:[...bg.port.chosenOrigins]}));
+});
+test("old removal preserves a newer successful re-add",async()=>{
+ const h=await startWorker(),{mock,bg,sandbox}=h,{sender,deps}=authorizeFixture(h);const origin="https://example.com";
+ bg.port.chosenOrigins=new Set([origin]);bg.port.grantedOrigins=new Set([origin]);await bg.setCfg({chosenOrigins:[origin]});
+ const held=deferred(),entered=deferred();const unregister=mock.chrome.scripting.unregisterContentScripts;let once=true;
+ mock.chrome.scripting.unregisterContentScripts=async value=>{if(once){once=false;entered.resolve();await held.promise;}return unregister(value);};
+ mock.chrome.permissions.remove=async({origins})=>{for(const o of origins)mock.grantedPermissions.delete(o);await mock.listeners.onRemovedPerm[0]({origins});return true;};
+ const removing=sandbox.SolstoneRouter.route({cmd:"removeGrantedOrigin",origin},sender,deps);await entered.promise;
+ const added=await sandbox.SolstoneRouter.route({cmd:"addGrantedOrigin",origin},sender,deps);assert.equal(added.ok,true);
+ held.resolve();const removed=await removing;
+ assert.equal(mock.grantedPermissions.has("*://example.com/*"),true);assert.equal(bg.port.grantedOrigins.has(origin),true);assert.equal(bg.port.chosenOrigins.has(origin),true);
+ assert.equal(mock.registeredScripts.has("cs-example.com"),true);
+ console.log("PROBE removal/re-add:",JSON.stringify({added,removed,chosen:[...bg.port.chosenOrigins],granted:[...bg.port.grantedOrigins],permissions:[...mock.grantedPermissions]}));
+});
+
+
+test("new add waits for a permission release already dispatched by old reconciliation", async () => {
+  const h = await startWorker(), {mock, bg} = h, {sender} = authorizeFixture(h);
+  const entered = deferred(), release = deferred();
+  const remove = mock.chrome.permissions.remove;
+  mock.chrome.permissions.remove = async value => {
+    entered.resolve();
+    await release.promise;
+    return remove(value);
+  };
+  const cleanup = bg.runReconcile();
+  await entered.promise;
+  let settled = false;
+  const adding = new Promise(resolve => mock.listeners.onMessage[0](
+    {cmd: "addGrantedOrigin", origin: "https://example.com"}, sender,
+    result => { settled = true; resolve(result); },
+  ));
+  for (let i = 0; i < 30; i++) await Promise.resolve();
+  assert.equal(settled, false);
+  release.resolve();
+  await cleanup;
+  const result = await adding;
+  assert.equal(result.ok, false);
+  assert.equal(bg.port.grantedOrigins.has("https://example.com"), false);
+  mock.grantedPermissions.add("*://example.com/*");
+  const retry = await new Promise(resolve => mock.listeners.onMessage[0](
+    {cmd: "addGrantedOrigin", origin: "https://example.com"}, sender, resolve,
+  ));
+  assert.equal(retry.ok, true);
+  assert.equal(bg.port.grantedOrigins.has("https://example.com"), true);
+});
+
+test("remove wins add while older permission effect is settling",async()=>{
+ const fixture=await startWorker(),{mock,bg,sandbox}=fixture,{sender}=authorizeFixture(fixture);
+ const origin="https://example.com",sibling="https://example.com:8443",other="*://other.example/*";
+ bg.port.chosenOrigins=new Set([origin,sibling]);bg.port.grantedOrigins=new Set([sibling]);await bg.setCfg({chosenOrigins:[origin,sibling]});
+ mock.grantedPermissions.add(other);
+ const hold=deferred(),entered=deferred();const remove=mock.chrome.permissions.remove;
+ mock.chrome.permissions.remove=async value=>{if(value.origins.includes(other)){entered.resolve();await hold.promise;}return remove(value);};
+ const cleanup=bg.runReconcile();await entered.promise;
+ const route=msg=>new Promise(resolve=>mock.listeners.onMessage[0](msg,sender,resolve));
+ await route({cmd:"intendAddOrigin",origin});
+ const adding=route({cmd:"addGrantedOrigin",origin});
+ for(let i=0;i<30;i++)await Promise.resolve();
+ const removed=await route({cmd:"removeGrantedOrigin",origin});
+ assert.equal(removed.ok,true);assert.equal(bg.port.chosenOrigins.has(origin),false);
+ hold.resolve();await cleanup;const added=await adding;
+ console.log("REVIEW settle/remove",JSON.stringify({added,removed,chosen:[...bg.port.chosenOrigins],granted:[...bg.port.grantedOrigins],durable:(await bg.getCfg()).chosenOrigins}));
+ assert.equal(added.ok,false);assert.equal(bg.port.grantedOrigins.has(origin),false);
+ assert.equal(bg.port.chosenOrigins.has(origin),false);
+ assert.equal((await bg.getCfg()).chosenOrigins.includes(origin),false);
 });

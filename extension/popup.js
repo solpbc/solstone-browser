@@ -102,6 +102,7 @@
 
   function siteEffects() {
     return {
+      status: state,
       cmd,
       requestPermission: (request) => chrome.permissions.request(request),
     };
@@ -231,12 +232,7 @@
     });
   }
 
-  async function paint(nextState, sequence) {
-    const tab = await currentTab();
-    if (sequence !== paintSequence) return;
-    state = nextState;
-    const current = tab && tab.url ? originFor(tab.url) : { origin: "", host: "", ok: false };
-    page = { origin: current.origin, host: current.host, ok: current.ok };
+  function renderCurrent() {
     const extras = {};
     const derived = Status.derive(state, extras);
     const sections = View.arrange(derived, state, page, extras);
@@ -247,6 +243,18 @@
     if ($("headerMark")) {
       $("headerMark").src = `brand/mark-${derived.mark || "healthy"}.svg`;
     }
+  }
+
+  async function paint(nextState, sequence) {
+    if (sequence !== paintSequence) return;
+    state = nextState;
+    // Host authority is independent of a tab-details query.
+    renderCurrent();
+    const tab = await currentTab();
+    if (sequence !== paintSequence) return;
+    const current = tab && tab.url ? originFor(tab.url) : { origin: "", host: "", ok: false };
+    page = { origin: current.origin, host: current.host, ok: current.ok };
+    renderCurrent();
   }
 
   function applyStatus(nextState) {
@@ -281,16 +289,34 @@
     openSettings();
   });
 
-  try {
-    const port = chrome.runtime.connect({ name: "status" });
-    port.onMessage.addListener((msg) => {
-      if (msg?.type === "status" && msg.status) applyStatus(msg.status);
-    });
-    port.onDisconnect.addListener(() => {
-      paintSequence++;
+  let subscriptionEpoch = 0;
+  let reconnectTimer = null;
+  function subscribeStatus() {
+    const generation = ++subscriptionEpoch;
+    appliedCaptureEpoch = -1;
+    const disconnected = () => {
+      if (generation !== subscriptionEpoch) return;
+      subscriptionEpoch++;
+      appliedCaptureEpoch = -1;
+      const closed = { ...(state || {}), connected: false, handshake: "closed",
+        lease: null, hostCapture: null, hostDelivery: null, hostFailure: null,
+        custody: null, capturePermitted: false, addSiteEligible: false };
+      paint(closed, ++paintSequence);
       refresh();
-    });
-  } catch (_e) {}
+      if (reconnectTimer == null) reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        subscribeStatus();
+      }, 1000);
+    };
+    try {
+      const port = chrome.runtime.connect({ name: "status" });
+      port.onMessage.addListener(msg => {
+        if (generation === subscriptionEpoch && msg?.type === "status" && msg.status) applyStatus(msg.status);
+      });
+      port.onDisconnect.addListener(disconnected);
+    } catch (_e) { disconnected(); }
+  }
+  subscribeStatus();
 
   globalThis.SolstonePopup = { refresh };
   refresh();

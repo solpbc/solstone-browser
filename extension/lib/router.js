@@ -180,10 +180,13 @@
           const origin = normalizeOrigin(msg.origin);
           if (!origin) return { ok: false, error: "invalid_origin" };
 
+          // Capture withdrawal authority at command admission, including time
+          // queued behind another add or an already-dispatched browser effect.
+          const start = ownerStateFor(port);
+          const capturedGrantEpoch = start.grantEpoch;
+          const capturedPermissionEpoch = start.permissionEpoch;
           const operation = grantChain.catch(() => {}).then(async () => {
-            const start = ownerStateFor(port);
-            const capturedGrantEpoch = start.grantEpoch;
-            const capturedPermissionEpoch = start.permissionEpoch;
+            await deps.settlePermissionEffects?.();
             let host = "";
             try {
               host = new URL(origin).host;

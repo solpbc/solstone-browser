@@ -132,6 +132,7 @@ test("arrange preserves exact origins and exposes truncation as a separate atten
 test("addSite confirms before intent and permission in exact order", async () => {
   const calls = [];
   const result = await View.addSite("mail.google.com", {
+    status: { consentVersion: 1, addSiteEligible: true },
     disclose: async (host) => { calls.push(["disclose", host]); return true; },
     cmd: async (message) => {
       calls.push([message.cmd, message.origin || message.host]);
@@ -153,6 +154,7 @@ test("addSite confirms before intent and permission in exact order", async () =>
 test("an unconfirmed add reaches no mutation or permission effect", async () => {
   const calls = [];
   const result = await View.addSite("new.example", {
+    status: { consentVersion: 1, addSiteEligible: true },
     disclose: async () => { calls.push("disclose"); return false; },
     cmd: async () => { calls.push("mutation"); },
     requestPermission: async () => { calls.push("permission"); },
@@ -164,6 +166,7 @@ test("an unconfirmed add reaches no mutation or permission effect", async () => 
 test("a declined grant clears add intent", async () => {
   const calls = [];
   const result = await View.addSite("example.com", {
+    status: { consentVersion: 1, addSiteEligible: true },
     disclose: async () => true,
     cmd: async (message) => {
       calls.push(message.cmd);

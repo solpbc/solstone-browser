@@ -234,9 +234,11 @@
 
       // Layer 4: Custody Limits & Storage Pressure
       const isQueueFullStore = hostCapture === "intake_off" && hostFailure === "queue_full" && custody?.full !== false;
-      const isPermittedStoreFull = custody?.full === true && hostCapture === "permitted" && hostCapture !== "intake_off";
+      const hasSpecificHold = hostCapture === "intake_off" &&
+        ["unaccepted_lost", "local_io", "resource_exhausted", "age_policy"].includes(hostFailure);
+      const isStoreFull = custody?.full === true && !hasSpecificHold;
 
-      if (isPermittedStoreFull || isQueueFullStore) {
+      if (isStoreFull || isQueueFullStore) {
         items.push({
           layer: 4,
           kind: "app-store-full",
@@ -555,7 +557,7 @@
     const leaseOpen = !!status.lease && Number(status.lease.freshnessMs) > 0;
     const gateOpen = isGranted && status.capturePermitted === true && leaseOpen && status.consentVersion === 1 &&
       !status.paused && !status.pressure?.active && status.hostCapture === "permitted" && status.custody?.full !== true;
-    if (!gateOpen) return { kind: "not-taken-in", label: "not taken in right now", action: null };
+    if (!isGranted || (tabsKnown && isTabOpen && !gateOpen)) return { kind: "not-taken-in", label: "not taken in right now", action: null };
 
     if (registration === "reload" && tabsKnown && isTabOpen) {
       return { kind: "reload-tab", label: "reload this tab to begin", action: null };
@@ -596,8 +598,19 @@
     const derived = derive(status);
     const item = (derived.items || []).find((candidate) => candidate.layer === 1 || candidate.layer === 2 || candidate.layer === 4 ||
       candidate.kind === "not-paired" || candidate.kind === "intake-off");
-    if (item) return { met: false, heading: item.headline, body: item.reason || "", action: item.action || null };
-    return { met: true, heading: "found the solstone app, paired with your journal", body: "", action: null };
+    if (item) {
+      const C = globalThis.SolstoneCopy;
+      const bodies = {
+        "cant-reach-app": C?.STEP1_CANT_REACH_BODY,
+        "not-paired": C?.STEP1_NOT_PAIRED_BODY,
+        "intake-off": status.platform === "linux" ? item.reason : C?.STEP1_INTAKE_OFF_BODY,
+      };
+      return { met: false, heading: item.headline, body: bodies[item.kind] || item.reason || "", action: item.action || null };
+    }
+    const heading = status.hostCapture === "paused"
+      ? "found the solstone app, paired with your journal. it's paused right now."
+      : "found the solstone app, paired with your journal";
+    return { met: true, heading, body: "", action: null };
   }
 
   globalThis.SolstoneStatus = {

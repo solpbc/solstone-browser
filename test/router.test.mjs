@@ -490,3 +490,47 @@ test("router: destroyBinding removes binding on tab/frame teardown", async () =>
   Router.destroyBinding(70, 0);
   assert.equal(Router.frameBindings.has("70:0:doc-70"), false);
 });
+
+test("router: setPaused with failing setCfg handles unpause and pause properly", async () => {
+  await resetDB();
+  const port = makePort();
+  const extSender = {
+    id: EXT_ID,
+    url: `chrome-extension://${EXT_ID}/popup.html`,
+  };
+
+  const rejectingSetCfg = async () => {
+    throw new Error("storage write error");
+  };
+
+  // 1. paused starts false, command setPaused(false) -> ok: false, saved: false, port.paused stays false
+  port.paused = false;
+  const res1 = await Router.route({ cmd: "setPaused", paused: false }, extSender, {
+    runtimeId: EXT_ID,
+    port,
+    setCfg: rejectingSetCfg,
+  });
+  assert.deepEqual(res1, { ok: false, saved: false, paused: false });
+  assert.equal(port.paused, false);
+
+  // 2. paused starts false, command setPaused(true) -> ok: false, saved: false, port.paused is true
+  port.paused = false;
+  const res2 = await Router.route({ cmd: "setPaused", paused: true }, extSender, {
+    runtimeId: EXT_ID,
+    port,
+    setCfg: rejectingSetCfg,
+  });
+  assert.deepEqual(res2, { ok: false, saved: false, paused: true });
+  assert.equal(port.paused, true);
+
+  // 3. paused starts true, command setPaused(false) -> ok: false, saved: false, port.paused stays true
+  port.paused = true;
+  const res3 = await Router.route({ cmd: "setPaused", paused: false }, extSender, {
+    runtimeId: EXT_ID,
+    port,
+    setCfg: rejectingSetCfg,
+  });
+  assert.deepEqual(res3, { ok: false, saved: false, paused: true });
+  assert.equal(port.paused, true);
+});
+

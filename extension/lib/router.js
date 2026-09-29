@@ -225,7 +225,9 @@
           }
 
           if (!saveOk) {
-            port.paused = true;
+            if (desired) {
+              port.paused = true;
+            }
             port.notify();
             return { ok: false, saved: false, paused: port.paused };
           }

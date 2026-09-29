@@ -43,7 +43,7 @@
     return { ok: true, lease };
   }
 
-  function computeDecision({ lease, paused, consentVersion, originGranted, backpressure, now, hostCapture, phase } = {}) {
+  function computeDecision({ lease, paused, consentVersion, originGranted, pressure, now, hostCapture, capturePermitted } = {}) {
     if (paused) {
       return { open: false, reason: "extension-paused" };
     }
@@ -53,8 +53,8 @@
     if (!originGranted) {
       return { open: false, reason: "origin" };
     }
-    if (backpressure && backpressure.active) {
-      return { open: false, reason: "backpressure" };
+    if (pressure && pressure.active) {
+      return { open: false, reason: "pressure" };
     }
     if (hostCapture === "intake_off") {
       return { open: false, reason: "intake-off" };
@@ -65,11 +65,14 @@
     if (hostCapture === "paused") {
       return { open: false, reason: "host-paused" };
     }
-    if (hostCapture === "unavailable") {
+    if (hostCapture === "unavailable" || hostCapture == null) {
       return { open: false, reason: "host-unavailable" };
     }
-    if (phase === "closed-start") {
-      return { open: false, reason: "closed-start" };
+    if (hostCapture !== "permitted") {
+      return { open: false, reason: "host-unavailable" };
+    }
+    if (capturePermitted !== true) {
+      return { open: false, reason: "custody-full" };
     }
     const evaluated = evaluateLease(lease, now);
     if (!evaluated.ok) {

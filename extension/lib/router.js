@@ -8,8 +8,10 @@
   const DB = globalThis.SolstoneDB;
   const Gate = globalThis.SolstoneCaptureGate;
   const Outbox = globalThis.SolstoneNativeOutbox;
+  const H = globalThis.SolstoneHosts;
 
-  const frameBindings = new Map(); // key: frameKey -> { realmToken, documentId, ctx, origin, url, tabId, frameId }
+  const frameBindings = new Map(); // key -> binding
+  const frameChallenges = new Map(); // tabId:frameId -> challenge
   let ctxCounter = 0;
 
   function mintCtx() {
@@ -20,16 +22,33 @@
     return `ctx-${ctxCounter}-${randHex}`;
   }
 
-  function frameKeyFor(tabId, frameId) {
+  function frameKeyFor(tabId, frameId, documentId) {
+    if (documentId) {
+      return `${tabId}:${frameId || 0}:${documentId}`;
+    }
     return `${tabId}:${frameId || 0}`;
   }
 
   function destroyBinding(tabId, frameId) {
     if (tabId !== undefined && frameId !== undefined) {
-      frameBindings.delete(frameKeyFor(tabId, frameId));
+      const prefix = `${tabId}:${frameId}`;
+      for (const key of frameBindings.keys()) {
+        if (key === prefix || key.startsWith(prefix + ":")) {
+          const b = frameBindings.get(key);
+          if (b && Outbox.pruneCursor) Outbox.pruneCursor(b.inst, b.ctx).catch(() => {});
+          frameBindings.delete(key);
+        }
+      }
+      frameChallenges.delete(`${tabId}:${frameId}`);
     } else if (tabId !== undefined) {
       for (const [key, binding] of frameBindings) {
-        if (binding.tabId === tabId) frameBindings.delete(key);
+        if (binding.tabId === tabId) {
+          if (binding && Outbox.pruneCursor) Outbox.pruneCursor(binding.inst, binding.ctx).catch(() => {});
+          frameBindings.delete(key);
+        }
+      }
+      for (const key of frameChallenges.keys()) {
+        if (key.startsWith(`${tabId}:`)) frameChallenges.delete(key);
       }
     }
   }
@@ -91,14 +110,58 @@
         case "addGrantedOrigin": {
           const origin = normalizeOrigin(msg.origin);
           if (!origin) return { ok: false, error: "invalid_origin" };
-          port.grantedOrigins.add(origin);
-          if (deps.setCfg) {
-            await deps.setCfg({ grantedOrigins: Array.from(port.grantedOrigins) }).catch(() => {});
+
+          if (port.consentVersion !== Gate.CONSENT_VERSION) {
+            return { ok: false, error: "missing_consent" };
           }
+
+          let host = "";
+          try {
+            host = new URL(origin).host;
+          } catch (_e) {
+            return { ok: false, error: "invalid_origin" };
+          }
+
+          const pat = H && H.matchPatternFor ? H.matchPatternFor(host) : `*://${host}/*`;
+          let hasPerm = false;
+          try {
+            if (typeof chrome !== "undefined" && chrome.permissions?.contains) {
+              hasPerm = await chrome.permissions.contains({ origins: [pat] });
+            } else if (typeof chrome !== "undefined" && chrome.permissions?.getAll) {
+              const perms = await chrome.permissions.getAll();
+              hasPerm = Array.isArray(perms?.origins) && (perms.origins.includes(pat) || perms.origins.includes("*://*/*"));
+            } else {
+              hasPerm = true;
+            }
+          } catch (_e) {
+            hasPerm = false;
+          }
+
+          if (!hasPerm) {
+            return { ok: false, error: "permission_not_granted" };
+          }
+
+          const nextOrigins = Array.from(new Set([...port.grantedOrigins, origin]));
+          let saveOk = false;
+          if (deps.setCfg) {
+            try {
+              await deps.setCfg({ grantedOrigins: nextOrigins });
+              saveOk = true;
+            } catch (_e) {
+              saveOk = false;
+            }
+          } else {
+            saveOk = true;
+          }
+
+          if (!saveOk) {
+            return { ok: false, error: "storage_error" };
+          }
+
+          port.grantedOrigins.add(origin);
           if (typeof deps.registerSite === "function") {
             try {
-              const u = new URL(origin);
-              await deps.registerSite(u.host);
+              await deps.registerSite(host);
             } catch (_e) {
               /* ignore */
             }
@@ -110,28 +173,64 @@
         case "removeGrantedOrigin": {
           const origin = normalizeOrigin(msg.origin);
           if (!origin) return { ok: false, error: "invalid_origin" };
+
           port.grantedOrigins.delete(origin);
+          let saved = true;
           if (deps.setCfg) {
-            await deps.setCfg({ grantedOrigins: Array.from(port.grantedOrigins) }).catch(() => {});
+            try {
+              await deps.setCfg({ grantedOrigins: Array.from(port.grantedOrigins) });
+            } catch (_e) {
+              saved = false;
+            }
           }
-          if (typeof deps.unregisterSite === "function") {
+
+          if (typeof deps.removeSiteOrigin === "function") {
+            await deps.removeSiteOrigin(origin).catch(() => {});
+          } else if (typeof deps.unregisterSite === "function") {
             try {
               const u = new URL(origin);
-              await deps.unregisterSite(u.host);
+              const matchHost = H && H.matchHostFor ? H.matchHostFor(u.host) : u.hostname;
+              const hasSibling = Array.from(port.grantedOrigins).some((o) => {
+                try {
+                  const sHost = H && H.matchHostFor ? H.matchHostFor(new URL(o).host) : new URL(o).hostname;
+                  return sHost === matchHost;
+                } catch (_e) { return false; }
+              });
+              if (!hasSibling) {
+                await deps.unregisterSite(u.host);
+              }
             } catch (_e) {
               /* ignore */
             }
           }
-          await Outbox.markAllSnapshotRequired();
+
+          await Outbox.markAllSnapshotRequired().catch(() => {});
           port.notify();
-          return { ok: true, origin };
+          if (!saved) return { ok: false, saved: false, origin };
+          return { ok: true, origin, saved: true };
         }
 
         case "setPaused": {
-          port.paused = !!msg.paused;
+          const desired = !!msg.paused;
+          let saveOk = false;
           if (deps.setCfg) {
-            await deps.setCfg({ paused: port.paused }).catch(() => {});
+            try {
+              await deps.setCfg({ paused: desired });
+              saveOk = true;
+            } catch (_e) {
+              saveOk = false;
+            }
+          } else {
+            saveOk = true;
           }
+
+          if (!saveOk) {
+            port.paused = true;
+            port.notify();
+            return { ok: false, saved: false, paused: port.paused };
+          }
+
+          port.paused = desired;
           if (typeof deps.broadcastPause === "function") {
             deps.broadcastPause(port.paused);
           }
@@ -139,15 +238,31 @@
             await Outbox.markAllSnapshotRequired().catch(() => {});
           }
           port.notify();
-          return { ok: true, paused: port.paused };
+          return { ok: true, paused: port.paused, saved: true };
         }
 
         case "setConfig": {
           if (typeof msg.showPageIndicator === "boolean") {
+            const prev = port.showPageIndicator;
             port.showPageIndicator = msg.showPageIndicator;
+            let saveOk = false;
             if (deps.setCfg) {
-              await deps.setCfg({ showPageIndicator: port.showPageIndicator }).catch(() => {});
+              try {
+                await deps.setCfg({ showPageIndicator: port.showPageIndicator });
+                saveOk = true;
+              } catch (_e) {
+                saveOk = false;
+              }
+            } else {
+              saveOk = true;
             }
+
+            if (!saveOk) {
+              port.showPageIndicator = prev;
+              port.notify();
+              return { ok: false, error: "storage_error" };
+            }
+
             if (typeof deps.broadcastIndicator === "function") {
               deps.broadcastIndicator(port.showPageIndicator);
             }
@@ -155,6 +270,16 @@
             return { ok: true };
           }
           return { ok: true };
+        }
+
+        case "dismissLoss": {
+          const seq = Number(msg.seq);
+          const dismissed = await Outbox.dismissLoss(seq);
+          if (dismissed && port.lossNotice && port.lossNotice.seq === seq) {
+            port.lossNotice = null;
+            port.notify();
+          }
+          return { ok: true, dismissed };
         }
 
         default:
@@ -168,7 +293,7 @@
 
     const tabId = sender.tab.id;
     const frameId = sender.frameId || 0;
-    const fKey = frameKeyFor(tabId, frameId);
+    const docId = sender.documentId || null;
 
     let senderOrigin = null;
     let senderUrl = "";
@@ -199,61 +324,97 @@
       return { ok: false, error: "missing_realm_token" };
     }
 
+    const fKey = frameKeyFor(tabId, frameId, docId);
     let binding = frameBindings.get(fKey);
-    const docId = sender.documentId || null;
 
-    if (binding) {
-      if (
-        binding.realmToken !== realmToken ||
-        (docId && binding.documentId && binding.documentId !== docId) ||
-        binding.origin !== senderOrigin
-      ) {
-        frameBindings.delete(fKey);
-        binding = null;
+    if (docId) {
+      if (binding) {
+        if (binding.realmToken !== realmToken || binding.origin !== senderOrigin) {
+          frameBindings.delete(fKey);
+          binding = null;
+        }
       }
-    }
-
-    if (!binding) {
-      binding = {
-        tabId,
-        frameId,
-        realmToken,
-        documentId: docId,
-        origin: senderOrigin,
-        ctx: mintCtx(),
-        url: senderUrl,
-      };
-      frameBindings.set(fKey, binding);
+      if (!binding) {
+        binding = {
+          tabId,
+          frameId,
+          realmToken,
+          documentId: docId,
+          origin: senderOrigin,
+          ctx: mintCtx(),
+          url: senderUrl,
+          inst: port.inst,
+        };
+        frameBindings.set(fKey, binding);
+      }
+    } else {
+      const challengeKey = `${tabId}:${frameId}`;
+      if (msg.kind === "hello") {
+        frameChallenges.set(challengeKey, {
+          realmToken,
+          origin: senderOrigin,
+          tabId,
+          frameId,
+        });
+        if (binding) {
+          frameBindings.delete(fKey);
+          binding = null;
+        }
+      } else {
+        const challenge = frameChallenges.get(challengeKey);
+        if (!challenge || challenge.realmToken !== realmToken || challenge.origin !== senderOrigin) {
+          return { ok: false, error: "challenge_mismatch" };
+        }
+        if (!binding || binding.realmToken !== realmToken || binding.origin !== senderOrigin) {
+          binding = {
+            tabId,
+            frameId,
+            realmToken,
+            documentId: null,
+            origin: senderOrigin,
+            ctx: mintCtx(),
+            url: senderUrl,
+            inst: port.inst,
+          };
+          frameBindings.set(fKey, binding);
+        }
+      }
     }
 
     switch (msg.kind) {
       case "hello": {
         return {
           ok: true,
-          ctx: binding.ctx,
+          ctx: binding ? binding.ctx : null,
           lease: port.lease ? { ...port.lease } : null,
           consentVersion: port.consentVersion,
           paused: port.paused,
           showPageIndicator: port.showPageIndicator,
           grantedOrigins: Array.from(port.grantedOrigins),
           hostCapture: port.hostCapture,
+          hostDelivery: port.hostDelivery,
+          hostFailure: port.hostFailure,
+          custody: port.custody ? { ...port.custody } : null,
+          pressure: { ...port.pressure },
+          capturePermitted: port.capturePermitted === true,
+          connectionGeneration: port.connectionGeneration,
+          destinationGeneration: port.destinationGeneration,
         };
       }
 
       case "skim": {
+        if (!binding) {
+          return { ok: false, error: "challenge_mismatch" };
+        }
         const nowMs = port.now();
-        const gateDecision = Gate.computeDecision({
-          lease: port.lease,
-          paused: port.paused,
-          consentVersion: port.consentVersion,
-          originGranted: port.grantedOrigins.has(senderOrigin),
-          backpressure: port.backpressure,
-          hostCapture: port.hostCapture,
-          now: nowMs,
-        });
+        const codec = globalThis.SolstoneNativeBrowser;
 
-        if (!gateDecision.open) {
-          return { ok: false, error: "gate_closed", reason: gateDecision.reason };
+        if (
+          (msg.connectionGeneration !== undefined && msg.connectionGeneration !== port.connectionGeneration) ||
+          (msg.destinationGeneration !== undefined && msg.destinationGeneration !== port.destinationGeneration) ||
+          (msg.leaseToken && (!port.lease || msg.leaseToken !== port.lease.token))
+        ) {
+          return { ok: false, error: "authority_mismatch" };
         }
 
         const meta = msg.meta || {};
@@ -265,29 +426,52 @@
         const textMax = (consts && consts.TEXT_MAX) || Blocks.MAX_TEXT || 2001;
         const blocksTruncated = blocksList.length >= Blocks.MAX_BLOCKS;
         const textTruncated = blocksList.some((b) => b && typeof b.text === "string" && b.text.length === textMax && b.text.endsWith("…"));
-        port.truncation = {
-          active: blocksTruncated || textTruncated,
-          blocks: blocksTruncated,
-          text: textTruncated,
+
+        const authorize = () => {
+          const currentNow = port.now();
+          const decision = Gate.computeDecision({
+            lease: port.lease,
+            paused: port.paused,
+            consentVersion: port.consentVersion,
+            originGranted: port.grantedOrigins.has(senderOrigin),
+            pressure: port.pressure,
+            hostCapture: port.hostCapture,
+            capturePermitted: port.capturePermitted === true,
+            now: currentNow,
+          });
+          if (!decision.open) return false;
+          if (msg.connectionGeneration !== undefined && port.connectionGeneration !== msg.connectionGeneration) return false;
+          if (msg.destinationGeneration !== undefined && port.destinationGeneration !== msg.destinationGeneration) return false;
+          if (msg.leaseToken && (!port.lease || port.lease.token !== msg.leaseToken)) return false;
+          return true;
         };
-        port.notify();
 
         try {
           const result = await Outbox.enqueueSkim({
             inst: port.inst,
             ctx: binding.ctx,
-            destinationGeneration: port.lease.generation,
+            destinationGeneration: port.destinationGeneration,
             senderUrl,
             site: frameSite,
             title,
             adapter,
             blocks: blocksList,
-            nowMs,
+            nowMs: Date.now(),
+            authorize,
           });
+
+          if (
+            (msg.connectionGeneration !== undefined && port.connectionGeneration !== msg.connectionGeneration) ||
+            (msg.destinationGeneration !== undefined && port.destinationGeneration !== msg.destinationGeneration) ||
+            (msg.leaseToken && (!port.lease || port.lease.token !== msg.leaseToken))
+          ) {
+            return { ok: false, error: "authority_mismatch" };
+          }
 
           if (result && result.enqueued) {
             port.drain();
           }
+
           return {
             ok: true,
             result: {
@@ -298,8 +482,18 @@
             },
           };
         } catch (err) {
-          if (err.disposition === "batch-oversize" || err.disposition === "outbox-full") {
-            port.backpressure = { active: true, reason: err.disposition };
+          if (err.disposition === "batch-oversize" || err.code === "batch-oversize" || err.disposition === "schema-refuse") {
+            port.siteRejection = { origin: senderOrigin, reason: err.disposition || err.code || "batch-oversize" };
+            port.notify();
+          } else if (err.disposition === "outbox-full" || err.code === "outbox-full") {
+            try {
+              const cap = await Outbox.getCapacityStatus();
+              port.pressure = cap.pressure;
+            } catch (_e) {}
+            port.siteRejection = { origin: senderOrigin, reason: "outbox-full" };
+            port.notify();
+          } else {
+            port.siteRejection = { origin: senderOrigin, reason: err.disposition || err.code || "enqueue_failed" };
             port.notify();
           }
           return { ok: false, error: err.code || "enqueue_failed" };
@@ -307,7 +501,7 @@
       }
 
       case "bye": {
-        frameBindings.delete(fKey);
+        destroyBinding(tabId, frameId);
         return { ok: true };
       }
 
@@ -320,6 +514,8 @@
     route,
     destroyBinding,
     normalizeOrigin,
+    isExtensionPageSender,
     frameBindings,
+    frameChallenges,
   };
 })();

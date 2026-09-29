@@ -94,6 +94,27 @@ try {
     }
   }
 
+  const extensionPairs = [
+    { ext: "extension/native-browser/constants.js", canonical: "contracts/native-browser/constants.js" },
+    { ext: "extension/native-browser/schemas.js", canonical: "contracts/native-browser/schemas.js" },
+    { ext: "extension/native-browser/schema-validator.js", canonical: "native-browser/schema-validator.js" },
+    { ext: "extension/native-browser/codec.js", canonical: "native-browser/codec.js" },
+  ];
+  for (const { ext, canonical } of extensionPairs) {
+    const extFile = join(ROOT, ext);
+    const canFile = join(ROOT, canonical);
+    if (!existsSync(extFile) || !existsSync(canFile)) {
+      console.error(`Missing file for extension comparison: ${ext} or ${canonical}`);
+      process.exit(1);
+    }
+    const extContent = readFileSync(extFile);
+    const canContent = readFileSync(canFile);
+    if (Buffer.compare(extContent, canContent) !== 0) {
+      console.error(`Mismatch between ${ext} and ${canonical}`);
+      process.exit(1);
+    }
+  }
+
   console.log("check-native-browser: all generated artifacts match");
 } finally {
   if (tempDir && existsSync(tempDir)) {

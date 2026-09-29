@@ -112,11 +112,48 @@
     return String(s || "").replace(/\s/g, "").length;
   }
 
+  function sliceCodePoints(s, maxPoints) {
+    if (s == null) return "";
+    const str = String(s);
+    let count = 0;
+    let index = 0;
+    while (index < str.length && count < maxPoints) {
+      const code = str.charCodeAt(index);
+      if (code >= 0xd800 && code <= 0xdbff && index + 1 < str.length) {
+        const next = str.charCodeAt(index + 1);
+        if (next >= 0xdc00 && next <= 0xdfff) {
+          index += 2;
+          count++;
+          continue;
+        }
+      }
+      index++;
+      count++;
+    }
+    return str.slice(0, index);
+  }
+
+  function countCodePoints(s) {
+    if (s == null) return 0;
+    let count = 0;
+    for (let i = 0; i < s.length; i++) {
+      const code = s.charCodeAt(i);
+      if (code >= 0xd800 && code <= 0xdbff && i + 1 < s.length) {
+        const next = s.charCodeAt(i + 1);
+        if (next >= 0xdc00 && next <= 0xdfff) {
+          i++;
+        }
+      }
+      count++;
+    }
+    return count;
+  }
+
   // Pure: strip invisibles, collapse whitespace, trim, cap length.
   function normalizeText(s) {
     if (s == null) return "";
     let out = String(s).replace(/[ \t ]+/g, " ").replace(/\s*\n\s*/g, "\n").replace(INVISIBLE, "").trim();
-    if (out.length > MAX_TEXT) out = out.slice(0, MAX_TEXT) + "…";
+    if (countCodePoints(out) > MAX_TEXT) out = sliceCodePoints(out, MAX_TEXT) + "…";
     return out;
   }
 
@@ -124,8 +161,8 @@
   // data-message-id the adapter pulled off the node); else hash type+depth+text.
   // Stable across virtualized-list node recycling when an app id exists.
   function blockId(stableId, type, depth, text) {
-    if (stableId) return "k:" + String(stableId).slice(0, 80);
-    return "h:" + hashStr(type + "|" + depth + "|" + text.slice(0, 200));
+    if (stableId) return "k:" + sliceCodePoints(stableId, 80);
+    return "h:" + hashStr(type + "|" + depth + "|" + sliceCodePoints(text, 200));
   }
 
   // Pure: reduce the page address before it leaves the page, so query strings,
@@ -147,7 +184,7 @@
   function readAttrs(el) {
     const attrs = {};
     const label = el.getAttribute && (el.getAttribute("aria-label") || el.getAttribute("title"));
-    if (label) attrs.label = normalizeText(label).slice(0, 300);
+    if (label) attrs.label = sliceCodePoints(normalizeText(label), 300);
     const level = el.getAttribute && el.getAttribute("aria-level");
     if (level) attrs.level = level;
     if (el.tagName === "A" && el.getAttribute("href")) {
@@ -174,5 +211,6 @@
     blockId,
     originPath,
     readAttrs,
+    sliceCodePoints,
   };
 })();

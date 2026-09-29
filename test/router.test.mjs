@@ -11,6 +11,7 @@ await import(new URL("../extension/native-browser/schema-validator.js", import.m
 await import(new URL("../extension/native-browser/codec.js", import.meta.url));
 await import(new URL("../extension/lib/uuid.js", import.meta.url));
 await import(new URL("../extension/lib/blocks.js", import.meta.url));
+await import(new URL("../extension/lib/hosts.js", import.meta.url));
 await import(new URL("../extension/lib/segment.js", import.meta.url));
 await import(new URL("../extension/lib/db.js", import.meta.url));
 await import(new URL("../extension/lib/gate.js", import.meta.url));
@@ -33,6 +34,7 @@ async function resetDB() {
 function makePort() {
   const p = new PortController({
     runtimeId: EXT_ID,
+    inst: "00000000-0000-0000-0000-000000000001",
     connectNative: () => ({
       postMessage() {},
       disconnect() {},
@@ -42,7 +44,9 @@ function makePort() {
   });
   p.consentVersion = 1;
   p.hostCapture = "permitted";
+  p.capturePermitted = true;
   p.connectionToken = "tok-1";
+  p.destinationGeneration = "gen-1";
   p.lease = {
     token: "tok-1",
     generation: "gen-1",
@@ -94,7 +98,7 @@ test("router: extension page commands execute when sender is extension page", as
   assert.equal(storedConsent, 1);
 
   const pauseRes = await Router.route({ cmd: "setPaused", paused: true }, sender, { runtimeId: EXT_ID, port });
-  assert.deepEqual(pauseRes, { ok: true, paused: true });
+  assert.deepEqual(pauseRes, { ok: true, paused: true, saved: true });
   assert.equal(port.paused, true);
 });
 
@@ -132,7 +136,7 @@ test("router: content script creates realm binding on hello", async () => {
   assert.ok(res.ctx);
   assert.equal(res.consentVersion, 1);
 
-  const binding = Router.frameBindings.get("10:0");
+  const binding = Router.frameBindings.get("10:0:doc-1");
   assert.ok(binding);
   assert.equal(binding.realmToken, "realm-1");
   assert.equal(binding.ctx, res.ctx);
@@ -153,7 +157,6 @@ test("router: forged fields do not leak", async () => {
 
   const helloRes = await Router.route({ kind: "hello", realmToken: "realm-forged" }, sender, { runtimeId: EXT_ID, port });
   assert.equal(helloRes.ok, true);
-  const bindingCtx = helloRes.ctx;
 
   const FORGED_MARKER = "SECRET_FORGED_INJECTION_MARKER";
   const skimRes = await Router.route(
@@ -170,6 +173,8 @@ test("router: forged fields do not leak", async () => {
   );
 
   assert.equal(skimRes.ok, true);
+  const bindingCtx = Router.frameBindings.get("20:0").ctx;
+  assert.ok(bindingCtx);
   const skimJson = JSON.stringify(skimRes);
   assert.equal(skimJson.includes(FORGED_MARKER), false);
 
@@ -207,9 +212,18 @@ test("router: second frame cannot claim another context", async () => {
   const res1 = await Router.route({ kind: "hello", realmToken: "realm-frame-1" }, frame1, { runtimeId: EXT_ID, port });
   const res2 = await Router.route({ kind: "hello", realmToken: "realm-frame-2" }, frame2, { runtimeId: EXT_ID, port });
 
-  assert.notEqual(res1.ctx, res2.ctx);
-  assert.equal(Router.frameBindings.get("30:0").ctx, res1.ctx);
-  assert.equal(Router.frameBindings.get("30:1").ctx, res2.ctx);
+  assert.equal(res1.ctx, null);
+  assert.equal(res2.ctx, null);
+  const skim1 = await Router.route({ kind: "skim", realmToken: "realm-frame-1", blocks: [{ id: "1", type: "text", depth: 0, text: "a" }] }, frame1, { runtimeId: EXT_ID, port });
+  const skim2 = await Router.route({ kind: "skim", realmToken: "realm-frame-2", blocks: [{ id: "1", type: "text", depth: 0, text: "b" }] }, frame2, { runtimeId: EXT_ID, port });
+  assert.equal(skim1.ok, true);
+  assert.equal(skim2.ok, true);
+
+  const b1 = Router.frameBindings.get("30:0");
+  const b2 = Router.frameBindings.get("30:1");
+  assert.ok(b1);
+  assert.ok(b2);
+  assert.notEqual(b1.ctx, b2.ctx);
 });
 
 test("router: document change mints a new ctx", async () => {
@@ -239,7 +253,7 @@ test("router: document change mints a new ctx", async () => {
   const res2 = await Router.route({ kind: "hello", realmToken: "realm-doc-2" }, sender2, { runtimeId: EXT_ID, port });
 
   assert.notEqual(res1.ctx, res2.ctx);
-  assert.equal(Router.frameBindings.get("40:0").documentId, "doc-v2");
+  assert.equal(Router.frameBindings.get("40:0:doc-v2").documentId, "doc-v2");
 });
 
 test("router: absent documentId still binds", async () => {
@@ -257,8 +271,94 @@ test("router: absent documentId still binds", async () => {
 
   const res = await Router.route({ kind: "hello", realmToken: "realm-nodoc" }, sender, { runtimeId: EXT_ID, port });
   assert.equal(res.ok, true);
-  assert.ok(res.ctx);
-  assert.equal(Router.frameBindings.get("45:0").documentId, null);
+  assert.equal(res.ctx, null);
+  assert.equal(Router.frameChallenges.get("45:0").realmToken, "realm-nodoc");
+  assert.equal(Router.frameBindings.get("45:0"), undefined);
+
+  const skimRes = await Router.route(
+    {
+      kind: "skim",
+      realmToken: "realm-nodoc",
+      blocks: [{ id: "1", type: "heading", depth: 0, text: "Title" }],
+    },
+    sender,
+    { runtimeId: EXT_ID, port }
+  );
+  assert.equal(skimRes.ok, true);
+  const binding = Router.frameBindings.get("45:0");
+  assert.ok(binding);
+  assert.equal(binding.documentId, null);
+  assert.ok(binding.ctx);
+});
+
+test("router: realm supersession and invalid origin", async () => {
+  await resetDB();
+  const port = makePort();
+  port.grantedOrigins.add("https://mail.google.com");
+
+  const sender = {
+    id: EXT_ID,
+    tab: { id: 46 },
+    frameId: 0,
+    url: "https://mail.google.com/mail/u/0",
+    origin: "https://mail.google.com",
+  };
+
+  // hello realm A, hello realm B on the same tab/frame with no documentId
+  const helloA = await Router.route({ kind: "hello", realmToken: "realm-A" }, sender, { runtimeId: EXT_ID, port });
+  assert.equal(helloA.ok, true);
+
+  const helloB = await Router.route({ kind: "hello", realmToken: "realm-B" }, sender, { runtimeId: EXT_ID, port });
+  assert.equal(helloB.ok, true);
+
+  // skim realm A returns ok: false and does not enqueue
+  const skimA = await Router.route(
+    {
+      kind: "skim",
+      realmToken: "realm-A",
+      blocks: [{ id: "1", type: "heading", depth: 0, text: "A" }],
+    },
+    sender,
+    { runtimeId: EXT_ID, port }
+  );
+  assert.equal(skimA.ok, false);
+  assert.equal(await Outbox.getHead(), null);
+
+  // hello realm B is already the challenge; skim realm B enqueues
+  const skimB = await Router.route(
+    {
+      kind: "skim",
+      realmToken: "realm-B",
+      blocks: [{ id: "1", type: "heading", depth: 0, text: "B" }],
+    },
+    sender,
+    { runtimeId: EXT_ID, port }
+  );
+  assert.equal(skimB.ok, true);
+  const head = await Outbox.getHead();
+  assert.ok(head);
+  assert.equal(head.records[0].blocks[0].text, "B");
+
+  // sender origin: "null" returns ok: false
+  const senderNullOrigin = {
+    id: EXT_ID,
+    tab: { id: 46 },
+    frameId: 0,
+    url: "https://mail.google.com/mail/u/0",
+    origin: "null",
+  };
+  const nullHello = await Router.route({ kind: "hello", realmToken: "r-null" }, senderNullOrigin, { runtimeId: EXT_ID, port });
+  assert.equal(nullHello.ok, false);
+  const nullSkim = await Router.route(
+    {
+      kind: "skim",
+      realmToken: "realm-B",
+      blocks: [{ id: "1", type: "heading", depth: 0, text: "B" }],
+    },
+    senderNullOrigin,
+    { runtimeId: EXT_ID, port }
+  );
+  assert.equal(nullSkim.ok, false);
 });
 
 test("router: scheme and port are distinct", async () => {
@@ -375,7 +475,18 @@ test("router: revoked origin refuses the next skim", async () => {
 });
 
 test("router: destroyBinding removes binding on tab/frame teardown", async () => {
-  assert.ok(Router.frameBindings.has("60:0"));
-  Router.destroyBinding(60, 0);
-  assert.equal(Router.frameBindings.has("60:0"), false);
+  const sender = {
+    id: EXT_ID,
+    tab: { id: 70 },
+    frameId: 0,
+    documentId: "doc-70",
+    url: "https://example.test/page",
+    origin: "https://example.test",
+  };
+  const port = makePort();
+  port.grantedOrigins.add("https://example.test");
+  await Router.route({ kind: "hello", realmToken: "r-destroy" }, sender, { runtimeId: EXT_ID, port });
+  assert.ok(Router.frameBindings.has("70:0:doc-70"));
+  Router.destroyBinding(70, 0);
+  assert.equal(Router.frameBindings.has("70:0:doc-70"), false);
 });

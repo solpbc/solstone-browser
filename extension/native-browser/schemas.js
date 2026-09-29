@@ -143,6 +143,22 @@ globalThis.SolstoneNativeBrowserSchemas = {
           "version": {
             "type": "string",
             "maxLength": 64
+          },
+          "custody": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "full",
+              "stale"
+            ],
+            "properties": {
+              "full": {
+                "type": "boolean"
+              },
+              "stale": {
+                "type": "boolean"
+              }
+            }
           }
         },
         "allOf": [
@@ -338,6 +354,22 @@ globalThis.SolstoneNativeBrowserSchemas = {
           "version": {
             "type": "string",
             "maxLength": 64
+          },
+          "custody": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "full",
+              "stale"
+            ],
+            "properties": {
+              "full": {
+                "type": "boolean"
+              },
+              "stale": {
+                "type": "boolean"
+              }
+            }
           }
         },
         "allOf": [

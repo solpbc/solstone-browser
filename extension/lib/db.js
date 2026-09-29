@@ -5,7 +5,7 @@
   "use strict";
 
   const DB_NAME = "solstone-browser-native";
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   let memo = null;
 
   function open() {

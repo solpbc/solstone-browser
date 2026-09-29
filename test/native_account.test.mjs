@@ -13,7 +13,11 @@ await import(new URL("../extension/lib/uuid.js", import.meta.url));
 await import(new URL("../extension/lib/blocks.js", import.meta.url));
 await import(new URL("../extension/lib/segment.js", import.meta.url));
 await import(new URL("../extension/lib/db.js", import.meta.url));
+await import(new URL("../extension/lib/hosts.js", import.meta.url));
+await import(new URL("../extension/lib/gate.js", import.meta.url));
 await import(new URL("../extension/lib/native_outbox.js", import.meta.url));
+await import(new URL("../extension/lib/native_port.js", import.meta.url));
+await import(new URL("../extension/lib/router.js", import.meta.url));
 await import(new URL("../extension/adapters.js", import.meta.url));
 await import(new URL("../extension/skim.js", import.meta.url));
 
@@ -23,6 +27,8 @@ const Adapters = globalThis.SolstoneAdapters;
 const Skim = globalThis.SolstoneSkim;
 const DB = globalThis.SolstoneDB;
 const Outbox = globalThis.SolstoneNativeOutbox;
+const PortController = globalThis.SolstoneNativePort;
+const Router = globalThis.SolstoneRouter;
 
 async function resetDB() {
   await DB.clear("outbox");
@@ -312,15 +318,16 @@ test("account: expired unaccepted retires with count", async () => {
   // Exactly at max age: b1 retires
   const resRetire = await Outbox.retireExpired(1000 + Constants.OUTBOX_AGE_MS_MAX);
   assert.equal(resRetire.count, 1);
-  assert.equal(resRetire.disposition, "expired-unaccepted");
+  assert.equal(resRetire.disposition, "expired_unaccepted");
 
   const all = await Outbox.getAll();
   assert.equal(all.some((x) => x.batchId === b1.batchId), false);
 
-  // Descendant promoted to snapshot
+  // Descendant promoted to snapshot (sendSnapshot = true without rewriting records)
   const b2Promoted = all.find((x) => x.batchId === b2.batchId);
   assert.ok(b2Promoted);
-  assert.equal(b2Promoted.records[0].t, "segment_start");
+  assert.equal(b2Promoted.sendSnapshot, true);
+  assert.equal(Outbox.buildWireBatch(b2Promoted).records[0].t, "segment_start");
 
   // Other context unchanged
   const otherFound = all.find((x) => x.batchId === bOther.batchId);
@@ -415,4 +422,465 @@ test("skim: boundary block counting respects 1499 edge", () => {
 
   const blocks = Skim.skim(mockRoot, Adapters.GENERIC);
   assert.equal(blocks.length, 1499);
+});
+
+test("account: monotonic floor, backward wall jump, future skew, and missing ageSampleWallMs", async () => {
+  await resetDB();
+
+  // Item 1: floor 300000 with ageSampleWallMs at T=100000
+  const b1 = await Outbox.enqueueSkim({
+    inst: "inst-floor",
+    ctx: "ctx-1",
+    destinationGeneration: "gen-1",
+    senderUrl: "https://example.test/page",
+    site: "example.test",
+    title: "Title",
+    adapter: "generic",
+    blocks: [{ id: "1", text: "A" }],
+    nowMs: 100000,
+  });
+
+  // Manually update stored item to simulate a previous run that saved observedAgeMs = 300000
+  await DB.tx("outbox", "readwrite", (store) => {
+    const req = store.get(b1.batchId);
+    req.onsuccess = () => {
+      const item = req.result;
+      item.observedAgeMs = 300000;
+      item.ageSampleWallMs = 100000;
+      store.put(item);
+    };
+  });
+
+  // Fresh process (no in-memory sample), wall T + 60000 = 160000, mono 10000
+  // Age computed is 300000 + 60000 = 360000. Row is still present.
+  const r1 = await Outbox.retireExpired(10000, 160000);
+  assert.equal(r1.count, 0);
+  const itemAfterR1 = await DB.get("outbox", b1.batchId);
+  assert.ok(itemAfterR1);
+  assert.equal(itemAfterR1.observedAgeMs, 360000);
+
+  // Backward wall jump: wall T - 10000 = 90000, mono 20000
+  // Monotonic clock advanced by 10s, so floor advances monotonically to 370000 despite backward wall jump
+  const r2 = await Outbox.retireExpired(20000, 90000);
+  assert.equal(r2.count, 0);
+  const itemAfterR2 = await DB.get("outbox", b1.batchId);
+  assert.ok(itemAfterR2);
+  assert.equal(itemAfterR2.observedAgeMs, 370000);
+
+  // Advancing to 600000 floor: mono 250000 (370000 + (250000 - 20000) = 600000 floor >= OUTBOX_AGE_MS_MAX)
+  // Retires via queuedPastOutboxAge with reason expired_unaccepted
+  const r3 = await Outbox.retireExpired(250000, 340000);
+  assert.equal(r3.count, 1);
+  assert.equal(r3.disposition, "expired_unaccepted");
+  assert.equal(await DB.get("outbox", b1.batchId), undefined);
+
+  // Future skew test: queuedAtMs > 60000 in future
+  const bFuture = await Outbox.enqueueSkim({
+    inst: "inst-floor",
+    ctx: "ctx-fut",
+    destinationGeneration: "gen-1",
+    senderUrl: "https://example.test/page",
+    site: "example.test",
+    title: "Title",
+    adapter: "generic",
+    blocks: [{ id: "f1", text: "F" }],
+    nowMs: 200000,
+  });
+  // Wall is 100000 (100000 < 200000 - 60000), queuedAtMs is > 60s in future
+  const rFuture = await Outbox.retireExpired(1000, 100000);
+  assert.equal(rFuture.count, 1);
+  assert.equal(rFuture.disposition, "age_policy");
+  assert.equal(rFuture.reason, "age_policy");
+  assert.equal((await DB.get("meta", "lossNotice")).reason, "age_policy");
+
+  // Missing ageSampleWallMs test: does not use queuedAtMs as sample
+  const bNoSample = await Outbox.enqueueSkim({
+    inst: "inst-floor",
+    ctx: "ctx-nosample",
+    destinationGeneration: "gen-1",
+    senderUrl: "https://example.test/page",
+    site: "example.test",
+    title: "Title",
+    adapter: "generic",
+    blocks: [{ id: "ns1", text: "NS" }],
+    nowMs: 100000,
+  });
+  await DB.tx("outbox", "readwrite", (store) => {
+    const req = store.get(bNoSample.batchId);
+    req.onsuccess = () => {
+      const item = req.result;
+      item.observedAgeMs = 50000;
+      delete item.ageSampleWallMs;
+      store.put(item);
+    };
+  });
+  // Without ageSampleWallMs, floor stays storedFloor (50000) rather than computing wall - queuedAtMs
+  const rNoSample = await Outbox.retireExpired(1000, 500000);
+  assert.equal(rNoSample.count, 0);
+  const itemNoSample = await DB.get("outbox", bNoSample.batchId);
+  assert.equal(itemNoSample.observedAgeMs, 50000);
+});
+
+function settleRowBytes(row) {
+  let itemBytes = Outbox.byteLengthOf(row);
+  row.bytes = itemBytes;
+  while (true) {
+    const nextBytes = Outbox.byteLengthOf(row);
+    if (nextBytes === row.bytes) break;
+    row.bytes = nextBytes;
+  }
+  return row;
+}
+
+test("account: near-cap snapshot_required preserves bytes, id, queuedAtMs, and records", async () => {
+  await resetDB();
+
+  const payloadText = 'ä"\\🚀'.repeat(25000);
+  const rowA = {
+    batchId: "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+    seq: 1,
+    inst: "00000000-0000-0000-0000-000000000001",
+    ctx: "ctx-1",
+    destinationGeneration: "gen-a",
+    queuedAtMs: 1000,
+    sendSnapshot: false,
+    records: [{
+      t: "segment_start",
+      ts: 1000,
+      inst: "00000000-0000-0000-0000-000000000001",
+      ctx: "ctx-1",
+      title: "Title",
+      url: "https://example.test/page",
+      site: "example.test",
+      adapter: "generic",
+      blocks: [{ id: "1", type: "heading", depth: 0, text: "short" }],
+    }],
+    snapshotRecords: [{
+      t: "segment_start",
+      ts: 1000,
+      inst: "00000000-0000-0000-0000-000000000001",
+      ctx: "ctx-1",
+      title: "Title",
+      url: "https://example.test/page",
+      site: "example.test",
+      adapter: "generic",
+      blocks: [{ id: "1", type: "heading", depth: 0, text: payloadText }],
+    }],
+  };
+  settleRowBytes(rowA);
+  assert.ok(rowA.bytes >= 200_000);
+
+  const rowB = {
+    batchId: "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+    seq: 2,
+    inst: "00000000-0000-0000-0000-000000000001",
+    ctx: "ctx-2",
+    destinationGeneration: "gen-a",
+    queuedAtMs: 1000,
+    sendSnapshot: false,
+    records: [{
+      t: "segment_start",
+      ts: 1000,
+      inst: "00000000-0000-0000-0000-000000000001",
+      ctx: "ctx-2",
+      title: "Title",
+      url: "https://example.test/page",
+      site: "example.test",
+      adapter: "generic",
+      blocks: [{ id: "1", type: "heading", depth: 0, text: "B" }],
+    }],
+    snapshotRecords: [{
+      t: "segment_start",
+      ts: 1000,
+      inst: "00000000-0000-0000-0000-000000000001",
+      ctx: "ctx-2",
+      title: "Title",
+      url: "https://example.test/page",
+      site: "example.test",
+      adapter: "generic",
+      blocks: [{ id: "1", type: "heading", depth: 0, text: "B" }],
+    }],
+    bytes: Constants.OUTBOX_BYTES_MAX - rowA.bytes - 1000,
+  };
+  assert.ok(rowA.bytes + rowB.bytes > Constants.OUTBOX_BYTES_MAX - 1048576);
+  assert.ok(rowA.bytes + rowB.bytes <= Constants.OUTBOX_BYTES_MAX);
+
+  await DB.put("outbox", rowA);
+  await DB.put("outbox", rowB);
+
+  const initialCap = await Outbox.getCapacityStatus();
+
+  await Outbox.applyRejectedReceipt(rowA.batchId, { reason: "snapshot_required", class: "retryable" });
+
+  const rowAAfter = await DB.get("outbox", rowA.batchId);
+  assert.ok(rowAAfter);
+  assert.equal(rowAAfter.bytes, rowA.bytes);
+  assert.equal(rowAAfter.batchId, rowA.batchId);
+  assert.equal(rowAAfter.queuedAtMs, rowA.queuedAtMs);
+  assert.deepEqual(rowAAfter.records, rowA.records);
+  assert.equal(rowAAfter.sendSnapshot, true);
+
+  const rowBAfter = await DB.get("outbox", rowB.batchId);
+  assert.ok(rowBAfter);
+  assert.equal(rowBAfter.bytes, rowB.bytes);
+
+  const endCap = await Outbox.getCapacityStatus();
+  assert.ok(endCap.totalBytes <= Constants.OUTBOX_BYTES_MAX);
+  assert.ok(endCap.totalBytes <= initialCap.totalBytes);
+});
+
+test("account: near-cap predecessor loss promotes descendant without growing total", async () => {
+  await resetDB();
+
+  const payloadText = 'ä"\\🚀'.repeat(25000);
+
+  const rowD = {
+    batchId: "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+    seq: 2,
+    inst: "00000000-0000-0000-0000-000000000001",
+    ctx: "ctx-1",
+    destinationGeneration: "gen-new",
+    queuedAtMs: 2000,
+    sendSnapshot: false,
+    records: [{
+      t: "delta",
+      ts: 2000,
+      op: "add",
+      inst: "00000000-0000-0000-0000-000000000001",
+      ctx: "ctx-1",
+      title: "Title",
+      url: "https://example.test/page",
+      site: "example.test",
+      adapter: "generic",
+      block: { id: "2", type: "heading", depth: 0, text: "new" },
+    }],
+    snapshotRecords: [{
+      t: "segment_start",
+      ts: 2000,
+      inst: "00000000-0000-0000-0000-000000000001",
+      ctx: "ctx-1",
+      title: "Title",
+      url: "https://example.test/page",
+      site: "example.test",
+      adapter: "generic",
+      blocks: [{ id: "1", type: "heading", depth: 0, text: payloadText }],
+    }],
+  };
+  settleRowBytes(rowD);
+  assert.ok(rowD.bytes >= 200_000);
+
+  const rowS = {
+    batchId: "s1s1s1s1s1s1s1s1s1s1s1s1s1s1s1s1",
+    seq: 3,
+    inst: "00000000-0000-0000-0000-000000000001",
+    ctx: "ctx-sibling",
+    destinationGeneration: "gen-new",
+    queuedAtMs: 2000,
+    sendSnapshot: false,
+    records: [{
+      t: "segment_start",
+      ts: 2000,
+      inst: "00000000-0000-0000-0000-000000000001",
+      ctx: "ctx-sibling",
+      title: "Title",
+      url: "https://example.test/page",
+      site: "example.test",
+      adapter: "generic",
+      blocks: [{ id: "1", type: "heading", depth: 0, text: "sibling" }],
+    }],
+    snapshotRecords: [{
+      t: "segment_start",
+      ts: 2000,
+      inst: "00000000-0000-0000-0000-000000000001",
+      ctx: "ctx-sibling",
+      title: "Title",
+      url: "https://example.test/page",
+      site: "example.test",
+      adapter: "generic",
+      blocks: [{ id: "1", type: "heading", depth: 0, text: "sibling" }],
+    }],
+    bytes: Constants.OUTBOX_BYTES_MAX - rowD.bytes - 10000,
+  };
+  assert.ok(rowD.bytes + rowS.bytes > Constants.OUTBOX_BYTES_MAX - 1048576);
+  assert.ok(rowD.bytes + rowS.bytes <= Constants.OUTBOX_BYTES_MAX);
+
+  const rowP = {
+    batchId: "p1p1p1p1p1p1p1p1p1p1p1p1p1p1p1p1",
+    seq: 1,
+    inst: "00000000-0000-0000-0000-000000000001",
+    ctx: "ctx-1",
+    destinationGeneration: "gen-old",
+    queuedAtMs: 1000,
+    sendSnapshot: false,
+    records: [{
+      t: "segment_start",
+      ts: 1000,
+      inst: "00000000-0000-0000-0000-000000000001",
+      ctx: "ctx-1",
+      title: "Title",
+      url: "https://example.test/page",
+      site: "example.test",
+      adapter: "generic",
+      blocks: [{ id: "1", type: "heading", depth: 0, text: "old" }],
+    }],
+    snapshotRecords: [{
+      t: "segment_start",
+      ts: 1000,
+      inst: "00000000-0000-0000-0000-000000000001",
+      ctx: "ctx-1",
+      title: "Title",
+      url: "https://example.test/page",
+      site: "example.test",
+      adapter: "generic",
+      blocks: [{ id: "1", type: "heading", depth: 0, text: "old" }],
+    }],
+    bytes: 5000,
+  };
+
+  assert.ok(rowP.bytes + rowD.bytes + rowS.bytes <= Constants.OUTBOX_BYTES_MAX);
+
+  await DB.put("outbox", rowP);
+  await DB.put("outbox", rowD);
+  await DB.put("outbox", rowS);
+
+  await DB.put("producer", {
+    contextKey: "00000000-0000-0000-0000-000000000001\nctx-1",
+    inst: "00000000-0000-0000-0000-000000000001",
+    ctx: "ctx-1",
+    blocks: [],
+    generation: "gen-old",
+    snapshotRequired: false,
+  });
+
+  const startCap = await Outbox.getCapacityStatus();
+
+  await Outbox.retireStaleGeneration(rowD.destinationGeneration);
+
+  const rowDAfter = await DB.get("outbox", rowD.batchId);
+  assert.ok(rowDAfter);
+  assert.equal(rowDAfter.bytes, rowD.bytes);
+  assert.equal(rowDAfter.batchId, rowD.batchId);
+  assert.equal(rowDAfter.queuedAtMs, rowD.queuedAtMs);
+  assert.equal(rowDAfter.sendSnapshot, true);
+
+  const rowSAfter = await DB.get("outbox", rowS.batchId);
+  assert.ok(rowSAfter);
+  assert.equal(rowSAfter.bytes, rowS.bytes);
+
+  const rowPAfter = await DB.get("outbox", rowP.batchId);
+  assert.equal(rowPAfter, undefined);
+
+  const postCap = await Outbox.getCapacityStatus();
+  assert.ok(postCap.totalBytes <= startCap.totalBytes);
+  assert.ok(postCap.totalBytes <= Constants.OUTBOX_BYTES_MAX);
+});
+
+test("account: lone-surrogate enqueue is refused with code lone_surrogate and leaves no outbox or producer record", async () => {
+  await resetDB();
+
+  let schemaErr = null;
+  try {
+    await Outbox.enqueueSkim({
+      inst: "inst-cap",
+      ctx: "ctx-invalid",
+      destinationGeneration: "gen-2",
+      senderUrl: "https://example.test/page",
+      site: "example.test",
+      title: "Invalid",
+      adapter: "generic",
+      blocks: [{ id: "bad", type: "\ud800", text: "Invalid surrogate" }],
+      nowMs: 4000,
+    });
+  } catch (err) {
+    schemaErr = err;
+  }
+  assert.ok(schemaErr);
+  assert.equal(schemaErr.code, "lone_surrogate");
+
+  const outboxRecords = await Outbox.getAll();
+  assert.equal(outboxRecords.length, 0);
+  const producerRecord = await DB.get("producer", "inst-cap\nctx-invalid");
+  assert.equal(producerRecord, undefined);
+});
+
+test("account: outbox-full sets siteRejection with pressure reflecting DB status", async () => {
+  await resetDB();
+  const port = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+    connectNative: () => ({
+      postMessage() {},
+      disconnect() {},
+      onMessage: { addListener() {} },
+      onDisconnect: { addListener() {} },
+    }),
+  });
+  port.consentVersion = 1;
+  port.hostCapture = "permitted";
+  port.capturePermitted = true;
+  port.destinationGeneration = "gen-1";
+  port.connectionToken = "tok-1";
+  port.grantedOrigins.add("https://example.test");
+  port.lease = { token: "tok-1", generation: "gen-1", freshnessMs: 10000, receivedAt: port.now() };
+
+  // Plant huge item in DB to make Outbox full
+  await DB.put("outbox", {
+    batchId: "huge-batch",
+    seq: 1,
+    inst: port.inst,
+    ctx: "ctx-1",
+    destinationGeneration: "gen-1",
+    queuedAtMs: 1000,
+    records: [],
+    snapshotRecords: [],
+    bytes: Constants.OUTBOX_BYTES_MAX,
+  });
+
+  const sender = {
+    id: "fgfnkcefedeheoeamppkiiloncfekakf",
+    tab: { id: 80 },
+    frameId: 0,
+    documentId: "doc-80",
+    url: "https://example.test/page",
+    origin: "https://example.test",
+  };
+
+  await Router.route({ kind: "hello", realmToken: "r-full" }, sender, {
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+    port,
+  });
+
+  const skimRes = await Router.route(
+    {
+      kind: "skim",
+      realmToken: "r-full",
+      blocks: [{ id: "1", type: "heading", depth: 0, text: "Will fail full" }],
+    },
+    sender,
+    { runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", port }
+  );
+
+  assert.equal(skimRes.ok, false);
+  assert.equal(skimRes.error, "outbox-full");
+  assert.deepEqual(port.siteRejection, { origin: "https://example.test", reason: "outbox-full" });
+  assert.equal(port.pressure.active, true);
+});
+
+test("account: dismissLoss(oldSeq) does not clear newer notice", async () => {
+  await resetDB();
+  await DB.put("meta", { seq: 5, reason: "stale_generation", count: 2 }, "lossNotice");
+  await DB.put("meta", 5, "lossSeq");
+
+  // Dismissing oldSeq (4) returns false and does not delete notice
+  const dOld = await Outbox.dismissLoss(4);
+  assert.equal(dOld, false);
+  const noticeStill = await DB.get("meta", "lossNotice");
+  assert.ok(noticeStill);
+  assert.equal(noticeStill.seq, 5);
+
+  // Dismissing matching seq (5) returns true and deletes notice
+  const dMatching = await Outbox.dismissLoss(5);
+  assert.equal(dMatching, true);
+  const noticeGone = await DB.get("meta", "lossNotice");
+  assert.equal(noticeGone, undefined);
 });

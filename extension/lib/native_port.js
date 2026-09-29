@@ -55,30 +55,54 @@
     constructor(options = {}) {
       this.connectNative = options.connectNative || (typeof chrome !== "undefined" && chrome.runtime?.connectNative ? chrome.runtime.connectNative.bind(chrome.runtime) : null);
       this.now = options.now || (() => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now()));
+      this.schedule = options.schedule || ((fn, ms) => {
+        const timer = setTimeout(fn, ms);
+        if (timer && typeof timer.unref === "function") timer.unref();
+        return timer;
+      });
+      this.clearSchedule = options.clearSchedule || ((id) => clearTimeout(id));
       this.requestUpdateCheck = options.requestUpdateCheck || (typeof chrome !== "undefined" && chrome.runtime?.requestUpdateCheck ? chrome.runtime.requestUpdateCheck.bind(chrome.runtime) : null);
       this.onStatusChange = options.onStatusChange || null;
       this.runtimeId = options.runtimeId || (typeof chrome !== "undefined" && chrome.runtime?.id ? chrome.runtime.id : "");
       this.manifestVersion = options.manifestVersion || "0.2.0";
-      this.inst = options.inst || "00000000-0000-0000-0000-000000000000";
+      this.inst = options.inst !== undefined ? options.inst : null;
+      this.requestSnapshots = options.requestSnapshots || null;
 
-      this.livePort = null;
+      this.retryDelayMs = options.retryDelayMs || 5000;
+      this.inflightAckMs = options.inflightAckMs || 5000;
+
+      this.opEpoch = 0;
       this.connectionGeneration = 0;
       this.connectionToken = null;
+      this.livePort = null;
+      this.handshake = "closed"; // "closed" | "pending" | "ready"
       this.handshakeStartedAt = 0;
-      this.lastIssuedAt = 0;
+      this.destinationGeneration = null;
+
+      this.hostCapture = null;
+      this.hostDelivery = null;
+      this.hostFailure = null;
+      this.custody = null;
+
       this.lease = null;
-      this.hostCapture = "unavailable";
-      this.hostDelivery = "unknown";
+      this.behind = null;
+      this.pressure = { active: false };
+      this.siteRejection = null;
+      this.lossNotice = null;
+      this.drift = null;
+
+      this.drainOwner = false;
       this.inflightBatch = null;
+      this.retryNotBefore = 0;
+
       this.everConnected = false;
       this.updateCheck = "pending";
-      this.refusal = { reason: null, count: 0 };
-      this.truncation = { active: false, blocks: false, text: false };
-      this.backpressure = { active: false, reason: null };
       this.paused = false;
       this.grantedOrigins = new Set();
       this.consentVersion = 0;
       this.showPageIndicator = false;
+      this.capturePermitted = false;
+      this.brand = resolveBrand();
       this.hostName = resolveHostName(this.runtimeId);
     }
 
@@ -91,47 +115,66 @@
     getStatus() {
       const nowMs = this.now();
       const originGranted = this.grantedOrigins.size > 0;
-      const phase = (!this.everConnected && !this.lease) ? "closed-start" : undefined;
+      const capturePermitted = this.capturePermitted === true;
+
       const gate = Gate.computeDecision({
         lease: this.lease,
         paused: this.paused,
         consentVersion: this.consentVersion,
         originGranted,
-        backpressure: this.backpressure,
+        pressure: this.pressure,
         hostCapture: this.hostCapture,
-        phase,
+        capturePermitted,
         now: nowMs,
       });
 
       return {
+        inst: this.inst,
         everConnected: !!this.everConnected,
+        connected: this.livePort != null,
+        handshake: this.handshake,
+        brand: this.brand,
         hostCapture: this.hostCapture,
         hostDelivery: this.hostDelivery,
-        gate,
-        backpressure: { ...this.backpressure },
-        updateCheck: this.updateCheck,
-        truncation: { ...this.truncation },
-        refusal: { ...this.refusal },
+        hostFailure: this.hostFailure,
+        custody: this.custody ? { ...this.custody } : null,
+        destinationGeneration: this.destinationGeneration,
+        lease: this.lease ? { ...this.lease } : null,
+        behind: this.behind,
+        pressure: { ...this.pressure },
+        siteRejection: this.siteRejection ? { ...this.siteRejection } : null,
+        lossNotice: this.lossNotice ? { ...this.lossNotice } : null,
+        drift: this.drift ? { ...this.drift } : null,
         paused: !!this.paused,
         consentVersion: this.consentVersion,
         grantedOrigins: Array.from(this.grantedOrigins),
         showPageIndicator: !!this.showPageIndicator,
-        connected: !!(this.livePort && this.lease),
-        hostName: this.hostName,
-        lease: this.lease ? { ...this.lease } : null,
+        updateCheck: this.updateCheck,
+        capturePermitted,
+        gate,
       };
     }
 
     connect() {
+      this.opEpoch++;
       this.connectionGeneration++;
+      const currentEpoch = this.opEpoch;
       const currentGen = this.connectionGeneration;
       const currentToken = mintConnectionToken();
       this.connectionToken = currentToken;
 
       const oldPort = this.livePort;
       this.livePort = null;
+      this.handshake = "closed";
       this.lease = null;
+      this.drainOwner = false;
       this.inflightBatch = null;
+
+      this.hostCapture = null;
+      this.hostDelivery = null;
+      this.hostFailure = null;
+      this.custody = null;
+      this.capturePermitted = false;
 
       if (oldPort) {
         try {
@@ -143,59 +186,71 @@
 
       const host = resolveHostName(this.runtimeId);
       this.hostName = host;
-      if (!host || typeof this.connectNative !== "function") {
-        this.hostCapture = "unavailable";
+      if (!this.inst || !host || typeof this.connectNative !== "function") {
+        this.handshake = "closed";
         this.notify();
         return;
       }
 
+      let portObj = null;
       try {
-        this.livePort = this.connectNative(host);
+        portObj = this.connectNative(host);
       } catch (_err) {
         this.livePort = null;
-        this.hostCapture = "unavailable";
+        this.handshake = "closed";
         this.notify();
         return;
       }
 
-      const consts = getConsts();
+      if (!portObj) {
+        this.livePort = null;
+        this.handshake = "closed";
+        this.notify();
+        return;
+      }
+
+      this.livePort = portObj;
+      this.handshake = "pending";
       this.handshakeStartedAt = this.now();
+
+      const consts = getConsts();
       const helloMsg = {
         type: "hello",
         protocol: consts.WIRE_PROTOCOL,
         version: this.manifestVersion,
-        brand: resolveBrand(),
+        brand: this.brand,
         inst: this.inst,
       };
 
-      this.livePort.onMessage.addListener((msg) => {
-        if (this.connectionGeneration !== currentGen || this.connectionToken !== currentToken) return;
-        return this.handlePortMessage(msg, currentGen, currentToken);
+      portObj.onMessage.addListener((msg) => {
+        if (this.opEpoch !== currentEpoch || this.connectionGeneration !== currentGen || this.connectionToken !== currentToken) return;
+        return this.handlePortMessage(msg, currentEpoch, currentGen, currentToken);
       });
 
-      this.livePort.onDisconnect.addListener(() => {
-        if (this.connectionGeneration !== currentGen || this.connectionToken !== currentToken) return;
-        this.handlePortDisconnect(currentGen, currentToken);
+      portObj.onDisconnect.addListener(() => {
+        if (this.opEpoch !== currentEpoch || this.connectionGeneration !== currentGen || this.connectionToken !== currentToken) return;
+        this.handlePortDisconnect(currentEpoch, currentGen, currentToken);
       });
 
       try {
-        this.livePort.postMessage(helloMsg);
+        portObj.postMessage(helloMsg);
       } catch (_e) {
-        this.handlePortDisconnect(currentGen, currentToken);
+        this.handlePortDisconnect(currentEpoch, currentGen, currentToken);
       }
       this.notify();
     }
 
-    async handlePortMessage(msg, gen, token) {
-      if (this.connectionGeneration !== gen || this.connectionToken !== token) return;
-      const consts = getConsts();
+    async handlePortMessage(msg, epoch, gen, token) {
+      if (this.opEpoch !== epoch || this.connectionGeneration !== gen || this.connectionToken !== token) return;
       const codec = globalThis.SolstoneNativeBrowser;
       const rawJson = typeof msg === "string" ? msg : JSON.stringify(msg);
       const decoded = codec.decode(rawJson, "host_to_extension");
 
       if (decoded.status !== "accept") {
-        this.refusal = { reason: decoded.code || "bad_json", count: 1 };
+        this.opEpoch++;
+        this.handshake = "closed";
         this.lease = null;
+        this.capturePermitted = false;
         if (this.livePort) {
           try { this.livePort.disconnect(); } catch (_e) {}
           this.livePort = null;
@@ -209,50 +264,59 @@
       const nowMs = this.now();
 
       if (val.type === "hello_ack" || val.type === "state") {
-        this.hostCapture = val.capture;
-        this.hostDelivery = val.delivery;
-
-        const permitted = codec.captureIsPermitted(val);
-        const isHelloAck = val.type === "hello_ack";
-
-        if (isHelloAck && !this.everConnected) {
-          await DB.put("meta", true, "everConnected");
-          this.everConnected = true;
+        if (val.type === "hello_ack") {
+          this.handshake = "ready";
+        }
+        if (this.handshake !== "ready") {
+          return;
         }
 
-        if (permitted) {
-          let canRenew = false;
-          if (isHelloAck) {
-            canRenew = true;
-          } else if (this.lease && codec.mayRenewOnConnection(this.connectionToken, token, this.lastIssuedAt, nowMs, consts.STATE_RENEWAL_MS_INTERVAL)) {
-            canRenew = true;
+        this.hostCapture = val.capture;
+        this.hostDelivery = val.delivery || null;
+        this.hostFailure = val.failure || null;
+        this.custody = val.custody ? { full: !!val.custody.full, stale: !!val.custody.stale } : null;
+        this.behind = null;
+        this.capturePermitted = codec.captureIsPermitted(val);
+
+        if (val.type === "hello_ack" && val.capture !== "unavailable" && !this.everConnected) {
+          const fence = { epoch: this.opEpoch, gen, token, port: this.livePort };
+          let putOk = false;
+          try {
+            await DB.put("meta", true, "everConnected");
+            putOk = true;
+          } catch (_e) {
+            // Keep everConnected false if put throws
           }
-
-          if (canRenew) {
-            this.lastIssuedAt = nowMs;
-            const prevGen = this.lease?.generation;
-            this.lease = {
-              token: this.connectionToken,
-              generation: val.destination_generation,
-              freshnessMs: val.freshness_ms,
-              receivedAt: nowMs,
-            };
-
-            if (val.destination_generation && prevGen && prevGen !== val.destination_generation) {
-              const retireRes = await Outbox.retireStaleGeneration(val.destination_generation);
-              if (retireRes && retireRes.count > 0) {
-                this.refusal = { reason: "stale-generation", count: retireRes.count };
-              }
-            }
-          } else {
-            this.lease = null;
-            await Outbox.markAllSnapshotRequired();
-            this.connect();
+          if (this.opEpoch !== fence.epoch || this.connectionGeneration !== fence.gen || this.connectionToken !== fence.token || this.livePort !== fence.port) {
             return;
           }
+          if (putOk) {
+            this.everConnected = true;
+          }
+        }
+
+        if (typeof val.destination_generation === "string" && val.destination_generation && val.destination_generation !== this.destinationGeneration) {
+          const newGen = val.destination_generation;
+          const fence = { epoch: this.opEpoch, gen, token, port: this.livePort };
+          const retireRes = await Outbox.retireStaleGeneration(newGen);
+          if (this.opEpoch !== fence.epoch || this.connectionGeneration !== fence.gen || this.connectionToken !== fence.token || this.livePort !== fence.port) {
+            return;
+          }
+          this.destinationGeneration = newGen;
+          if (retireRes?.count > 0) {
+            this.lossNotice = { seq: retireRes.seq ?? 0, reason: "stale_generation", count: retireRes.count };
+          }
+        }
+
+        if (this.capturePermitted) {
+          this.lease = {
+            token: this.connectionToken,
+            generation: val.destination_generation,
+            freshnessMs: val.freshness_ms,
+            receivedAt: nowMs,
+          };
         } else {
           this.lease = null;
-          await Outbox.markAllSnapshotRequired();
         }
 
         this.notify();
@@ -261,15 +325,27 @@
       }
 
       if (val.type === "unsupported") {
+        this.behind = val.behind || "extension";
+        this.opEpoch++;
+        this.handshake = "closed";
+        this.lease = null;
+        this.capturePermitted = false;
+        if (this.livePort) {
+          try { this.livePort.disconnect(); } catch (_e) {}
+          this.livePort = null;
+        }
+
         if (val.behind === "extension") {
           if (typeof this.requestUpdateCheck === "function") {
             this.updateCheck = "pending";
             this.notify();
+            const fenceEpoch = this.opEpoch;
             try {
               const checkPromise = this.requestUpdateCheck();
               if (checkPromise && typeof checkPromise.then === "function") {
                 checkPromise.then(
                   (status) => {
+                    if (this.opEpoch !== fenceEpoch) return;
                     const st = typeof status === "string" ? status : status?.status;
                     if (st === "no_update" || st === "no-update") this.updateCheck = "no-update";
                     else if (st === "throttled") this.updateCheck = "throttled";
@@ -278,6 +354,7 @@
                     this.notify();
                   },
                   () => {
+                    if (this.opEpoch !== fenceEpoch) return;
                     this.updateCheck = "failure";
                     this.notify();
                   }
@@ -295,32 +372,68 @@
         return;
       }
 
-      if (val.type === "boundary") {
-        await Outbox.markAllSnapshotRequired();
-        this.notify();
+      if (val.type === "accepted") {
+        if (this.handshake !== "ready") return;
+        if (this.inflightBatch && this.inflightBatch.batchId === val.batch_id) {
+          const batchId = val.batch_id;
+          const fence = { epoch: this.opEpoch, gen, token, port: this.livePort, destGen: this.destinationGeneration };
+
+          if (val.result === "accepted" || val.result === "duplicate") {
+            await Outbox.removeBatch(batchId);
+            if (this.opEpoch !== fence.epoch || this.livePort !== fence.port) return;
+            if (this.inflightBatch?.batchId === batchId) {
+              this.inflightBatch = null;
+              this.drainOwner = false;
+            }
+            this.notify();
+            await this.drain();
+            return;
+          } else if (val.result === "rejected") {
+            const rejectRes = await Outbox.applyRejectedReceipt(batchId, val);
+            if (this.opEpoch !== fence.epoch || this.livePort !== fence.port) return;
+            if (this.inflightBatch?.batchId === batchId) {
+              this.inflightBatch = null;
+              this.drainOwner = false;
+            }
+            if (rejectRes?.seq) {
+              this.lossNotice = { seq: rejectRes.seq, reason: val.reason, count: rejectRes.removed || 1 };
+            }
+            if (val.reason === "queue_full" || val.reason === "resource_exhausted") {
+              this.retryNotBefore = this.now() + this.retryDelayMs;
+              this.schedule(() => this.drain(), this.retryDelayMs);
+            } else {
+              await this.drain();
+            }
+            this.notify();
+            return;
+          }
+        }
         return;
       }
 
-      if (val.type === "accepted") {
-        if (this.inflightBatch && this.inflightBatch.batchId === val.batch_id) {
-          const batchId = val.batch_id;
-          this.inflightBatch = null;
-          if (val.result === "accepted" || val.result === "duplicate") {
-            await Outbox.removeBatch(batchId);
-          } else if (val.result === "rejected") {
-            const rejectRes = await Outbox.applyRejectedReceipt(batchId, val);
-            if (consts.RECEIPT_CLASSES?.permanent?.includes(val.reason)) {
-              this.refusal = { reason: val.reason, count: (rejectRes && rejectRes.removed) || 1 };
-            }
-          }
+      if (val.type === "boundary") {
+        if (this.handshake !== "ready") return;
+        const fence = { epoch: this.opEpoch, gen, token, port: this.livePort };
+        await Outbox.markAllSnapshotRequired();
+        if (this.opEpoch !== fence.epoch || this.connectionGeneration !== fence.gen || this.connectionToken !== fence.token || this.livePort !== fence.port) {
+          return;
         }
         this.notify();
-        await this.drain();
+        if (typeof this.requestSnapshots === "function") {
+          this.requestSnapshots();
+        }
         return;
       }
 
       if (val.type === "bye") {
+        this.opEpoch++;
+        this.handshake = "closed";
         this.lease = null;
+        this.capturePermitted = false;
+        this.hostCapture = null;
+        this.hostDelivery = null;
+        this.hostFailure = null;
+        this.custody = null;
         if (this.livePort) {
           try { this.livePort.disconnect(); } catch (_e) {}
           this.livePort = null;
@@ -330,58 +443,112 @@
       }
     }
 
-    handlePortDisconnect(gen, token) {
-      if (this.connectionGeneration !== gen || this.connectionToken !== token) return;
+    handlePortDisconnect(epoch, gen, token) {
+      if (this.opEpoch !== epoch || this.connectionGeneration !== gen || this.connectionToken !== token) return;
+      this.opEpoch++;
       this.livePort = null;
+      this.handshake = "closed";
       this.lease = null;
+      this.capturePermitted = false;
+      this.drainOwner = false;
       this.inflightBatch = null;
+      this.hostCapture = null;
+      this.hostDelivery = null;
+      this.hostFailure = null;
+      this.custody = null;
       Outbox.markAllSnapshotRequired().catch(() => {});
       this.notify();
     }
 
-    poll(now) {
+    async poll(now) {
       const consts = getConsts();
       const codec = globalThis.SolstoneNativeBrowser;
-      const nowMs = Number(now !== undefined ? now : this.now());
+      const monoNow = Number(now !== undefined ? now : this.now());
+      const wallNow = Date.now();
 
-      if (this.livePort && !this.lease && this.handshakeStartedAt > 0) {
-        if (codec.handshakeExpired(this.handshakeStartedAt, nowMs, consts.HANDSHAKE_MS_BUDGET)) {
+      if (this.livePort && this.handshake === "pending" && this.handshakeStartedAt > 0) {
+        if (codec.handshakeExpired(this.handshakeStartedAt, monoNow, consts.HANDSHAKE_MS_BUDGET)) {
+          this.opEpoch++;
           if (this.livePort) {
             try { this.livePort.disconnect(); } catch (_e) {}
             this.livePort = null;
           }
+          this.handshake = "closed";
+          this.capturePermitted = false;
           this.notify();
         }
       }
 
       if (this.lease) {
-        if (!codec.freshnessAuthorizesSkim(this.lease.receivedAt, this.lease.freshnessMs, nowMs)) {
+        if (!codec.freshnessAuthorizesSkim(this.lease.receivedAt, this.lease.freshnessMs, monoNow)) {
           this.lease = null;
+          this.hostCapture = null;
+          this.hostDelivery = null;
+          this.hostFailure = null;
+          this.custody = null;
+          this.capturePermitted = false;
           this.notify();
         }
       }
 
-      Outbox.retireExpired(nowMs).then((result) => {
+      try {
+        const result = await Outbox.retireExpired(monoNow, wallNow);
         if (result && result.count > 0) {
-          this.refusal = { reason: "expired-unaccepted", count: result.count };
+          this.lossNotice = { seq: result.seq, reason: result.reason || result.disposition, count: result.count };
           this.notify();
         }
-      }).catch(() => {});
+      } catch (_err) {
+        // If retirement throws, do not connect or drain
+        return;
+      }
 
       if (!this.livePort) {
         this.connect();
       } else {
-        this.drain();
+        await this.drain();
       }
     }
 
+    async dismissLoss(seq) {
+      if (this.lossNotice && this.lossNotice.seq === seq) {
+        this.lossNotice = null;
+        this.notify();
+      }
+      return Outbox.dismissLoss(seq);
+    }
+
     async drain() {
-      if (this.inflightBatch || !this.livePort || !this.lease) return;
+      if (this.drainOwner || !this.livePort || this.handshake !== "ready") return;
+      if (!this.destinationGeneration) return;
+      if (!["permitted", "paused", "intake_off"].includes(this.hostCapture)) return;
+      if (this.retryNotBefore && this.now() < this.retryNotBefore) return;
+
+      this.drainOwner = true;
+      const fence = {
+        epoch: this.opEpoch,
+        gen: this.connectionGeneration,
+        token: this.connectionToken,
+        port: this.livePort,
+        destGen: this.destinationGeneration,
+      };
 
       try {
         const head = await Outbox.getHead();
-        if (!head) return;
-        if (head.destinationGeneration !== this.lease.generation) return;
+        if (
+          this.opEpoch !== fence.epoch ||
+          this.connectionGeneration !== fence.gen ||
+          this.connectionToken !== fence.token ||
+          this.livePort !== fence.port ||
+          this.destinationGeneration !== fence.destGen
+        ) {
+          this.drainOwner = false;
+          return;
+        }
+
+        if (!head || head.destinationGeneration !== this.destinationGeneration) {
+          this.drainOwner = false;
+          return;
+        }
 
         const wireBatch = Outbox.buildWireBatch(head);
         Outbox.validateWireBatch(wireBatch);
@@ -391,15 +558,21 @@
           seq: head.seq,
           destinationGeneration: head.destinationGeneration,
           wireBatch,
+          postedAt: this.now(),
         };
 
         this.livePort.postMessage(wireBatch);
-      } catch (err) {
+
+        this.schedule(() => {
+          if (this.inflightBatch?.batchId === head.batchId) {
+            this.inflightBatch = null;
+            this.drainOwner = false;
+            this.drain();
+          }
+        }, this.inflightAckMs);
+      } catch (_err) {
+        this.drainOwner = false;
         this.inflightBatch = null;
-        if (err.disposition === "batch-oversize" || err.disposition === "outbox-full") {
-          this.backpressure = { active: true, reason: err.disposition };
-          this.notify();
-        }
       }
     }
   }

@@ -28,6 +28,7 @@ const Reconcile = globalThis.SolstoneReconcile;
 const Uuid = globalThis.SolstoneUuid;
 const Router = globalThis.SolstoneRouter;
 const PortController = globalThis.SolstoneNativePort;
+const Outbox = globalThis.SolstoneNativeOutbox;
 
 const VERSION = "0.2.0";
 const ALARM_NAME = "native-port";
@@ -53,6 +54,8 @@ const DEFAULT_CFG = {
 };
 
 let port = null;
+let initPromise = null;
+let badgeEpoch = 0;
 const statusPorts = new Set();
 
 async function getCfg() {
@@ -65,11 +68,15 @@ async function getCfg() {
   };
 }
 
-async function setCfg(patch) {
-  const current = await getCfg();
-  const next = Object.assign({}, current, patch);
-  await chrome.storage.local.set({ cfg: next });
-  return next;
+let cfgChain = Promise.resolve();
+function setCfg(patch) {
+  cfgChain = cfgChain.then(async () => {
+    const current = await getCfg();
+    const next = Object.assign({}, current, patch);
+    await chrome.storage.local.set({ cfg: next });
+    return next;
+  });
+  return cfgChain;
 }
 
 const ICON_SET = (prefix) => ({
@@ -79,6 +86,9 @@ const ICON_SET = (prefix) => ({
 });
 
 async function updateBadge(status) {
+  badgeEpoch++;
+  const currentBadgeEpoch = badgeEpoch;
+
   if (!status && port) status = port.getStatus();
   if (!status) return;
 
@@ -88,13 +98,13 @@ async function updateBadge(status) {
   if (status.hostDelivery === "failed") {
     prefix = "icon-error-";
     badge = "!";
-  } else if (!status.connected || status.hostCapture === "unavailable") {
+  } else if (!status.connected || status.hostCapture == null || status.hostCapture === "unavailable") {
     prefix = "icon-offline-";
     badge = "";
   } else if (
-    status.backpressure?.active ||
-    (status.refusal && status.refusal.count > 0) ||
-    (status.truncation && status.truncation.active)
+    status.pressure?.active ||
+    status.lossNotice != null ||
+    status.siteRejection != null
   ) {
     prefix = "icon-attention-";
     badge = "!";
@@ -120,6 +130,8 @@ async function updateBadge(status) {
   } catch (_e) {
     /* action API unavailable */
   }
+
+  if (badgeEpoch !== currentBadgeEpoch) return;
 
   for (const sp of statusPorts) {
     try {
@@ -147,6 +159,14 @@ function broadcastLeaseUpdate(status) {
           grantedOrigins: status.grantedOrigins || [],
           showIndicator: status.showPageIndicator,
           hostCapture: status.hostCapture,
+          hostDelivery: status.hostDelivery,
+          hostFailure: status.hostFailure,
+          custody: status.custody,
+          pressure: status.pressure,
+          capturePermitted: status.capturePermitted === true,
+          destinationGeneration: status.destinationGeneration,
+          connectionGeneration: port?.connectionGeneration || 0,
+          connectionToken: port?.connectionToken || null,
         },
         () => void chrome.runtime.lastError
       );
@@ -168,6 +188,15 @@ function broadcastIndicator(show) {
     for (const tab of tabs || []) {
       if (tab.id == null) continue;
       chrome.tabs.sendMessage(tab.id, { kind: "setIndicator", show }, () => void chrome.runtime.lastError);
+    }
+  });
+}
+
+function requestSnapshots() {
+  chrome.tabs.query({}, (tabs) => {
+    for (const tab of tabs || []) {
+      if (tab.id == null) continue;
+      chrome.tabs.sendMessage(tab.id, { kind: "resnapshot" }, () => void chrome.runtime.lastError);
     }
   });
 }
@@ -216,6 +245,27 @@ async function registerSite(host) {
     }
   } catch (_e) {
     /* host permission not yet effective */
+  }
+}
+
+async function removeSiteOrigin(exactOrigin) {
+  let host = "";
+  try {
+    host = new URL(exactOrigin).host;
+  } catch (_e) {
+    return;
+  }
+
+  const matchHost = H.matchHostFor(host);
+  if (port) {
+    const hasSibling = Array.from(port.grantedOrigins).some((o) => {
+      try { return H.matchHostFor(new URL(o).host) === matchHost; } catch (_e) { return false; }
+    });
+    if (!hasSibling) {
+      await unregisterSite(host);
+    }
+  } else {
+    await unregisterSite(host);
   }
 }
 
@@ -278,51 +328,103 @@ async function runReconcile() {
   return actions;
 }
 
-async function init() {
+async function doInit() {
   await chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 });
 
   let inst = await DB.get("meta", "inst");
   if (!inst) {
     const random = new Uint8Array(10);
     crypto.getRandomValues(random);
-    inst = Uuid.uuidv7(Date.now(), random);
-    await DB.put("meta", inst, "inst").catch(() => {});
+    const newInst = Uuid.uuidv7String(Uuid.uuidv7Bytes(Date.now(), random));
+    await DB.put("meta", newInst, "inst");
+    inst = newInst;
   }
 
   const consentVersion = (await DB.get("meta", "consentVersion")) || 0;
   const everConnected = !!(await DB.get("meta", "everConnected"));
   const cfg = await getCfg();
 
-  port = new PortController({
-    inst,
-    manifestVersion: VERSION,
-    onStatusChange: (status) => updateBadge(status),
-  });
+  if (!port) {
+    port = new PortController({
+      inst,
+      manifestVersion: VERSION,
+      requestSnapshots,
+      onStatusChange: (status) => updateBadge(status),
+    });
+  } else {
+    port.inst = inst;
+    port.requestSnapshots = requestSnapshots;
+  }
 
   port.consentVersion = consentVersion;
   port.everConnected = everConnected;
   port.paused = cfg.paused;
   port.showPageIndicator = cfg.showPageIndicator;
-  port.grantedOrigins = new Set(cfg.grantedOrigins);
+
+  let permittedOrigins = [];
+  try {
+    const perms = await chrome.permissions.getAll();
+    permittedOrigins = perms.origins || [];
+  } catch (_e) {
+    permittedOrigins = [];
+  }
+
+  const liveGranted = new Set();
+  const missingPatterns = [];
 
   for (const origin of cfg.grantedOrigins) {
     try {
       const u = new URL(origin);
-      await registerSite(u.host);
+      const pattern = H.matchPatternFor(u.host);
+      if (permittedOrigins.includes(pattern)) {
+        liveGranted.add(origin);
+        await registerSite(u.host);
+      } else {
+        missingPatterns.push(pattern);
+      }
     } catch (_e) {
       /* ignore */
     }
   }
 
-  await runReconcile();
+  port.grantedOrigins = liveGranted;
+  if (missingPatterns.length > 0) {
+    port.drift = { patterns: missingPatterns };
+  } else {
+    port.drift = null;
+  }
+
+  const cap = await Outbox.getCapacityStatus().catch(() => ({ pressure: { active: false } }));
+  if (cap) port.pressure = cap.pressure;
+
+  await Outbox.retireExpired(port.now(), Date.now()).catch(() => {});
+  await runReconcile().catch(() => {});
   port.connect();
   updateBadge();
+  return port;
 }
 
+function ensureInit() {
+  if (!initPromise) {
+    initPromise = doInit().catch((err) => {
+      initPromise = null;
+      throw err;
+    });
+  }
+  return initPromise;
+}
+
+// Register all listeners synchronously during evaluation
 chrome.runtime.onConnect.addListener((p) => {
   if (p.name === "status") {
+    if (!Router.isExtensionPageSender(p.sender, chrome.runtime.id)) {
+      try { p.disconnect(); } catch (_e) {}
+      return;
+    }
     statusPorts.add(p);
-    if (port) p.postMessage({ type: "status", status: port.getStatus() });
+    ensureInit().then(() => {
+      if (port) p.postMessage({ type: "status", status: port.getStatus() });
+    }).catch(() => {});
     p.onDisconnect.addListener(() => {
       statusPorts.delete(p);
     });
@@ -330,16 +432,18 @@ chrome.runtime.onConnect.addListener((p) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (!port) return false;
-  const deps = {
-    port,
-    setCfg,
-    registerSite,
-    unregisterSite,
-    broadcastPause,
-    broadcastIndicator,
-  };
-  Router.route(msg, sender, deps).then(sendResponse, (err) => {
+  ensureInit().then(() => {
+    const deps = {
+      port,
+      setCfg,
+      registerSite,
+      unregisterSite,
+      removeSiteOrigin,
+      broadcastPause,
+      broadcastIndicator,
+    };
+    return Router.route(msg, sender, deps);
+  }).then(sendResponse, (err) => {
     sendResponse({ ok: false, error: (err && err.message) || "internal_error" });
   });
   return true;
@@ -351,12 +455,41 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) {
-    if (port) port.poll();
-    runReconcile().catch(() => {});
+    ensureInit().then(async () => {
+      if (port) {
+        await port.poll();
+      }
+      await runReconcile().catch(() => {});
+    }).catch(() => {});
   }
 });
 
-chrome.permissions.onRemoved.addListener(() => {
+chrome.permissions.onRemoved.addListener((details) => {
+  const removedPatterns = details?.origins || [];
+  if (port) {
+    const toRemove = [];
+    for (const origin of port.grantedOrigins) {
+      try {
+        const u = new URL(origin);
+        const hostPattern = H.matchPatternFor(u.host);
+        if (removedPatterns.includes(hostPattern)) {
+          toRemove.push(origin);
+        }
+      } catch (_e) {}
+    }
+    for (const o of toRemove) {
+      port.grantedOrigins.delete(o);
+    }
+    port.drift = { patterns: removedPatterns };
+    chrome.tabs.query({}, (tabs) => {
+      for (const tab of tabs || []) {
+        if (tab.id != null) {
+          chrome.tabs.sendMessage(tab.id, { kind: "permissionRemoved" }, () => void chrome.runtime.lastError);
+        }
+      }
+    });
+    setCfg({ grantedOrigins: Array.from(port.grantedOrigins) }).catch(() => {});
+  }
   runReconcile().catch(() => {});
 });
 
@@ -364,19 +497,33 @@ chrome.permissions.onAdded.addListener(() => {
   runReconcile().catch(() => {});
 });
 
+function init() {
+  return ensureInit();
+}
+
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === "install") {
-    try { chrome.runtime.openOptionsPage(); } catch (_e) {}
+    try {
+      chrome.runtime.openOptionsPage();
+    } catch (_e) {}
   }
   init();
 });
 
 chrome.runtime.onStartup.addListener(init);
 
+// Start initialization once after listeners are registered
+init();
+
 globalThis.SolstoneBackground = {
-  init,
+  doInit,
+  ensureInit,
   updateBadge,
   registerSite,
   unregisterSite,
+  removeSiteOrigin,
   runReconcile,
+  getCfg,
+  setCfg,
+  get port() { return port; },
 };

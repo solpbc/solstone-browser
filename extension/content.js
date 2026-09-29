@@ -4,6 +4,9 @@
 (function () {
   "use strict";
 
+  if (globalThis.__solstoneBrowserContent) return;
+  globalThis.__solstoneBrowserContent = true;
+
   const A = globalThis.SolstoneAdapters;
   const Skim = globalThis.SolstoneSkim;
   const Indicator = globalThis.SolstoneIndicator;
@@ -20,13 +23,20 @@
   let consentVersion = 0;
   let originGranted = false;
   let showIndicator = false;
-  let hostCapture = "unavailable";
-  let phase = "closed-start";
+  let hostCapture = null;
+  let capturePermitted = false;
+  let pressure = { active: false };
+  let connectionGeneration = 0;
+  let destinationGeneration = null;
+
   let adapter = null;
   let observer = null;
   let debounceTimer = null;
+  let rootInterval = null;
+  let idleCallbackId = null;
   let rootEl = null;
   let started = false;
+  let grantRequestMono = 0;
 
   function now() {
     return typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
@@ -38,8 +48,9 @@
       paused,
       consentVersion,
       originGranted,
+      pressure,
       hostCapture,
-      phase,
+      capturePermitted,
       now: now(),
     });
   }
@@ -73,28 +84,37 @@
   }
 
   function doSkim(reason) {
-    const decision = getDecision();
-    const executed = Gate.runIfPermitted(decision, {
-      readMeta: getHooks().readMeta,
-      skim: () => {
-        if (!rootEl) {
-          if (!adapter) adapter = A.adapterForHost(location.host);
-          rootEl = A.pickRoot(adapter, document);
-        }
-        if (!rootEl) return null;
-        return Skim.skim(rootEl, adapter);
-      },
-    });
+    const decisionBefore = getDecision();
+    if (!decisionBefore.open) return;
 
-    if (!executed || !executed.blocks) return;
-    send({ kind: "skim", reason, meta: executed.meta, blocks: executed.blocks });
+    if (!adapter) adapter = A.adapterForHost(location.host);
+    const targetRoot = A.pickRoot(adapter, document);
+    if (!targetRoot) return;
+    rootEl = targetRoot;
+
+    const meta = getHooks().readMeta();
+    const blocks = Skim.skim(targetRoot, adapter);
+
+    const decisionAfter = getDecision();
+    if (!decisionAfter.open) return;
+
+    send({
+      kind: "skim",
+      reason,
+      meta,
+      blocks,
+      connectionGeneration,
+      destinationGeneration,
+      leaseToken: lease?.token || null,
+    });
   }
 
   function scheduleSkim() {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       if (typeof requestIdleCallback === "function") {
-        requestIdleCallback(() => {
+        idleCallbackId = requestIdleCallback(() => {
+          idleCallbackId = null;
           doSkim("change");
         }, { timeout: 1000 });
       } else {
@@ -105,6 +125,8 @@
 
   function startObserving() {
     const decision = getDecision();
+    if (!decision.open) return;
+
     const discovered = Gate.runIfPermitted(decision, {
       discover: getHooks().discover,
     });
@@ -112,7 +134,17 @@
     rootEl = discovered.root;
 
     if (observer) observer.disconnect();
-    observer = new MutationObserver(scheduleSkim);
+    observer = new MutationObserver((mutations) => {
+      const indicatorHost = document.getElementById("solstone-observer-indicator-host");
+      const filtered = mutations.filter((m) => {
+        if (!indicatorHost) return true;
+        return m.target !== indicatorHost && !indicatorHost.contains(m.target);
+      });
+      if (filtered.length > 0) {
+        scheduleSkim();
+      }
+    });
+
     observer.observe(rootEl, {
       subtree: true,
       childList: true,
@@ -126,29 +158,49 @@
   }
 
   function stopObserving() {
-    if (observer) observer.disconnect();
-    observer = null;
+    if (observer) {
+      observer.disconnect();
+      observer = null;
+    }
     clearTimeout(debounceTimer);
+    debounceTimer = null;
+    if (rootInterval) {
+      clearInterval(rootInterval);
+      rootInterval = null;
+    }
+    if (idleCallbackId != null && typeof cancelIdleCallback === "function") {
+      cancelIdleCallback(idleCallbackId);
+      idleCallbackId = null;
+    }
   }
 
-  function handleLeaseUpdate(newLease, newPaused, newConsentVersion, grantedOriginsList, newShowIndicator, newHostCapture) {
-    if (newLease) {
-      lease = {
-        token: newLease.token,
-        generation: newLease.generation,
-        freshnessMs: newLease.freshnessMs,
-        receivedAt: now(),
-      };
+  function handleSolicitedGrant(response) {
+    if (typeof response.paused === "boolean") paused = response.paused;
+    if (typeof response.consentVersion === "number") consentVersion = response.consentVersion;
+    originGranted = Array.isArray(response.grantedOrigins) && response.grantedOrigins.includes(location.origin);
+    if (typeof response.showPageIndicator === "boolean") showIndicator = response.showPageIndicator;
+    hostCapture = response.hostCapture || null;
+    capturePermitted = response.capturePermitted === true;
+    if (response.pressure) pressure = response.pressure;
+    connectionGeneration = response.connectionGeneration || 0;
+    destinationGeneration = response.destinationGeneration || null;
+
+    if (response.lease) {
+      const reqTime = grantRequestMono;
+      const freshnessMs = Number(response.lease.freshnessMs || 0);
+      if (now() >= reqTime + freshnessMs) {
+        lease = null;
+      } else {
+        lease = {
+          token: response.lease.token,
+          generation: response.lease.generation,
+          freshnessMs,
+          receivedAt: reqTime,
+        };
+      }
     } else {
       lease = null;
     }
-    if (typeof newPaused === "boolean") paused = newPaused;
-    if (typeof newConsentVersion === "number") consentVersion = newConsentVersion;
-    originGranted = Array.isArray(grantedOriginsList) && grantedOriginsList.includes(location.origin);
-    if (typeof newShowIndicator === "boolean") showIndicator = newShowIndicator;
-    if (typeof newHostCapture === "string") hostCapture = newHostCapture;
-
-    phase = "running";
 
     const decision = getDecision();
     if (decision.open) {
@@ -161,10 +213,35 @@
     }
   }
 
+  function handleLeaseUpdate(msg) {
+    if (typeof msg.paused === "boolean") paused = msg.paused;
+    if (typeof msg.consentVersion === "number") consentVersion = msg.consentVersion;
+    originGranted = Array.isArray(msg.grantedOrigins) && msg.grantedOrigins.includes(location.origin);
+    if (typeof msg.showIndicator === "boolean") showIndicator = msg.showIndicator;
+    hostCapture = msg.hostCapture || null;
+    capturePermitted = msg.capturePermitted === true;
+    if (msg.pressure) pressure = msg.pressure;
+    if (msg.connectionGeneration !== undefined) connectionGeneration = msg.connectionGeneration;
+    if (msg.destinationGeneration !== undefined) destinationGeneration = msg.destinationGeneration;
+
+    const isClosed = !msg.lease || paused || !originGranted || pressure?.active || hostCapture !== "permitted" || !capturePermitted;
+
+    if (isClosed) {
+      lease = null;
+      stopObserving();
+      if (showIndicator && paused) Indicator.show(true);
+      else if (!showIndicator) Indicator.remove();
+      return;
+    }
+
+    // Unsolicited positive update: re-request hello to anchor new deadline on content clock
+    requestGrant();
+  }
+
   function waitForRoot() {
     let tries = 0;
-    let iv = null;
-    iv = setInterval(() => {
+    if (rootInterval) clearInterval(rootInterval);
+    rootInterval = setInterval(() => {
       tries++;
       const decision = getDecision();
       const discovered = Gate.runIfPermitted(decision, {
@@ -173,33 +250,37 @@
       const r = discovered && discovered.root;
       const ready = r && (r.tagName !== "BODY" || r.children.length > 0);
       if (ready) {
-        if (iv !== null) clearInterval(iv);
+        if (rootInterval !== null) {
+          clearInterval(rootInterval);
+          rootInterval = null;
+        }
         rootEl = r;
         startObserving();
       } else if (tries > 40 || !decision.open) {
-        if (iv !== null) clearInterval(iv);
+        if (rootInterval !== null) {
+          clearInterval(rootInterval);
+          rootInterval = null;
+        }
       }
     }, 500);
+  }
+
+  function requestGrant() {
+    grantRequestMono = now();
+    try {
+      chrome.runtime.sendMessage({ kind: "hello", realmToken: REALM_TOKEN }, (response) => {
+        if (!response || !response.ok) return;
+        handleSolicitedGrant(response);
+      });
+    } catch (_e) {
+      /* ignore */
+    }
   }
 
   function boot() {
     if (started) return;
     started = true;
-    try {
-      chrome.runtime.sendMessage({ kind: "hello", realmToken: REALM_TOKEN }, (response) => {
-        if (!response || !response.ok) return;
-        handleLeaseUpdate(
-          response.lease,
-          response.paused,
-          response.consentVersion,
-          response.grantedOrigins,
-          response.showPageIndicator,
-          response.hostCapture
-        );
-      });
-    } catch (_e) {
-      /* ignore */
-    }
+    requestGrant();
   }
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -207,7 +288,7 @@
     if (sender.id !== chrome.runtime.id || sender.tab) return false;
 
     if (msg.kind === "leaseUpdate") {
-      handleLeaseUpdate(msg.lease, msg.paused, msg.consentVersion, msg.grantedOrigins, msg.showIndicator, msg.hostCapture);
+      handleLeaseUpdate(msg);
     } else if (msg.kind === "setPaused") {
       paused = !!msg.paused;
       const decision = getDecision();
@@ -216,7 +297,8 @@
       if (showIndicator) Indicator.show(paused);
     } else if (msg.kind === "resnapshot") {
       doSkim("change");
-    } else if (msg.kind === "stop") {
+    } else if (msg.kind === "stop" || msg.kind === "permissionRemoved") {
+      lease = null;
       stopObserving();
       Indicator.remove();
     } else if (msg.kind === "setIndicator") {

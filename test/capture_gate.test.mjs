@@ -58,15 +58,29 @@ test("computeDecision: closed when origin is not granted", () => {
   assert.deepEqual(res, { open: false, reason: "origin" });
 });
 
-test("computeDecision: closed when backpressure is active", () => {
+test("computeDecision: closed when pressure is active", () => {
   const res = Gate.computeDecision({
     paused: false,
     consentVersion: Gate.CONSENT_VERSION,
     originGranted: true,
-    backpressure: { active: true, reason: "outbox-full" },
+    pressure: { active: true },
+    hostCapture: "permitted",
+    capturePermitted: true,
     lease: { token: "tok", generation: "gen", receivedAt: Date.now(), freshnessMs: 5000 },
   });
-  assert.deepEqual(res, { open: false, reason: "backpressure" });
+  assert.deepEqual(res, { open: false, reason: "pressure" });
+});
+
+test("computeDecision: closed when capturePermitted is false (e.g. custody full)", () => {
+  const res = Gate.computeDecision({
+    paused: false,
+    consentVersion: Gate.CONSENT_VERSION,
+    originGranted: true,
+    hostCapture: "permitted",
+    capturePermitted: false,
+    lease: { token: "tok", generation: "gen", receivedAt: Date.now(), freshnessMs: 5000 },
+  });
+  assert.deepEqual(res, { open: false, reason: "custody-full" });
 });
 
 test("computeDecision: closed when hostCapture is intake_off", () => {
@@ -75,6 +89,7 @@ test("computeDecision: closed when hostCapture is intake_off", () => {
     consentVersion: Gate.CONSENT_VERSION,
     originGranted: true,
     hostCapture: "intake_off",
+    capturePermitted: false,
     lease: { token: "tok", generation: "gen", receivedAt: Date.now(), freshnessMs: 5000 },
   });
   assert.deepEqual(res, { open: false, reason: "intake-off" });
@@ -86,6 +101,7 @@ test("computeDecision: closed when hostCapture is not_paired", () => {
     consentVersion: Gate.CONSENT_VERSION,
     originGranted: true,
     hostCapture: "not_paired",
+    capturePermitted: false,
     lease: { token: "tok", generation: "gen", receivedAt: Date.now(), freshnessMs: 5000 },
   });
   assert.deepEqual(res, { open: false, reason: "not-paired" });
@@ -97,6 +113,7 @@ test("computeDecision: closed when hostCapture is paused", () => {
     consentVersion: Gate.CONSENT_VERSION,
     originGranted: true,
     hostCapture: "paused",
+    capturePermitted: false,
     lease: { token: "tok", generation: "gen", receivedAt: Date.now(), freshnessMs: 5000 },
   });
   assert.deepEqual(res, { open: false, reason: "host-paused" });
@@ -108,20 +125,10 @@ test("computeDecision: closed when hostCapture is unavailable", () => {
     consentVersion: Gate.CONSENT_VERSION,
     originGranted: true,
     hostCapture: "unavailable",
+    capturePermitted: false,
     lease: { token: "tok", generation: "gen", receivedAt: Date.now(), freshnessMs: 5000 },
   });
   assert.deepEqual(res, { open: false, reason: "host-unavailable" });
-});
-
-test("computeDecision: closed when phase is closed-start", () => {
-  const res = Gate.computeDecision({
-    paused: false,
-    consentVersion: Gate.CONSENT_VERSION,
-    originGranted: true,
-    phase: "closed-start",
-    lease: null,
-  });
-  assert.deepEqual(res, { open: false, reason: "closed-start" });
 });
 
 test("computeDecision: closed when disconnected / no lease", () => {
@@ -129,6 +136,8 @@ test("computeDecision: closed when disconnected / no lease", () => {
     paused: false,
     consentVersion: Gate.CONSENT_VERSION,
     originGranted: true,
+    hostCapture: "permitted",
+    capturePermitted: true,
     lease: null,
   });
   assert.deepEqual(res, { open: false, reason: "disconnected" });
@@ -140,6 +149,8 @@ test("computeDecision: closed when lease is stale", () => {
     paused: false,
     consentVersion: Gate.CONSENT_VERSION,
     originGranted: true,
+    hostCapture: "permitted",
+    capturePermitted: true,
     lease: { token: "tok", generation: "gen", receivedAt: 1000, freshnessMs: 5000 },
     now,
   });
@@ -152,6 +163,8 @@ test("computeDecision: open when all conditions are satisfied", () => {
     paused: false,
     consentVersion: Gate.CONSENT_VERSION,
     originGranted: true,
+    hostCapture: "permitted",
+    capturePermitted: true,
     lease: { token: "tok", generation: "gen", receivedAt: 1000, freshnessMs: 5000 },
     now,
   });
@@ -244,6 +257,7 @@ test("gate: deferred callbacks stay closed", async () => {
             grantedOrigins: ["https://mail.google.com"],
             showPageIndicator: false,
             hostCapture: "permitted",
+            capturePermitted: true,
           });
         }
       },
@@ -395,3 +409,179 @@ test("gate: reopen after pause snapshots", async () => {
   assert.equal(all[1].records[0].t, "segment_start");
   assert.equal(all[1].records[0].blocks.length, 2);
 });
+
+test("gate: solicited response after grantRequestMono + freshnessMs does not call discover/skim", async () => {
+  let discoverCount = 0;
+  let skimCount = 0;
+  let contentTime = 1000;
+
+  const fakeAdapters = {
+    adapterForHost: () => ({ name: "gmail" }),
+    pickRoot: () => {
+      discoverCount++;
+      return { tagName: "DIV", children: [{ nodeType: 3, nodeValue: "msg" }] };
+    },
+  };
+  const fakeSkim = {
+    skim: () => {
+      skimCount++;
+      return [{ id: "1", type: "message", depth: 0, text: "msg" }];
+    },
+  };
+
+  const fakeChrome = {
+    runtime: {
+      id: "fake-runtime-id",
+      sendMessage: (msg, cb) => {
+        if (msg.kind === "hello" && typeof cb === "function") {
+          // Advance content clock past freshnessMs (freshnessMs = 5000, now = 7000)
+          contentTime = 7000;
+          cb({
+            ok: true,
+            lease: { token: "t1", generation: "gen-1", freshnessMs: 5000 },
+            paused: false,
+            consentVersion: 1,
+            grantedOrigins: ["https://mail.google.com"],
+            showPageIndicator: false,
+            hostCapture: "permitted",
+            capturePermitted: true,
+          });
+        }
+      },
+      onMessage: { addListener: () => {} },
+    },
+  };
+
+  const sandbox = {
+    globalThis: null,
+    console,
+    crypto,
+    performance: { now: () => contentTime },
+    location: { origin: "https://mail.google.com", host: "mail.google.com" },
+    document: { readyState: "complete", title: "Inbox", addEventListener: () => {}, visibilityState: "visible" },
+    window: { addEventListener: () => {} },
+    chrome: fakeChrome,
+    setTimeout: (fn) => { fn(); return 1; },
+    clearTimeout: () => {},
+    MutationObserver: class { observe() {} disconnect() {} },
+    SolstoneAdapters: fakeAdapters,
+    SolstoneSkim: fakeSkim,
+    SolstoneIndicator: { show: () => {}, remove: () => {} },
+    SolstoneCaptureGate: Gate,
+    SolstoneNativeBrowserConstants: globalThis.SolstoneNativeBrowserConstants,
+    SolstoneNativeBrowser: globalThis.SolstoneNativeBrowser,
+  };
+  sandbox.globalThis = sandbox;
+
+  const contentCode = fs.readFileSync(new URL("../extension/content.js", import.meta.url), "utf-8");
+  vm.runInNewContext(contentCode, sandbox);
+
+  await new Promise((r) => queueMicrotask(r));
+  assert.equal(discoverCount, 0);
+  assert.equal(skimCount, 0);
+});
+
+test("gate: resnapshot message makes 0 discover/skim calls when closed, 1 when open", async () => {
+  let discoverCount = 0;
+  let skimCount = 0;
+  let messageListener = null;
+
+  const fakeAdapters = {
+    adapterForHost: () => ({ name: "gmail" }),
+    pickRoot: () => {
+      discoverCount++;
+      return { tagName: "DIV", children: [{ nodeType: 3, nodeValue: "msg" }] };
+    },
+  };
+  const fakeSkim = {
+    skim: () => {
+      skimCount++;
+      return [{ id: "1", type: "message", depth: 0, text: "msg" }];
+    },
+  };
+
+  const fakeChrome = {
+    runtime: {
+      id: "fake-runtime-id",
+      sendMessage: () => {},
+      onMessage: {
+        addListener: (fn) => { messageListener = fn; },
+      },
+    },
+  };
+
+  const sandbox = {
+    globalThis: null,
+    console,
+    crypto,
+    performance: { now: () => 1000 },
+    location: { origin: "https://mail.google.com", host: "mail.google.com" },
+    document: { readyState: "loading", title: "Inbox", addEventListener: () => {}, visibilityState: "visible" },
+    window: { addEventListener: () => {} },
+    chrome: fakeChrome,
+    setTimeout: (fn) => { fn(); return 1; },
+    clearTimeout: () => {},
+    setInterval: (fn) => { fn(); return 1; },
+    clearInterval: () => {},
+    MutationObserver: class { observe() {} disconnect() {} },
+    SolstoneAdapters: fakeAdapters,
+    SolstoneSkim: fakeSkim,
+    SolstoneIndicator: { show: () => {}, remove: () => {} },
+    SolstoneCaptureGate: Gate,
+    SolstoneNativeBrowserConstants: globalThis.SolstoneNativeBrowserConstants,
+    SolstoneNativeBrowser: globalThis.SolstoneNativeBrowser,
+  };
+  sandbox.globalThis = sandbox;
+
+  const contentCode = fs.readFileSync(new URL("../extension/content.js", import.meta.url), "utf-8");
+  vm.runInNewContext(contentCode, sandbox);
+
+  assert.ok(messageListener);
+
+  // Closed gate: resnapshot message
+  messageListener({ kind: "resnapshot" }, { id: "fake-runtime-id" }, () => {});
+  assert.equal(discoverCount, 0);
+  assert.equal(skimCount, 0);
+
+  // Open gate by delivering positive grant via leaseUpdate + hello response
+  let helloCallback = null;
+  fakeChrome.runtime.sendMessage = (msg, cb) => {
+    if (msg.kind === "hello") helloCallback = cb;
+  };
+  messageListener(
+    {
+      kind: "leaseUpdate",
+      lease: { token: "t1", generation: "gen-1", freshnessMs: 10000 },
+      paused: false,
+      consentVersion: 1,
+      grantedOrigins: ["https://mail.google.com"],
+      showIndicator: false,
+      hostCapture: "permitted",
+      capturePermitted: true,
+    },
+    { id: "fake-runtime-id" },
+    () => {}
+  );
+
+  assert.ok(helloCallback);
+  helloCallback({
+    ok: true,
+    lease: { token: "t1", generation: "gen-1", freshnessMs: 10000 },
+    paused: false,
+    consentVersion: 1,
+    grantedOrigins: ["https://mail.google.com"],
+    showPageIndicator: false,
+    hostCapture: "permitted",
+    capturePermitted: true,
+  });
+
+  // Reset counters after initial startObserving / doSkim
+  discoverCount = 0;
+  skimCount = 0;
+
+  // Open gate: resnapshot message
+  messageListener({ kind: "resnapshot" }, { id: "fake-runtime-id" }, () => {});
+  assert.equal(discoverCount, 1);
+  assert.equal(skimCount, 1);
+});
+

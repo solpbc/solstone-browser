@@ -200,7 +200,7 @@ test("outbox: subsequent modified skim enqueues deltas", async () => {
   assert.equal(deltaBatch.records[1].op, "update");
 });
 
-test("outbox: snapshot_required receipt replaces deltas with snapshotRecords in outbox item", async () => {
+test("outbox: snapshot_required receipt sets sendSnapshot in outbox item without mutating stored records", async () => {
   const all = await Outbox.getAll();
   assert.equal(all.length, 2);
   const deltaBatch = all[1];
@@ -214,8 +214,10 @@ test("outbox: snapshot_required receipt replaces deltas with snapshotRecords in 
   const allAfter = await Outbox.getAll();
   const replacedBatch = allAfter.find((b) => b.batchId === deltaBatch.batchId);
   assert.ok(replacedBatch);
-  assert.equal(replacedBatch.records.length, 1);
-  assert.equal(replacedBatch.records[0].t, "segment_start");
+  assert.equal(replacedBatch.sendSnapshot, true);
+  const wireBatch = Outbox.buildWireBatch(replacedBatch);
+  assert.equal(wireBatch.records.length, 1);
+  assert.equal(wireBatch.records[0].t, "segment_start");
 });
 
 test("outbox: permanent failure receipt removes item and promotes descendant to snapshot", async () => {
@@ -276,12 +278,14 @@ test("outbox: permanent failure receipt removes item and promotes descendant to 
   assert.equal(items.length, 2);
   assert.equal(items.some((x) => x.batchId === b2.batchId), false);
 
-  // Batch 3 was promoted to snapshot
+  // Batch 3 was promoted to snapshot (sendSnapshot = true)
   const batch3 = items.find((x) => x.batchId === b3.batchId);
   assert.ok(batch3);
-  assert.equal(batch3.records.length, 1);
-  assert.equal(batch3.records[0].t, "segment_start");
-  assert.equal(batch3.records[0].blocks.length, 3);
+  assert.equal(batch3.sendSnapshot, true);
+  const wire3 = Outbox.buildWireBatch(batch3);
+  assert.equal(wire3.records.length, 1);
+  assert.equal(wire3.records[0].t, "segment_start");
+  assert.equal(wire3.records[0].blocks.length, 3);
 });
 
 test("outbox: retireStaleGeneration purges items from older generation", async () => {

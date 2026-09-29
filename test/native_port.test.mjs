@@ -12,6 +12,7 @@ await import(new URL("../extension/native-browser/codec.js", import.meta.url));
 await import(new URL("../extension/lib/uuid.js", import.meta.url));
 await import(new URL("../extension/lib/db.js", import.meta.url));
 await import(new URL("../extension/lib/blocks.js", import.meta.url));
+await import(new URL("../extension/lib/hosts.js", import.meta.url));
 await import(new URL("../extension/lib/segment.js", import.meta.url));
 await import(new URL("../extension/lib/gate.js", import.meta.url));
 await import(new URL("../extension/lib/native_outbox.js", import.meta.url));
@@ -73,6 +74,7 @@ test("handshake: sends hello on connect and accepts valid hello_ack", async () =
   const statusUpdates = [];
 
   const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     connectNative: (host) => {
       assert.equal(host, "app.solstone.browser.dev");
@@ -119,6 +121,7 @@ test("port: malformed reply omits payload marker", async () => {
   await resetDB();
   const mockPort = new MockPort();
   const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     connectNative: () => mockPort,
   });
@@ -149,6 +152,7 @@ test("port: behind app does not request an extension update", async () => {
   let checkCalled = false;
 
   const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     connectNative: () => mockPort,
     requestUpdateCheck: async () => {
@@ -173,6 +177,7 @@ test("port: update check settles to no-update", async () => {
   await resetDB();
   const mockPort = new MockPort();
   const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     connectNative: () => mockPort,
     requestUpdateCheck: async () => ({ status: "no_update" }),
@@ -187,6 +192,7 @@ test("port: update check settles to throttled", async () => {
   await resetDB();
   const mockPort = new MockPort();
   const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     connectNative: () => mockPort,
     requestUpdateCheck: async () => ({ status: "throttled" }),
@@ -201,6 +207,7 @@ test("port: update check settles to failure", async () => {
   await resetDB();
   const mockPort = new MockPort();
   const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     connectNative: () => mockPort,
     requestUpdateCheck: async () => { throw new Error("network"); },
@@ -215,6 +222,7 @@ test("port: update check settles to update-available", async () => {
   await resetDB();
   const mockPort = new MockPort();
   const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     connectNative: () => mockPort,
     requestUpdateCheck: async () => ({ status: "update_available" }),
@@ -230,6 +238,7 @@ test("port: poll reconnects after disconnect", async () => {
   let connectCount = 0;
 
   const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     connectNative: () => {
       connectCount++;
@@ -243,7 +252,7 @@ test("port: poll reconnects after disconnect", async () => {
   controller.livePort.disconnect();
   assert.equal(controller.livePort, null);
 
-  controller.poll(2000);
+  await controller.poll(2000);
   assert.equal(connectCount, 2);
   assert.ok(controller.livePort);
 });
@@ -255,6 +264,7 @@ test("port: retired port cannot reopen capture", async () => {
   let count = 0;
 
   const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     connectNative: () => {
       count++;
@@ -281,8 +291,8 @@ test("port: retired port cannot reopen capture", async () => {
   port1.disconnect();
 
   assert.equal(controller.lease, null);
-  assert.equal(controller.hostCapture, "unavailable");
-  assert.equal(controller.hostDelivery, "unknown");
+  assert.equal(controller.hostCapture, null);
+  assert.equal(controller.hostDelivery, null);
   assert.equal(controller.everConnected, false);
 });
 
@@ -290,6 +300,7 @@ test("port: capture and delivery stay distinct and accept is not delivered", asy
   await resetDB();
   const mockPort = new MockPort();
   const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     connectNative: () => mockPort,
   });
@@ -327,6 +338,7 @@ test("port: restart with everConnected leaves capture closed", async () => {
 
   const port1 = new MockPort();
   const controller1 = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     connectNative: () => port1,
   });
@@ -351,6 +363,7 @@ test("port: restart with everConnected leaves capture closed", async () => {
   // New connection with the same destination_generation gets a new token
   const port2 = new MockPort();
   const controller2 = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     connectNative: () => port2,
   });
@@ -850,4 +863,283 @@ test("router: caller mutation after route does not affect stored records", async
   assert.equal(allOutbox[0].records[0].blocks[0].text, "Original Text");
   assert.equal(allOutbox[0].snapshotRecords[0].blocks[0].text, "Original Text");
 });
+
+test("handshake: unavailable hello_ack does not persist everConnected", async () => {
+  await resetDB();
+  const mockPort = new MockPort();
+  const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+    connectNative: () => mockPort,
+  });
+
+  controller.connect();
+  await mockPort.receive({
+    type: "hello_ack",
+    capture: "unavailable",
+    delivery: "unknown",
+    freshness_ms: 0,
+    destination_generation: null,
+    period_id: null,
+  });
+
+  assert.equal(controller.handshake, "ready");
+  assert.equal(controller.everConnected, false);
+  const inDb = await DB.get("meta", "everConnected");
+  assert.equal(!!inDb, false);
+});
+
+test("port: ready not_paired connection does not handshake-expire on poll", async () => {
+  await resetDB();
+  const mockPort = new MockPort();
+  const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+    connectNative: () => mockPort,
+  });
+
+  controller.connect();
+  await mockPort.receive({
+    type: "hello_ack",
+    capture: "not_paired",
+    delivery: "idle",
+    freshness_ms: 0,
+    destination_generation: null,
+    period_id: null,
+  });
+
+  assert.equal(controller.handshake, "ready");
+  assert.equal(controller.livePort, mockPort);
+
+  // Advance time past HANDSHAKE_MS_BUDGET (5000ms)
+  await controller.poll(10000);
+  assert.equal(controller.livePort, mockPort);
+  assert.equal(mockPort.disconnected, false);
+});
+
+test("port: state updates lease without mayRenewOnConnection interval rejection", async () => {
+  await resetDB();
+  let nowMono = 1000;
+  const mockPort = new MockPort();
+  const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+    connectNative: () => mockPort,
+    now: () => nowMono,
+  });
+
+  controller.connect();
+  await mockPort.receive({
+    type: "hello_ack",
+    capture: "permitted",
+    delivery: "idle",
+    freshness_ms: 15000,
+    destination_generation: "gen-1",
+    period_id: "p-1",
+  });
+  assert.ok(controller.lease);
+
+  // Advance time by 6000ms (exceeding STATE_RENEWAL_MS_INTERVAL 5000ms)
+  nowMono = 7000;
+  await mockPort.receive({
+    type: "state",
+    capture: "permitted",
+    delivery: "idle",
+    freshness_ms: 15000,
+    destination_generation: "gen-1",
+    period_id: "p-1",
+  });
+
+  // State MUST be accepted and lease renewed
+  assert.ok(controller.lease);
+  assert.equal(controller.lease.receivedAt, 7000);
+});
+
+test("port: paused or intake_off connection drains without capture lease", async () => {
+  await resetDB();
+  const b1 = await Outbox.enqueueSkim({
+    inst: "00000000-0000-0000-0000-000000000001",
+    ctx: "ctx-1",
+    destinationGeneration: "gen-1",
+    senderUrl: "https://mail.google.com/mail/u/0",
+    site: "mail.google.com",
+    title: "Inbox",
+    adapter: "gmail",
+    blocks: [{ id: "1", type: "text", depth: 0, text: "Buffered" }],
+    nowMs: 1000,
+  });
+
+  const mockPort = new MockPort();
+  const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+    connectNative: () => mockPort,
+  });
+
+  controller.connect();
+  await mockPort.receive({
+    type: "hello_ack",
+    capture: "paused",
+    delivery: "delivered",
+    freshness_ms: 0,
+    destination_generation: "gen-1",
+    period_id: "p-1",
+  });
+
+  // Lease is null because capture is paused
+  assert.equal(controller.lease, null);
+  // But drain MUST have posted batch b1!
+  assert.equal(mockPort.sent.length, 2); // hello + batch b1
+  assert.equal(mockPort.sent[1].batch_id, b1.batchId);
+});
+
+test("port: hello_ack stalled inside everConnected put does not install lease on new connection", async () => {
+  await resetDB();
+  const mockPort1 = new MockPort();
+  const mockPort2 = new MockPort();
+  let connectCount = 0;
+
+  let resolveDbPut = null;
+  const originalPut = DB.put;
+  DB.put = async (storeName, val, key) => {
+    if (storeName === "meta" && key === "everConnected") {
+      await new Promise((r) => { resolveDbPut = r; });
+    }
+    return originalPut.call(DB, storeName, val, key);
+  };
+
+  try {
+    const controller = new PortController({
+      inst: "00000000-0000-0000-0000-000000000001",
+      runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+      connectNative: () => {
+        connectCount++;
+        return connectCount === 1 ? mockPort1 : mockPort2;
+      },
+    });
+
+    controller.destinationGeneration = "gen-1";
+    controller.connect();
+    controller.destinationGeneration = "gen-1";
+    assert.equal(controller.livePort, mockPort1);
+
+    // Receive hello_ack on port 1 (will stall inside DB.put)
+    const receivePromise = mockPort1.receive({
+      type: "hello_ack",
+      capture: "permitted",
+      delivery: "delivered",
+      freshness_ms: 10000,
+      destination_generation: "gen-1",
+      period_id: "p-1",
+    });
+
+    // While stalled, disconnect and reconnect to port 2
+    controller.connect();
+    assert.equal(controller.livePort, mockPort2);
+    assert.equal(controller.lease, null);
+
+    // Now resolve the stalled put from connection 1
+    if (resolveDbPut) resolveDbPut();
+    await receivePromise;
+
+    // Stalled continuation must have been fenced off by epoch/gen/token check
+    // It must NOT set everConnected = true or install lease or post on port 2
+    assert.equal(controller.everConnected, false);
+    assert.equal(controller.lease, null);
+    assert.equal(mockPort2.sent.length, 1); // only initial hello
+  } finally {
+    DB.put = originalPut;
+  }
+});
+
+test("port: constructor with no inst makes zero connectNative calls", () => {
+  let connectCount = 0;
+  const controller = new PortController({
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+    connectNative: () => {
+      connectCount++;
+      return new MockPort();
+    },
+  });
+  controller.connect();
+  assert.equal(connectCount, 0);
+  assert.equal(controller.livePort, null);
+});
+
+test("port: hello_ack put rejection leaves everConnected false and port up", async () => {
+  await resetDB();
+  const mockPort = new MockPort();
+  const originalPut = DB.put;
+  DB.put = async (storeName, val, key) => {
+    if (storeName === "meta" && key === "everConnected") {
+      throw new Error("IDB disk full / quota exceeded");
+    }
+    return originalPut.call(DB, storeName, val, key);
+  };
+
+  try {
+    const controller = new PortController({
+      inst: "00000000-0000-0000-0000-000000000001",
+      runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+      connectNative: () => mockPort,
+    });
+
+    controller.connect();
+    assert.equal(controller.livePort, mockPort);
+
+    await mockPort.receive({
+      type: "hello_ack",
+      capture: "permitted",
+      delivery: "delivered",
+      freshness_ms: 10000,
+      destination_generation: "gen-1",
+      period_id: "p-1",
+    });
+
+    assert.equal(controller.everConnected, false);
+    const stored = await DB.get("meta", "everConnected");
+    assert.notEqual(stored, true);
+    assert.equal(controller.livePort, mockPort);
+    assert.equal(mockPort.disconnected, false);
+  } finally {
+    DB.put = originalPut;
+  }
+});
+
+test("port: poll awaits retirement before connect or drain and records lossNotice", async () => {
+  await resetDB();
+  const events = [];
+  const originalRetire = Outbox.retireExpired;
+  Outbox.retireExpired = async (_mono, _wall) => {
+    events.push("retire-start");
+    await new Promise((r) => setTimeout(r, 10));
+    events.push("retire-done");
+    return { count: 3, seq: 4, disposition: "expired_unaccepted", reason: "expired_unaccepted" };
+  };
+
+  try {
+    let connectCalls = 0;
+    const mockPort = new MockPort();
+    const controller = new PortController({
+      inst: "00000000-0000-0000-0000-000000000001",
+      runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+      connectNative: () => {
+        events.push("connect");
+        connectCalls++;
+        return mockPort;
+      },
+    });
+
+    await controller.poll(1000);
+    assert.deepEqual(events, ["retire-start", "retire-done", "connect"]);
+    assert.ok(controller.lossNotice);
+    assert.equal(controller.lossNotice.seq, 4);
+    assert.equal(controller.lossNotice.count, 3);
+    assert.equal(controller.lossNotice.reason, "expired_unaccepted");
+  } finally {
+    Outbox.retireExpired = originalRetire;
+  }
+});
+
+
 

@@ -37,7 +37,13 @@
   function arrange(verdict, state, page) {
     state = state || {};
     page = page || {};
-    const allowlist = Array.isArray(state.allowlist) ? state.allowlist : [];
+    const allowlist = Array.isArray(state.allowlist)
+      ? state.allowlist
+      : Array.isArray(state.grantedOrigins)
+      ? state.grantedOrigins.map((o) => {
+          try { return new URL(o).host; } catch (_e) { return o; }
+        })
+      : [];
     const siteRows = allowlist.map((entry) => {
       const row = globalThis.SolstoneStatus.siteRowState(entry, Object.assign({}, state, {
         matchHost: globalThis.SolstoneHosts.matchHostFor(entry),
@@ -79,9 +85,6 @@
       host: page.host || "this page",
       state: pageState,
       siteAction,
-      // No sites means nothing to pause, and a fresh install's one job is
-      // adding the first one. Offering a control that acts on an empty set is
-      // scaffolding on the surface that can least afford it.
       pauseAction: siteRows.length === 0 && !state.paused ? null : {
         id: "set-paused",
         label: state.paused ? "resume" : "pause all",
@@ -93,9 +96,23 @@
     return sections;
   }
 
-  async function grantSite(host, effects) {
-    const intent = await effects.cmd({ cmd: "siteIntent", host });
-    if (!intent.ok) return { ok: false, error: "could not save the site" };
+  async function grantSite(input, effects) {
+    let origin;
+    let host;
+    try {
+      if (input.startsWith("http://") || input.startsWith("https://")) {
+        const u = new URL(input);
+        origin = u.origin;
+        host = u.host;
+      } else {
+        const u = new URL("https://" + input);
+        origin = u.origin;
+        host = u.host;
+      }
+    } catch (_e) {
+      return { ok: false, error: "invalid_origin" };
+    }
+
     let granted = false;
     try {
       granted = await effects.requestPermission({
@@ -105,10 +122,9 @@
       granted = false;
     }
     if (!granted) {
-      if (intent.added) await effects.cmd({ cmd: "removeSite", host });
-      return { ok: false, denied: true, added: intent.added };
+      return { ok: false, denied: true };
     }
-    return effects.cmd({ cmd: "siteGranted", host });
+    return effects.cmd({ cmd: "addGrantedOrigin", origin });
   }
 
   async function addSite(host, effects) {

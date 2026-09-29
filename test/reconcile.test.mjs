@@ -39,15 +39,8 @@ test("orphan grants are released and claimed grants are retained", () => {
   assert.deepEqual(actions, [{ op: "release", origin: "*://orphan.test/*" }]);
 });
 
-test("permission exemptions contain paired and pending relay origins and no journal origin", () => {
-  assert.deepEqual(R.permissionExemptOrigins({
-    journalUrl: "http://localhost:5015",
-    remote: { relayOrigin: "https://relay.example/path" },
-    remotePending: { relayOrigin: "https://pending.example/pair" },
-  }), [
-    "https://relay.example/*",
-    "https://pending.example/*",
-  ]);
+test("permission exemptions are empty with no relay exemptions", () => {
+  assert.deepEqual(R.permissionExemptOrigins({}), []);
 });
 
 test("obsolete journal grant release leaves the broad localhost site grant claimed", () => {

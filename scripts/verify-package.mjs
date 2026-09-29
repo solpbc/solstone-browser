@@ -15,17 +15,29 @@ import { fileURLToPath } from "node:url";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const NAME = "solstone-browser";
 const EXPECTED_DEV_ID = "fgfnkcefedeheoeamppkiiloncfekakf";
-const EXPECTED_PERMISSIONS = ["storage", "unlimitedStorage", "alarms", "scripting", "activeTab"];
+const EXPECTED_PERMISSIONS = ["storage", "unlimitedStorage", "alarms", "scripting", "activeTab", "nativeMessaging"];
 const EXPECTED_OPTIONAL_HOST_PERMISSIONS = ["*://*/*"];
+const EXPECTED_CSP = "script-src 'self'; object-src 'self'; connect-src 'none'";
+const EXPECTED_DATA_COLLECTION = ["websiteContent", "browsingActivity", "personalCommunications"];
+
+const CONTRACT_FILES = [
+  { source: "contracts/native-browser/constants.js", dest: "native-browser/constants.js" },
+  { source: "contracts/native-browser/schemas.js", dest: "native-browser/schemas.js" },
+  { source: "native-browser/schema-validator.js", dest: "native-browser/schema-validator.js" },
+  { source: "native-browser/codec.js", dest: "native-browser/codec.js" },
+];
+
 const ZIP_INSPECT = String.raw`
 import json,sys,zipfile
 with zipfile.ZipFile(sys.argv[1], "r") as archive:
     infos = [entry for entry in archive.infolist() if not entry.is_dir()]
     manifests = [entry for entry in infos if entry.filename == "manifest.json"]
+    files = {entry.filename: archive.read(entry.filename).decode("utf-8", errors="replace") for entry in infos if entry.filename.startswith("native-browser/") or entry.filename == "manifest.json"}
     print(json.dumps({
         "names": [entry.filename for entry in infos],
         "manifest_count": len(manifests),
         "manifest_text": archive.read(manifests[0]).decode("utf-8") if len(manifests) == 1 else None,
+        "files_text": files,
     }))
 `;
 
@@ -61,12 +73,31 @@ function inspectZip(path, label) {
   } catch (error) {
     fail(`${label} root manifest.json is not valid JSON: ${error.message}`);
   }
-  return { files: new Set(inspected.names), manifest };
+  return { files: new Set(inspected.names), manifest, filesText: inspected.files_text };
 }
 
 export function extensionIdFromKey(key) {
   const digest = createHash("sha256").update(Buffer.from(key, "base64")).digest("hex").slice(0, 32);
   return [...digest].map((nibble) => String.fromCharCode(97 + Number.parseInt(nibble, 16))).join("");
+}
+
+export function resolveHostByRuntimeId(runtimeId, hostsAndIds) {
+  if (!hostsAndIds || !runtimeId) return null;
+  if (
+    runtimeId === hostsAndIds.dev?.chrome_id ||
+    runtimeId === hostsAndIds.dev?.edge_id ||
+    runtimeId === hostsAndIds.dev?.firefox_id
+  ) {
+    return hostsAndIds.dev.host;
+  }
+  if (
+    runtimeId === hostsAndIds.production?.chrome_id ||
+    runtimeId === hostsAndIds.production?.edge_id ||
+    runtimeId === hostsAndIds.production?.firefox_id
+  ) {
+    return hostsAndIds.production.host;
+  }
+  return null;
 }
 
 function manifestRuntimeReferences(manifest) {
@@ -79,6 +110,9 @@ function manifestRuntimeReferences(manifest) {
   };
 
   add("background.service_worker", manifest.background?.service_worker);
+  for (const [index, path] of (manifest.background?.scripts || []).entries()) {
+    add(`background.scripts.${index}`, path);
+  }
   add("action.default_popup", manifest.action?.default_popup);
   addMap("action.default_icon", manifest.action?.default_icon);
   add("options_page", manifest.options_page);
@@ -110,6 +144,31 @@ function assertApprovedSurface(manifest, label) {
     manifest.optional_host_permissions,
     EXPECTED_OPTIONAL_HOST_PERMISSIONS,
     `${label} optional_host_permissions differ from the approved surface`,
+  );
+  assert.equal(
+    manifest.content_security_policy?.extension_pages,
+    EXPECTED_CSP,
+    `${label} CSP differs from ${EXPECTED_CSP}`,
+  );
+  assert.equal(
+    manifest.minimum_chrome_version,
+    "121",
+    `${label} minimum_chrome_version must be 121`,
+  );
+  assert.equal(
+    manifest.incognito,
+    "not_allowed",
+    `${label} incognito must be not_allowed`,
+  );
+  assert.equal(
+    manifest.browser_specific_settings?.gecko?.strict_min_version,
+    "140.0",
+    `${label} gecko strict_min_version must be 140.0`,
+  );
+  assert.deepStrictEqual(
+    manifest.browser_specific_settings?.gecko?.data_collection_permissions?.required,
+    EXPECTED_DATA_COLLECTION,
+    `${label} gecko data_collection_permissions.required differs`,
   );
   for (const field of ["host_permissions", "optional_permissions", "content_scripts"]) {
     assert.equal(Object.hasOwn(manifest, field), false, `${label} unexpectedly contains ${field}`);
@@ -154,6 +213,20 @@ function assertCwsManifest(manifest, label) {
   assertChromeVersion(manifest.version, label);
   assert.equal(Object.hasOwn(manifest, "key"), false, `${label} must not contain key`);
   assert.equal(Object.hasOwn(manifest, "update_url"), false, `${label} must not contain update_url`);
+  assert.equal(
+    manifest.browser_specific_settings?.gecko?.id,
+    "browser@solstone.app",
+    `${label} must have production gecko ID browser@solstone.app`,
+  );
+}
+
+function assertContractFilesByteIdentical(root, filesText, label) {
+  for (const { source, dest } of CONTRACT_FILES) {
+    const sourceContent = readFileSync(join(root, source), "utf8");
+    const zipContent = filesText[dest];
+    assert.ok(zipContent !== undefined, `${label} is missing ${dest}`);
+    assert.equal(zipContent, sourceContent, `${label} ${dest} is not byte-identical to ${source}`);
+  }
 }
 
 export function verifyReleaseArtifacts({
@@ -181,10 +254,13 @@ export function verifyReleaseArtifacts({
   const expectedCwsManifest = structuredClone(sourceManifest);
   delete expectedCwsManifest.key;
   delete expectedCwsManifest.update_url;
+  if (expectedCwsManifest.browser_specific_settings?.gecko) {
+    expectedCwsManifest.browser_specific_settings.gecko.id = "browser@solstone.app";
+  }
   assert.deepStrictEqual(
     cwsZip.manifest,
     expectedCwsManifest,
-    "Chrome Web Store manifest may differ from source only by omitting key and update_url",
+    "Chrome Web Store manifest may differ from source only by omitting key/update_url and setting production gecko id",
   );
 
   for (const [label, manifest] of [
@@ -204,6 +280,11 @@ export function verifyReleaseArtifacts({
   ]) {
     assert.equal(typeof manifest.key, "string", `${label} must retain the development key`);
     assert.equal(extensionIdFromKey(manifest.key), EXPECTED_DEV_ID, `${label} derives the wrong development extension id`);
+    assert.equal(
+      manifest.browser_specific_settings?.gecko?.id,
+      "browser.dev@solstone.app",
+      `${label} must retain dev gecko id`,
+    );
   }
 
   assertCwsManifest(cwsZip.manifest, "Chrome Web Store manifest");
@@ -219,6 +300,24 @@ export function verifyReleaseArtifacts({
   const cwsReferences = assertRuntimeFiles(cwsZip.manifest, (path) => cwsZip.files.has(path), "Chrome Web Store ZIP");
   assert.equal(devReferences, stageReferences, "development ZIP runtime-reference count differs from load-unpacked");
   assert.equal(cwsReferences, stageReferences, "Chrome Web Store ZIP runtime-reference count differs from load-unpacked");
+
+  assertContractFilesByteIdentical(root, devZip.filesText, "development ZIP");
+  assertContractFilesByteIdentical(root, cwsZip.filesText, "Chrome Web Store ZIP");
+
+  // Verify host selection behavior
+  const constants = JSON.parse(
+    readFileSync(join(root, "contracts/native-browser/manifest.json"), "utf8")
+  );
+  const constantsModule = readFileSync(join(root, "contracts/native-browser/constants.js"), "utf8");
+  const tableMatch = constantsModule.match(/"HOSTS_AND_IDS":\s*(\{[\s\S]*?\n  \}),/);
+  assert.ok(tableMatch, "could not parse HOSTS_AND_IDS from constants.js");
+  const hostsAndIds = JSON.parse(tableMatch[1]);
+  assert.equal(resolveHostByRuntimeId("fgfnkcefedeheoeamppkiiloncfekakf", hostsAndIds), "app.solstone.browser.dev");
+  assert.equal(resolveHostByRuntimeId("browser.dev@solstone.app", hostsAndIds), "app.solstone.browser.dev");
+  assert.equal(resolveHostByRuntimeId("eibbeeoifjoabddfmgeggnageolkcnim", hostsAndIds), "app.solstone.browser");
+  assert.equal(resolveHostByRuntimeId("browser@solstone.app", hostsAndIds), "app.solstone.browser");
+  assert.equal(resolveHostByRuntimeId("unknown-id-value", hostsAndIds), null);
+  assert.equal(resolveHostByRuntimeId("", hostsAndIds), null);
 
   return {
     version: releaseVersion,

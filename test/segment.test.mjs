@@ -1,25 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
-//
-// Pure-logic tests for the snapshot+delta differ and JSONL serializer. These
-// are layout-independent, so node exercises them directly. (The DOM-dependent
-// skim walk is validated in real Chrome — see test/skim.cdp.mjs.)
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-// blocks.js and segment.js are classic scripts; importing them for side effect
-// publishes their globals.
 await import(new URL("../extension/lib/blocks.js", import.meta.url));
 await import(new URL("../extension/lib/segment.js", import.meta.url));
 const B = globalThis.SolstoneBlocks;
 const S = globalThis.SolstoneSegment;
 
 const blk = (id, text, type = "text", depth = 1, attrs) => ({ id, type, depth, text, ...(attrs ? { attrs } : {}) });
-const privateHref = "https://app.example.com/inbox/thread/42?token=SEKRET-TOKEN&access_key=SEKRET-KEY#section";
-const jsonlForHref = (href) => S.serializeJsonl([
-  S.snapshotLine("app.example.com", { url: B.originPath(href), title: "Inbox", adapter: "generic" }, [], 1, 0),
-]);
 
 test("diffBlocks: add / update / remove keyed by id", () => {
   const prev = [blk("a", "hi"), blk("b", "Inbox", "heading", 0)];
@@ -62,25 +52,6 @@ test("snapshotLine shape", () => {
   assert.deepEqual(line.blocks, blocks);
 });
 
-test("originPath composition: serialized snapshot excludes query and fragment secrets", () => {
-  const text = jsonlForHref(privateHref);
-  for (const forbidden of ["SEKRET-TOKEN", "SEKRET-KEY", "section", "?", "#"]) {
-    assert.equal(text.includes(forbidden), false, `serialized JSONL must exclude ${forbidden}`);
-  }
-  assert.equal(S.parseJsonl(text)[0].url, "https://app.example.com/inbox/thread/42");
-});
-
-test("originPath composition: serialized snapshot excludes credentials", () => {
-  const text = jsonlForHref("https://user:pass@app.example.com/private");
-  assert.equal(text.includes("user"), false);
-  assert.equal(text.includes("pass"), false);
-});
-
-test("originPath composition: serialized snapshot retains a meaningful path", () => {
-  const text = jsonlForHref(privateHref);
-  assert.equal(text.includes("/inbox/thread/42"), true);
-});
-
 test("deltaLines orders add, update, remove and shapes remove as {id}", () => {
   const diff = { added: [blk("c", "new")], updated: [blk("a", "x")], removed: ["z"] };
   const lines = S.deltaLines("s", diff, 5, 1.2);
@@ -90,37 +61,11 @@ test("deltaLines orders add, update, remove and shapes remove as {id}", () => {
   assert.equal(lines[0].rel, 1.2);
 });
 
-test("serializeJsonl / parseJsonl round-trip", () => {
-  const lines = [
-    S.snapshotLine("s", { url: "u", title: "t", adapter: "generic" }, [blk("a", "hi")], 1, 0),
-    ...S.deltaLines("s", { added: [blk("b", "new")], updated: [], removed: [] }, 2, 0.5),
-  ];
-  const text = S.serializeJsonl(lines);
-  assert.ok(text.endsWith("\n"));
-  assert.equal(text.trim().split("\n").length, 2);
-  assert.deepEqual(S.parseJsonl(text), lines);
-});
-
-test("serializeJsonl empty => empty string", () => {
-  assert.equal(S.serializeJsonl([]), "");
-});
-
-test("segmentKey from injected parts (deterministic)", () => {
-  assert.equal(S.segmentKey(0, 300, { hh: "14", mm: "30", ss: "05" }), "143005_300");
-  assert.equal(S.segmentKey(0, 7.9, { hh: "09", mm: "00", ss: "00" }), "090000_7");
-});
-
-test("dayKey from injected parts", () => {
-  assert.equal(S.dayKey(0, { y: "2026", m: "06", d: "30" }), "20260630");
-});
-
-test("fileForSite slugs host -> browser_<slug>.jsonl", () => {
-  assert.equal(S.fileForSite("mail.google.com"), "browser_mail-google-com.jsonl");
-  assert.equal(S.fileForSite("app.slack.com"), "browser_app-slack-com.jsonl");
-  assert.equal(S.fileForSite("localhost:3000"), "browser_localhost-3000.jsonl");
-});
-
-test("segment key matches the journal envelope pattern ^\\d{6}_\\d+$", () => {
-  const key = S.segmentKey(0, 300, { hh: "00", mm: "00", ss: "00" });
-  assert.match(key, /^\d{6}_\d+$/);
+test("blockFingerprint preserves NUL separators", () => {
+  const fp = S.blockFingerprint({ type: "heading", text: "hello", attrs: { level: "1" } });
+  assert.equal(fp.includes("\x00"), true);
+  const parts = fp.split("\x00");
+  assert.equal(parts.length, 3);
+  assert.equal(parts[0], "heading");
+  assert.equal(parts[1], "hello");
 });

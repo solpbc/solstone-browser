@@ -6,7 +6,6 @@
 
   const Hosts = globalThis.SolstoneHosts;
   const Status = globalThis.SolstoneStatus;
-  const Pairlink = globalThis.SolstonePairlink;
   const Failures = globalThis.SolstoneFailures;
   const Disclosure = globalThis.SolstoneDisclosure;
   const View = globalThis.SolstonePopupView;
@@ -23,13 +22,14 @@
     try {
       if (/^https?:\/\//.test(host)) host = new URL(host).host;
     } catch (_error) {
-      // Leave the value as typed so the shared validation can reject it.
+      /* leave as typed */
     }
     return host.replace(/\/.*$/, "").toLowerCase();
   }
 
   function announce(message, tone = "") {
     const region = $("actionMessage");
+    if (!region) return;
     const next = message || "";
     const className = `action-message${next && tone ? ` ${tone}` : ""}`;
     if (region.textContent !== next) region.textContent = next;
@@ -52,125 +52,38 @@
   }
 
   function renderFirstRun() {
-    const allowlist = Array.isArray(state && state.allowlist) ? state.allowlist : null;
+    const allowlist = Array.isArray(state && state.allowlist)
+      ? state.allowlist
+      : Array.isArray(state && state.grantedOrigins)
+      ? state.grantedOrigins
+      : null;
     const firstRun = $("firstRun");
+    if (!firstRun) return;
     firstRun.hidden = !allowlist || allowlist.length !== 0;
     if (firstRun.hidden) return;
 
     const copy = Disclosure.firstRun(state);
-    $("firstRunHeading").textContent = copy.kinship[0];
-    $("firstRunComposition").textContent = copy.kinship[1];
-    $("firstRunCovenant").textContent = copy.kinship[2];
-    $("firstRunScope").textContent = copy.scope;
-    $("firstRunWhat").textContent = copy.whatSolTakesIn;
-    $("firstRunUnsent").textContent = copy.unsentText;
-    $("firstRunNever").textContent = copy.neverReceives;
-    $("firstRunAbsolutes").textContent = copy.absolutes;
-    $("firstRunDestination").textContent = copy.destination.label;
-    $("firstRunDestinationDetail").textContent = copy.destination.detail;
-    $("firstRunNothingYet").textContent = copy.nothingYet;
+    if ($("firstRunHeading")) $("firstRunHeading").textContent = copy.kinship[0];
+    if ($("firstRunComposition")) $("firstRunComposition").textContent = copy.kinship[1];
+    if ($("firstRunCovenant")) $("firstRunCovenant").textContent = copy.kinship[2];
+    if ($("firstRunScope")) $("firstRunScope").textContent = copy.scope;
+    if ($("firstRunWhat")) $("firstRunWhat").textContent = copy.whatSolTakesIn;
+    if ($("firstRunUnsent")) $("firstRunUnsent").textContent = copy.unsentText;
+    if ($("firstRunNever")) $("firstRunNever").textContent = copy.neverReceives;
+    if ($("firstRunAbsolutes")) $("firstRunAbsolutes").textContent = copy.absolutes;
+    if ($("firstRunDestination")) $("firstRunDestination").textContent = copy.destination.label;
+    if ($("firstRunDestinationDetail")) $("firstRunDestinationDetail").textContent = copy.destination.detail;
+    if ($("firstRunNothingYet")) $("firstRunNothingYet").textContent = copy.nothingYet;
   }
 
-  function replaceLabeledDetail(id, label, value) {
-    const row = $(id);
-    row.replaceChildren();
-    row.hidden = !value;
-    if (!value) return;
-    const key = document.createElement("span");
-    key.className = "key";
-    key.textContent = label;
-    const text = document.createElement("span");
-    text.textContent = value;
-    row.append(key, text);
-  }
-
-  function renderProvenance() {
-    const remote = (state && state.remote) || {};
-    const health = (state && state.health) || {};
-    replaceLabeledDetail("pairInstanceId", "paired home", remote.instanceId || "");
-    replaceLabeledDetail("pairRelayOrigin", "relay", remote.relayOrigin || "");
-    replaceLabeledDetail(
-      "journalError",
-      "last problem",
-      health.lastError ? Failures.classify(health.lastError, health.lastStatus) : "",
-    );
-
-    let lastSync = "";
-    if (health.lastUploadAt) lastSync = new Date(health.lastUploadAt).toLocaleString();
-    if (Number(health.segmentsUploaded || 0) > 0) {
-      const batches = `${health.segmentsUploaded} batch${health.segmentsUploaded === 1 ? "" : "es"} sent`;
-      lastSync = lastSync ? `${lastSync}. ${batches}.` : `${batches}.`;
-    }
-    replaceLabeledDetail("lastSyncDetail", "last sync", lastSync);
-  }
-
-  function appendWaitingHost(entry, body) {
-    if (Number(entry.count || 0) <= 0) return;
-    const wrap = document.createElement("div");
-    wrap.className = "waiting-host";
-    const head = document.createElement("strong");
-    head.textContent = `${entry.host} · ${entry.count} update${entry.count === 1 ? "" : "s"}`;
-    wrap.append(head);
-    if (Array.isArray(entry.texts) && entry.texts.length > 0) {
-      const list = document.createElement("ul");
-      for (const value of entry.texts) {
-        const item = document.createElement("li");
-        item.textContent = value;
-        list.append(item);
-      }
-      wrap.append(list);
-    }
-    body.append(wrap);
-  }
-
-  function renderWaiting(preview) {
-    preview = preview || {};
-    const total = Math.max(0, Number(preview.waiting || 0));
-    const row = $("waitingRow");
-    const body = $("waitingPreview");
-    body.replaceChildren();
-    row.hidden = total === 0;
-    if (total > 0) {
-      const summary = document.createElement("div");
-      summary.textContent = `${total} update${total === 1 ? "" : "s"} waiting to sync.`;
-      body.append(summary);
-      const outboxLines = Math.max(0, Number((preview.outbox && preview.outbox.lines) || 0));
-      if (outboxLines > 0) {
-        const earlier = document.createElement("div");
-        earlier.className = "muted";
-        earlier.textContent = `${outboxLines} update${outboxLines === 1 ? "" : "s"} from earlier.`;
-        body.append(earlier);
-      }
-      for (const entry of preview.perHost || []) appendWaitingHost(entry, body);
-    }
-
-    const dropped = preview.dropped || {};
-    const loss = $("lossDetail");
-    loss.replaceChildren();
-    loss.hidden = Number(dropped.segments || 0) <= 0;
-    if (!loss.hidden) {
-      const headline = document.createElement("strong");
-      headline.textContent = "some updates couldn't be kept";
-      const figure = document.createElement("div");
-      const lines = Math.max(0, Number(dropped.lines || 0));
-      figure.textContent = `${lines} update${lines === 1 ? "" : "s"}`;
-      loss.append(headline, figure);
-      if (!Number((preview.outbox && preview.outbox.lines) || 0)) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.textContent = "dismiss";
-        button.addEventListener("click", async () => {
-          clearAnnouncement();
-          await cmd({ cmd: "clearDropped" });
-          await refresh({ announceConnection: false });
-        });
-        loss.append(button);
-      }
-    }
-  }
-
-  function renderJournal(preview, announceConnection) {
-    const allowlist = Array.isArray(state && state.allowlist) ? state.allowlist : [];
+  function renderJournal(announceConnection) {
+    const allowlist = Array.isArray(state && state.allowlist)
+      ? state.allowlist
+      : Array.isArray(state && state.grantedOrigins)
+      ? state.grantedOrigins.map((o) => {
+          try { return new URL(o).host; } catch (_e) { return o; }
+        })
+      : [];
     const entryMatchHosts = Object.fromEntries(allowlist.map((host) => [host, Hosts.matchHostFor(host)]));
     const verdict = Status.verdict(state, {
       activeSites: state && state.activeSites,
@@ -179,14 +92,11 @@
     });
     const connection = Status.connection(state);
 
-    $("journalLead").textContent = verdict.sub;
-    $("journalStateChip").textContent = verdict.headline;
-    $("journalStateChip").className = `state-chip ${verdict.tone}`;
-
-    $("unpairBtn").hidden = !(state && state.remote && state.remote.paired);
-
-    renderProvenance();
-    renderWaiting(preview);
+    if ($("journalLead")) $("journalLead").textContent = verdict.sub;
+    if ($("journalStateChip")) {
+      $("journalStateChip").textContent = verdict.headline;
+      $("journalStateChip").className = `state-chip ${verdict.tone}`;
+    }
 
     const signature = [connection.kind, verdict.headline, verdict.sub, verdict.reason].join("|");
     if (renderedOnce && announceConnection && lastConnectionSignature !== signature) {
@@ -200,7 +110,8 @@
   async function runSiteAction(action) {
     clearAnnouncement();
     if (action.id === "remove-site") {
-      const result = await cmd({ cmd: "removeSite", host: action.host });
+      const origin = action.origin || (action.host.startsWith("http") ? action.host : `https://${action.host}`);
+      const result = await cmd({ cmd: "removeGrantedOrigin", origin });
       await refresh({ announceConnection: false });
       if (result.error) showActionError(result.error);
       else announce(`removed ${action.host}.`, "ok");
@@ -217,8 +128,16 @@
 
   function renderSites() {
     const list = $("siteList");
+    if (!list) return;
     list.replaceChildren();
-    const allowlist = Array.isArray(state && state.allowlist) ? state.allowlist : [];
+    const allowlist = Array.isArray(state && state.allowlist)
+      ? state.allowlist
+      : Array.isArray(state && state.grantedOrigins)
+      ? state.grantedOrigins.map((o) => {
+          try { return new URL(o).host; } catch (_e) { return o; }
+        })
+      : [];
+
     for (const entry of allowlist) {
       const rowState = Status.siteRowState(entry, Object.assign({}, state, {
         matchHost: Hosts.matchHostFor(entry),
@@ -260,27 +179,27 @@
 
   function closeDisclosure(confirmed) {
     if (!disclosureResolve) return;
-    $("siteDisclosure").hidden = true;
-    $("sitesMain").hidden = false;
+    if ($("siteDisclosure")) $("siteDisclosure").hidden = true;
+    if ($("sitesMain")) $("sitesMain").hidden = false;
     const resolve = disclosureResolve;
     disclosureResolve = null;
-    $("newHost").focus();
+    if ($("newHost")) $("newHost").focus();
     resolve(confirmed);
   }
 
   function presentDisclosure(host) {
     const copy = Disclosure.addSite(host, state);
-    $("siteDisclosureTitle").textContent = copy.title;
-    $("siteDisclosureWhat").textContent = copy.whatSolTakesIn;
-    $("siteDisclosureUnsent").textContent = copy.unsentText;
-    $("siteDisclosureDestination").textContent = copy.destination.label;
-    $("siteDisclosureDestinationDetail").textContent = copy.destination.detail;
-    $("siteDisclosureChrome").textContent = copy.whatChromeDoes;
-    $("siteDisclosureConfirm").textContent = copy.confirmLabel;
-    $("siteDisclosureCancel").textContent = copy.cancelLabel;
-    $("sitesMain").hidden = true;
-    $("siteDisclosure").hidden = false;
-    $("siteDisclosureConfirm").focus();
+    if ($("siteDisclosureTitle")) $("siteDisclosureTitle").textContent = copy.title;
+    if ($("siteDisclosureWhat")) $("siteDisclosureWhat").textContent = copy.whatSolTakesIn;
+    if ($("siteDisclosureUnsent")) $("siteDisclosureUnsent").textContent = copy.unsentText;
+    if ($("siteDisclosureDestination")) $("siteDisclosureDestination").textContent = copy.destination.label;
+    if ($("siteDisclosureDestinationDetail")) $("siteDisclosureDestinationDetail").textContent = copy.destination.detail;
+    if ($("siteDisclosureChrome")) $("siteDisclosureChrome").textContent = copy.whatChromeDoes;
+    if ($("siteDisclosureConfirm")) $("siteDisclosureConfirm").textContent = copy.confirmLabel;
+    if ($("siteDisclosureCancel")) $("siteDisclosureCancel").textContent = copy.cancelLabel;
+    if ($("sitesMain")) $("sitesMain").hidden = true;
+    if ($("siteDisclosure")) $("siteDisclosure").hidden = false;
+    if ($("siteDisclosureConfirm")) $("siteDisclosureConfirm").focus();
     return new Promise((resolve) => {
       disclosureResolve = resolve;
     });
@@ -288,35 +207,18 @@
 
   async function refresh(options = {}) {
     state = await cmd({ cmd: "getState" });
-    const preview = await cmd({ cmd: "getBufferedPreview" });
-    $("hostname").value = state.hostname || "";
-    $("segmentSec").value = state.segmentSec || 300;
-    $("showPageIndicator").checked = !!state.showPageIndicator;
-    $("ver").textContent = state.version ? `v${state.version}` : "";
+    if ($("showPageIndicator")) $("showPageIndicator").checked = !!state.showPageIndicator;
+    if ($("ver")) $("ver").textContent = state.version ? `v${state.version}` : "";
     renderFirstRun();
-    const rendered = renderJournal(preview, options.announceConnection !== false);
+    const rendered = renderJournal(options.announceConnection !== false);
     renderSites();
     renderedOnce = true;
     return rendered;
   }
 
-  async function saveConfig() {
-    clearAnnouncement();
-    const segmentSec = Number.parseInt($("segmentSec").value, 10);
-    if (Number.isNaN(segmentSec) || segmentSec < 30) {
-      announce("minimum 30 seconds", "bad");
-      return;
-    }
-
-    const hostname = $("hostname").value;
-    await cmd({ cmd: "setConfig", hostname, segmentSec });
-    await refresh({ announceConnection: false });
-    announce("settings saved.", "ok");
-  }
-
   async function addSite() {
     clearAnnouncement();
-    const raw = $("newHost").value;
+    const raw = $("newHost") ? $("newHost").value : "";
     if (!Hosts.isValidHostInput(raw)) {
       announce("enter a site like mail.google.com", "bad");
       return;
@@ -324,90 +226,42 @@
     const host = normHost(raw);
     const result = await View.addSite(host, Object.assign(siteEffects(), { disclose: presentDisclosure }));
     if (result.cancelled) return;
-    if (result.ok) $("newHost").value = "";
+    if (result.ok && $("newHost")) $("newHost").value = "";
     await refresh({ announceConnection: false });
-    $("newHost").focus();
+    if ($("newHost")) $("newHost").focus();
     if (result.denied) announce("permission declined. nothing added.", "bad");
     else if (result.error) showActionError(result.error);
     else if (result.ok) announce(`added ${host}. open or reload a tab on it to begin.`, "ok");
     else announce("could not add the site.", "bad");
   }
 
-  async function pairRemote() {
-    clearAnnouncement();
-    const link = $("pairLink").value.trim();
-    let parsed;
-    try {
-      parsed = Pairlink.parseLink(link);
-    } catch (_error) {
-      announce("paste a valid pair link.", "bad");
-      return;
-    }
-    const origin = Hosts.permissionOriginForUrl(parsed.relayOrigin);
-    const intent = await cmd({ cmd: "relayIntent", relayOrigin: parsed.relayOrigin });
-    if (!intent.ok) {
-      announce("could not prepare relay permission.", "bad");
-      return;
-    }
-    let granted;
-    try {
-      granted = await chrome.permissions.request({ origins: [origin] });
-    } catch (_error) {
-      await cmd({ cmd: "relayIntentClear" });
-      announce("could not request relay permission.", "bad");
-      return;
-    }
-    if (!granted) {
-      await cmd({ cmd: "relayIntentClear" });
-      announce("permission declined. your home was not paired.", "bad");
-      return;
-    }
-    const result = await cmd({ cmd: "pairRemote", link });
-    if (result.ok) $("pairLink").value = "";
-    await refresh({ announceConnection: false });
-    if (result.ok) announce("paired to your home.", "ok");
-    else showActionError(result.error || "pairing failed");
+  if ($("firstRunChange")) {
+    $("firstRunChange").addEventListener("click", () => {
+      if ($("newHost")) $("newHost").focus();
+    });
   }
 
-  $("firstRunChange").addEventListener("click", () => {
-    $("pairLink").focus();
-  });
+  if ($("showPageIndicator")) {
+    $("showPageIndicator").addEventListener("change", async () => {
+      await cmd({ cmd: "setConfig", showPageIndicator: $("showPageIndicator").checked });
+    });
+  }
 
-  $("connForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await saveConfig();
-  });
-  $("flushBtn").addEventListener("click", async () => {
-    clearAnnouncement();
-    const result = await cmd({ cmd: "flushNow" });
-    const rendered = await refresh({ announceConnection: false });
-    if (result.outcome === "queued" && rendered.connection.consequence) announce(rendered.connection.consequence);
-    else if (result.outcome === "queued") announce("kept here, waiting to sync.");
-    else if (result.outcome === "failed") showActionError((state.health && state.health.lastError) || result.error || "send failed");
-    else announce("nothing waiting.");
-  });
-  $("showPageIndicator").addEventListener("change", async () => {
-    await cmd({ cmd: "setConfig", showPageIndicator: $("showPageIndicator").checked });
-  });
-  $("addForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await addSite();
-  });
-  $("pairForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await pairRemote();
-  });
-  $("unpairBtn").addEventListener("click", async () => {
-    clearAnnouncement();
-    const result = await cmd({ cmd: "unpairRemote" });
-    await refresh({ announceConnection: false });
-    if (result.error) showActionError(result.error);
-    else announce("unpaired.", "ok");
-  });
-  $("siteDisclosureConfirm").addEventListener("click", () => closeDisclosure(true));
-  $("siteDisclosureCancel").addEventListener("click", () => closeDisclosure(false));
+  if ($("addForm")) {
+    $("addForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await addSite();
+    });
+  }
+
+  if ($("siteDisclosureConfirm")) {
+    $("siteDisclosureConfirm").addEventListener("click", () => closeDisclosure(true));
+  }
+  if ($("siteDisclosureCancel")) {
+    $("siteDisclosureCancel").addEventListener("click", () => closeDisclosure(false));
+  }
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !$("siteDisclosure").hidden) closeDisclosure(false);
+    if (event.key === "Escape" && $("siteDisclosure") && !$("siteDisclosure").hidden) closeDisclosure(false);
   });
 
   globalThis.SolstoneOptions = { refresh };

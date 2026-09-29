@@ -35,16 +35,17 @@
     try {
       const parsed = new URL(url);
       return {
+        origin: parsed.origin,
         host: parsed.host,
         ok: parsed.protocol === "http:" || parsed.protocol === "https:",
       };
     } catch (_error) {
-      return { host: "", ok: false };
+      return { origin: "", host: "", ok: false };
     }
   }
 
   let state = null;
-  let page = { host: "", ok: false };
+  let page = { origin: "", host: "", ok: false };
   let disclosureResolve = null;
 
   function showActionMessage(message) {
@@ -53,18 +54,6 @@
 
   function showActionError(error) {
     showActionMessage(Failures.classify(error));
-  }
-
-  async function tryNow() {
-    showActionMessage("");
-    await cmd({ cmd: "probe" });
-    await refresh();
-  }
-
-  async function dismiss() {
-    showActionMessage("");
-    await cmd({ cmd: "clearDropped" });
-    await refresh();
   }
 
   function openSettings() {
@@ -77,8 +66,8 @@
   }
 
   const ACTION = {
-    "try-now": tryNow,
-    dismiss: dismiss,
+    "try-now": openSettings,
+    "dismiss": openSettings,
     "open-settings": openSettings,
     "set-up": setUp,
   };
@@ -115,7 +104,8 @@
   async function runSiteAction(action) {
     showActionMessage("");
     if (action.id === "remove-site") {
-      const result = await cmd({ cmd: "removeSite", host: action.host });
+      const origin = action.origin || (action.host.startsWith("http") ? action.host : `https://${action.host}`);
+      const result = await cmd({ cmd: "removeGrantedOrigin", origin });
       if (result.error) showActionError(result.error);
     } else if (action.id === "allow-site") {
       const result = await View.grantSite(action.host, siteEffects());
@@ -155,12 +145,13 @@
   async function runPageSiteAction(action) {
     showActionMessage("");
     if (action.id === "remove-site") {
-      const result = await cmd({ cmd: "removeSite", host: page.host });
+      const origin = page.origin || `https://${page.host}`;
+      const result = await cmd({ cmd: "removeGrantedOrigin", origin });
       if (result.error) showActionError(result.error);
       await refresh();
       return;
     }
-    const result = await View.addSite(page.host, Object.assign(siteEffects(), {
+    const result = await View.addSite(page.origin || page.host, Object.assign(siteEffects(), {
       disclose: presentDisclosure,
     }));
     if (result.cancelled) return;
@@ -230,9 +221,15 @@
   async function refresh() {
     state = await cmd({ cmd: "getState" });
     const tab = await currentTab();
-    const current = tab && tab.url ? originFor(tab.url) : { host: "", ok: false };
-    page = { host: current.host, ok: current.ok };
-    const allowlist = Array.isArray(state.allowlist) ? state.allowlist : [];
+    const current = tab && tab.url ? originFor(tab.url) : { origin: "", host: "", ok: false };
+    page = { origin: current.origin, host: current.host, ok: current.ok };
+    const allowlist = Array.isArray(state.allowlist)
+      ? state.allowlist
+      : Array.isArray(state.grantedOrigins)
+      ? state.grantedOrigins.map((o) => {
+          try { return new URL(o).host; } catch (_e) { return o; }
+        })
+      : [];
     const entryMatchHosts = Object.fromEntries(allowlist.map((h) => [h, SolstoneHosts.matchHostFor(h)]));
     const verdict = Status.verdict(state, {
       activeSites: state.activeSites,

@@ -73,7 +73,7 @@ test("options keeps technical journal details behind the details disclosure", ()
   }
   assert.match(details, /<summary id="journalDetailsSummary">journal details<\/summary>/);
   assert.doesNotMatch(html, /\btitle=/);
-  assert.match(optionsSource, /Failures\.classify\(health\.lastError, health\.lastStatus\)/);
+  assert.match(optionsSource, /Failures\.classify\(error, status\)/);
 });
 
 test("options applies the shared accessibility and color layer", () => {
@@ -95,9 +95,7 @@ test("options applies the shared accessibility and color layer", () => {
 
 test("options source fixes the predicates, destination state, and install opening", () => {
   assert.match(optionsSource, /allowlist\.length !== 0/);
-  assert.match(optionsSource, /row\.hidden = total === 0/);
-  assert.match(optionsSource, /loss\.hidden = Number\(dropped\.segments \|\| 0\) <= 0/);
-  assert.match(optionsSource, /firstRunChange"\)\.addEventListener\("click", \(\) => \{\s*\$?\("pairLink"\)\.focus\(\)/);
+  assert.match(optionsSource, /firstRunChange"\)\.addEventListener\("click", \(\) => \{\s*if \(\$\("newHost"\)\) \$\("newHost"\)\.focus\(\)/);
   assert.doesNotMatch(optionsSource, /selectedDestination|showDestination|renderDestination|destinationOverride/);
   assert.match(optionsSource, /Disclosure\.addSite\(host, state\)/);
   assert.match(optionsSource, /disclose: presentDisclosure/);
@@ -182,22 +180,11 @@ function optionsState(overrides = {}) {
   }, overrides);
 }
 
-function bufferedPreview(overrides = {}) {
-  return Object.assign({
-    ok: true,
-    totalLines: 0,
-    perHost: [],
-    waiting: 0,
-    outbox: { entries: 0, lines: 0 },
-    dropped: { segments: 0, lines: 0 },
-  }, overrides);
-}
-
 function descendantText(node) {
   return [node.textContent, ...node.children.flatMap((child) => descendantText(child))].join(" ");
 }
 
-test("the options binder drives pair-only settings, disclosure, details, waiting, and loss", async () => {
+test("the options binder drives settings, disclosure, details, and site management", async () => {
   const ids = [
     "actionMessage", "firstRun", "firstRunHeading", "firstRunComposition", "firstRunCovenant",
     "firstRunScope", "firstRunWhat", "firstRunUnsent", "firstRunNever", "firstRunAbsolutes", "firstRunDestination",
@@ -222,9 +209,7 @@ test("the options binder drives pair-only settings, disclosure, details, waiting
   };
 
   let liveState = optionsState();
-  let preview = bufferedPreview();
   let permissionRequests = 0;
-  let siteIntentResult = { ok: true, added: true };
   const sent = [];
   const actionOrder = [];
   globalThis.chrome = {
@@ -232,23 +217,18 @@ test("the options binder drives pair-only settings, disclosure, details, waiting
       sendMessage(message, callback) {
         sent.push(message);
         if (message.cmd === "getState") callback(liveState);
-        else if (message.cmd === "getBufferedPreview") callback(preview);
         else if (message.cmd === "setConfig") {
           liveState = optionsState(Object.assign({}, liveState, {
-            hostname: typeof message.hostname === "string" ? message.hostname : liveState.hostname,
-            segmentSec: typeof message.segmentSec === "number" ? message.segmentSec : liveState.segmentSec,
+            showPageIndicator: message.showPageIndicator,
           }));
           callback({ ok: true });
-        } else if (message.cmd === "siteIntent") {
-          actionOrder.push("siteIntent");
-          callback(siteIntentResult);
-        } else if (message.cmd === "siteGranted") {
-          actionOrder.push("siteGranted");
-          liveState = optionsState({ allowlist: [message.host], activeSites: [message.host] });
+        } else if (message.cmd === "addGrantedOrigin") {
+          actionOrder.push("addGrantedOrigin");
+          liveState = optionsState({ allowlist: ["mail.google.com"], activeSites: ["mail.google.com"] });
           callback({ ok: true });
-        } else if (message.cmd === "clearDropped") {
-          preview = bufferedPreview();
-          liveState = optionsState({ allowlist: liveState.allowlist });
+        } else if (message.cmd === "removeGrantedOrigin") {
+          actionOrder.push("removeGrantedOrigin");
+          liveState = optionsState({ allowlist: [], activeSites: [] });
           callback({ ok: true });
         } else callback({ ok: true });
       },
@@ -264,7 +244,6 @@ test("the options binder drives pair-only settings, disclosure, details, waiting
 
   await import(new URL("../extension/lib/hosts.js", import.meta.url));
   await import(new URL("../extension/lib/status.js", import.meta.url));
-  await import(new URL("../extension/lib/pairlink.js", import.meta.url));
   await import(new URL("../extension/lib/failures.js", import.meta.url));
   await import(new URL("../extension/lib/disclosure.js", import.meta.url));
   await import(new URL("../extension/lib/popup_view.js", import.meta.url));
@@ -275,86 +254,25 @@ test("the options binder drives pair-only settings, disclosure, details, waiting
   assert.equal(nodes.firstRun.hidden, false);
   assert.equal(nodes.firstRunDestination.textContent, expectedDisclosure.destination.label);
   assert.equal(nodes.firstRunDestinationDetail.textContent, expectedDisclosure.destination.detail);
-  assert.equal(nodes.waitingRow.hidden, true);
-  assert.equal(nodes.lossDetail.hidden, true);
   assert.equal(nodes.actionMessage.textContent, "");
 
   nodes.firstRunChange.listeners.click();
-  assert.equal(nodes.pairLink.focusCount, 1);
-
-  const instanceId = "instance-8cf0e2";
-  const relayOrigin = "https://relay.example";
-  liveState = optionsState({
-    remote: { paired: true, pending: false, instanceId, relayOrigin, pairedAt: 10 },
-  });
-  await globalThis.SolstoneOptions.refresh();
-  expectedDisclosure = globalThis.SolstoneDisclosure.firstRun(liveState);
-  assert.equal(nodes.firstRunDestination.textContent, expectedDisclosure.destination.label);
-  assert.equal(nodes.firstRunDestinationDetail.textContent, expectedDisclosure.destination.detail);
-  assert.match(descendantText(nodes.pairInstanceId), new RegExp(instanceId));
-  assert.match(descendantText(nodes.pairRelayOrigin), new RegExp(relayOrigin));
-  for (const id of ["journalLead", "journalStateChip", "hostname", "segmentSec"]) {
-    assert.doesNotMatch(descendantText(nodes[id]), new RegExp(`${instanceId}|${relayOrigin}`), id);
-  }
-
-  nodes.hostname.value = "remote-laptop";
-  nodes.segmentSec.value = "120";
-  let permissionsBefore = permissionRequests;
-  let sentBefore = sent.length;
-  await nodes.connForm.listeners.submit({ preventDefault() {} });
-  assert.equal(permissionRequests, permissionsBefore, "settings save does not request relay or site permission");
-  assert.deepEqual(
-    sent.slice(sentBefore).find((message) => message.cmd === "setConfig"),
-    { cmd: "setConfig", hostname: "remote-laptop", segmentSec: 120 },
-  );
-  assert.equal(sent.slice(sentBefore).some((message) => message.cmd === "probe"), false);
-  assert.equal(nodes.actionMessage.textContent, "settings saved.");
-  assert.equal(nodes.actionMessage.className, "action-message ok");
-
-  nodes.segmentSec.value = "29";
-  await nodes.connForm.listeners.submit({ preventDefault() {} });
-  assert.equal(nodes.actionMessage.textContent, "minimum 30 seconds");
-  assert.equal(nodes.actionMessage.className, "action-message bad", "failures use a distinct action-message tone");
+  assert.equal(nodes.newHost.focusCount, 1);
 
   liveState = optionsState({ allowlist: ["mail.google.com"], activeSites: ["mail.google.com"] });
   await globalThis.SolstoneOptions.refresh();
   assert.equal(nodes.firstRun.hidden, true, "the allowlist alone ends first run");
 
-  preview = bufferedPreview({
-    waiting: 3,
-    perHost: [{ host: "mail.google.com", count: 2, texts: ["inbox", "message"] }],
-    dropped: { segments: 1, lines: 7 },
-  });
-  liveState = optionsState({
-    allowlist: ["mail.google.com"],
-    waiting: 3,
-    dropped: { segments: 1, lines: 7 },
-  });
-  await globalThis.SolstoneOptions.refresh();
-  assert.equal(nodes.waitingRow.hidden, false);
-  assert.match(descendantText(nodes.waitingPreview), /3 updates waiting to sync\./);
-  assert.equal(nodes.lossDetail.hidden, false);
-  assert.match(descendantText(nodes.lossDetail), /some updates couldn't be kept/);
-  assert.match(descendantText(nodes.lossDetail), /7 updates/);
-  assert.equal(nodes.lossDetail.children.at(-1).textContent, "dismiss");
-
-  preview = bufferedPreview();
-  liveState = optionsState();
-  await globalThis.SolstoneOptions.refresh();
-  assert.equal(nodes.waitingRow.hidden, true);
-  assert.equal(descendantText(nodes.waitingPreview).trim(), "");
-  assert.equal(nodes.lossDetail.hidden, true);
-
   nodes.newHost.value = "mail.google.com";
-  permissionsBefore = permissionRequests;
-  sentBefore = sent.length;
+  let permissionsBefore = permissionRequests;
+  let sentBefore = sent.length;
   let pending = nodes.addForm.listeners.submit({ preventDefault() {} });
   assert.equal(nodes.siteDisclosure.hidden, false);
   nodes.siteDisclosureCancel.listeners.click();
   await pending;
   assert.equal(permissionRequests, permissionsBefore);
-  assert.equal(sent.slice(sentBefore).some((message) => message.cmd === "siteIntent"), false);
-  assert.equal(nodes.newHost.focusCount, 1);
+  assert.equal(sent.slice(sentBefore).some((message) => message.cmd === "addGrantedOrigin"), false);
+  assert.equal(nodes.newHost.focusCount, 2);
 
   sentBefore = sent.length;
   pending = nodes.addForm.listeners.submit({ preventDefault() {} });
@@ -362,8 +280,8 @@ test("the options binder drives pair-only settings, disclosure, details, waiting
   documentListeners.keydown({ key: "Escape" });
   await pending;
   assert.equal(permissionRequests, permissionsBefore);
-  assert.equal(sent.slice(sentBefore).some((message) => message.cmd === "siteIntent"), false);
-  assert.equal(nodes.newHost.focusCount, 2);
+  assert.equal(sent.slice(sentBefore).some((message) => message.cmd === "addGrantedOrigin"), false);
+  assert.equal(nodes.newHost.focusCount, 3);
 
   actionOrder.length = 0;
   pending = nodes.addForm.listeners.submit({ preventDefault() {} });
@@ -371,22 +289,10 @@ test("the options binder drives pair-only settings, disclosure, details, waiting
   assert.equal(permissionRequests, permissionsBefore, "permission is unreachable before confirmation");
   nodes.siteDisclosureConfirm.listeners.click();
   await pending;
-  assert.deepEqual(actionOrder, ["siteIntent", "permission", "siteGranted"]);
+  assert.deepEqual(actionOrder, ["permission", "addGrantedOrigin"]);
   assert.equal(permissionRequests, permissionsBefore + 1);
-  assert.equal(nodes.newHost.focusCount, 4, "confirmation restores focus before and after refresh");
+  assert.equal(nodes.newHost.focusCount, 5, "confirmation restores focus before and after refresh");
   assert.equal(nodes.newHost.value, "", "a successful add clears the host");
-
-  siteIntentResult = { ok: false };
-  nodes.newHost.value = "calendar.google.com";
-  permissionsBefore = permissionRequests;
-  actionOrder.length = 0;
-  pending = nodes.addForm.listeners.submit({ preventDefault() {} });
-  nodes.siteDisclosureConfirm.listeners.click();
-  await pending;
-  assert.deepEqual(actionOrder, ["siteIntent"]);
-  assert.equal(permissionRequests, permissionsBefore);
-  assert.equal(nodes.newHost.value, "calendar.google.com", "a failed add preserves the host");
-  assert.equal(nodes.actionMessage.className, "action-message bad");
 
   nodes.actionMessage.textContent = "";
   liveState = optionsState({

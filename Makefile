@@ -3,37 +3,29 @@
 #
 # The shipped extension has zero runtime dependencies: it is plain MV3 and
 # loads no npm or network code. `make test` remains dependency-free; `make ci`
-# installs locked dev dependencies for real-IDB and vendor-reproducibility checks.
-# The CDP skim smoke needs a real Chrome. The
-# `e2e` target is the agentic integration harness — it drives the live
-# content-script -> service-worker -> relay path under Playwright new-headless
-# (dev-only dependency; the shipped extension stays dependency-free). See
-# INSTALL.md / test/GUIDED.md / AGENTS.md.
+# installs locked dev dependencies for real-IDB checks.
+# The CDP skim smoke needs a real Chrome.
 
-.PHONY: install test test-idb verify-vendor-hpke ci format brand-sync clean smoke popup-check e2e e2e-deps dist cws cws-status cws-stage cws-publish-staged cws-cancel package-check set-version
+.PHONY: install test test-idb ci format brand-sync clean smoke popup-check e2e-deps dist cws cws-status cws-stage cws-publish-staged cws-cancel package-check set-version
 
 # Install locked development tools. Nothing from node_modules ships in extension/.
 install:
 	npm ci
 
-# Pure-logic unit tests: diff/delta/JSONL, ARIA role->type, host slugging, adapters.
+# Pure-logic unit tests: diff/delta, ARIA role->type, host slugging, adapters, native messaging.
 test:
 	npm test
 
 test-idb:
 	npm run test:idb
 
-verify-vendor-hpke:
-	node scripts/verify-vendor-hpke.mjs
-
-# Ordered pre-commit gate: locked install, pure units, real IDB, deterministic
-# vendored-HPKE verification, native-browser frame tests, and contract drift check.
+# Ordered pre-commit gate: locked install, pure units, real IDB,
+# native-browser frame tests, and contract drift check.
 # No formatter or linter is wired yet.
 ci:
 	npm ci
 	npm test
 	npm run test:idb
-	node scripts/verify-vendor-hpke.mjs
 	cargo test -p native-browser-frame
 	node scripts/check-native-browser.mjs
 
@@ -79,16 +71,10 @@ smoke:
 popup-check:
 	npm run popup-check
 
-# One-time browser download for the agentic e2e harness (the extension-capable
-# Chromium build Playwright's `channel:'chromium'` selects).
+# One-time browser download for Playwright tests
 e2e-deps:
 	npm install
 	npx playwright install chromium
-
-# Agentic integration harness: content script -> service worker -> relay, under
-# Playwright new-headless (no display). Run `make e2e-deps` once first.
-e2e:
-	npm run e2e
 
 # Build a clean, versioned, installable artifact into dist/ (gated on make ci).
 # Produces the Load-unpacked directory plus unmistakable -dev.zip and -cws.zip

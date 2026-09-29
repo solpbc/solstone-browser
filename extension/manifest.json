@@ -4,11 +4,46 @@
   "name": "solstone",
   "version": "0.2.0",
   "description": "the solstone app takes in what you share with it on added sites. rendered text and rough layout go into your journal, never pixels.",
-  "minimum_chrome_version": "120",
-  "permissions": ["storage", "unlimitedStorage", "alarms", "scripting", "activeTab"],
+  "minimum_chrome_version": "121",
+  "incognito": "not_allowed",
+  "permissions": ["storage", "unlimitedStorage", "alarms", "scripting", "activeTab", "nativeMessaging"],
   "optional_host_permissions": ["*://*/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'none'"
+  },
   "background": {
+    "scripts": [
+      "native-browser/constants.js",
+      "native-browser/schemas.js",
+      "native-browser/schema-validator.js",
+      "native-browser/codec.js",
+      "lib/uuid.js",
+      "lib/db.js",
+      "lib/blocks.js",
+      "lib/hosts.js",
+      "lib/failures.js",
+      "lib/reconcile.js",
+      "lib/segment.js",
+      "lib/gate.js",
+      "lib/native_outbox.js",
+      "lib/native_port.js",
+      "lib/router.js",
+      "background.js"
+    ],
     "service_worker": "background.js"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "browser.dev@solstone.app",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "websiteContent",
+          "browsingActivity",
+          "personalCommunications"
+        ]
+      }
+    }
   },
   "action": {
     "default_popup": "popup.html",

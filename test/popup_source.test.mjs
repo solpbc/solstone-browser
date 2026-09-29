@@ -89,7 +89,7 @@ test("the empty loss block and its competing predicates are gone", () => {
 test("the page add binding routes through the disclosure-gated add flow", () => {
   assert.match(
     popupSource,
-    /View\.addSite\(page\.host,\s*Object\.assign\(siteEffects\(\),\s*\{\s*disclose:\s*presentDisclosure,/s,
+    /View\.addSite\((?:page\.origin \|\| )?page\.host,\s*Object\.assign\(siteEffects\(\),\s*\{\s*disclose:\s*presentDisclosure,?/s,
   );
 });
 
@@ -169,7 +169,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   let optionsOpened = 0;
   const sent = [];
   const mutationCommands = (messages) => messages.filter(
-    (message) => ["siteIntent", "siteGranted", "removeSite"].includes(message.cmd),
+    (message) => ["addGrantedOrigin", "removeGrantedOrigin"].includes(message.cmd),
   );
   globalThis.chrome = {
     runtime: {
@@ -259,12 +259,9 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   const rawRegistrationError = "Cannot access contents of url https://mail.google.com/";
   let pauseError = "";
   handleCommand = (message) => {
-    if (message.cmd === "siteIntent") {
-      liveState = popupState({ allowlist: [message.host], activeSites: [] });
-      return { ok: true, added: true };
-    }
-    if (message.cmd === "siteGranted") {
-      liveState.siteErrors[message.host] = rawRegistrationError;
+    if (message.cmd === "addGrantedOrigin") {
+      liveState = popupState({ allowlist: ["mail.google.com"], activeSites: [] });
+      liveState.siteErrors["mail.google.com"] = rawRegistrationError;
       return { ok: false, error: rawRegistrationError };
     }
     if (message.cmd === "setPaused") {

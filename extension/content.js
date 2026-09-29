@@ -1,79 +1,126 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
-//
-// content.js — the per-tab observer. Runs in every granted-origin frame. It
-// picks the adapter, optionally shows the on-page marker, skims the visible
-// content, and relays the current block list to the service worker on load and
-// whenever the page settles after a change. All segmenting / diffing / upload
-// lives in the worker; this stays a thin, change-gated producer.
-//
-// Loaded after blocks.js, adapters.js, skim.js, indicator.js (see the
-// registered content-script `js` order in background.js).
 
 (function () {
   "use strict";
 
-  const B = globalThis.SolstoneBlocks;
   const A = globalThis.SolstoneAdapters;
   const Skim = globalThis.SolstoneSkim;
   const Indicator = globalThis.SolstoneIndicator;
+  const Gate = globalThis.SolstoneCaptureGate;
 
-  const host = location.host;
-  const adapter = A.adapterForHost(host);
+  const realmTokenBytes = new Uint8Array(16);
+  crypto.getRandomValues(realmTokenBytes);
+  const REALM_TOKEN = [...realmTokenBytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+
   const DEBOUNCE_MS = 500;
-  // A stable context id for THIS page instance (this tab's this load). Unique per
-  // page so two tabs of the same host never collide, and a reload starts a fresh
-  // context. The worker keys diff-state by this and tags every line with it.
-  const CTX = "c" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
+  let lease = null;
   let paused = false;
+  let consentVersion = 0;
+  let originGranted = false;
   let showIndicator = false;
+  let hostCapture = "unavailable";
+  let phase = "closed-start";
+  let adapter = null;
   let observer = null;
   let debounceTimer = null;
   let rootEl = null;
   let started = false;
 
-  function meta() {
-    return { url: B.originPath(location.href), title: document.title, adapter: adapter.name };
+  function now() {
+    return typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+  }
+
+  function getDecision() {
+    return Gate.computeDecision({
+      lease,
+      paused,
+      consentVersion,
+      originGranted,
+      hostCapture,
+      phase,
+      now: now(),
+    });
+  }
+
+  function getHooks() {
+    return {
+      discover: () => {
+        if (!adapter) adapter = A.adapterForHost(location.host);
+        return A.pickRoot(adapter, document);
+      },
+      readMeta: () => {
+        if (!adapter) adapter = A.adapterForHost(location.host);
+        return {
+          title: document.title,
+          adapter: adapter.name,
+        };
+      },
+      skim: (targetRoot) => {
+        if (!adapter) adapter = A.adapterForHost(location.host);
+        return Skim.skim(targetRoot, adapter);
+      },
+    };
   }
 
   function send(msg) {
     try {
-      chrome.runtime.sendMessage(Object.assign({ site: host, ctx: CTX }, msg), () => void chrome.runtime.lastError);
+      chrome.runtime.sendMessage(Object.assign({ realmToken: REALM_TOKEN }, msg), () => void chrome.runtime.lastError);
     } catch (_e) {
-      // worker asleep / context invalidated — next settle will retry
+      /* worker asleep / context invalidated */
     }
   }
 
   function doSkim(reason) {
-    if (paused || !rootEl) return;
-    let blocks;
-    try {
-      blocks = Skim.skim(rootEl, adapter);
-    } catch (e) {
-      send({ kind: "error", reason: String(e && e.message) });
-      return;
-    }
-    send({ kind: "skim", reason, meta: meta(), blocks });
+    const decision = getDecision();
+    const executed = Gate.runIfPermitted(decision, {
+      readMeta: getHooks().readMeta,
+      skim: () => {
+        if (!rootEl) {
+          if (!adapter) adapter = A.adapterForHost(location.host);
+          rootEl = A.pickRoot(adapter, document);
+        }
+        if (!rootEl) return null;
+        return Skim.skim(rootEl, adapter);
+      },
+    });
+
+    if (!executed || !executed.blocks) return;
+    send({ kind: "skim", reason, meta: executed.meta, blocks: executed.blocks });
   }
 
   function scheduleSkim() {
-    if (paused) return;
     clearTimeout(debounceTimer);
-    // requestIdleCallback keeps the walk's per-element checkVisibility/getClientRects layout work off the hot path
     debounceTimer = setTimeout(() => {
-      if (typeof requestIdleCallback === "function") requestIdleCallback(() => doSkim("change"), { timeout: 1000 });
-      else doSkim("change");
+      if (typeof requestIdleCallback === "function") {
+        requestIdleCallback(() => {
+          doSkim("change");
+        }, { timeout: 1000 });
+      } else {
+        doSkim("change");
+      }
     }, DEBOUNCE_MS);
   }
 
   function startObserving() {
-    if (paused) return;
-    rootEl = A.pickRoot(adapter, document);
-    if (!rootEl) return;
+    const decision = getDecision();
+    const discovered = Gate.runIfPermitted(decision, {
+      discover: getHooks().discover,
+    });
+    if (!discovered || !discovered.root) return;
+    rootEl = discovered.root;
+
     if (observer) observer.disconnect();
     observer = new MutationObserver(scheduleSkim);
-    observer.observe(rootEl, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["aria-label", "aria-level", "role"] });
+    observer.observe(rootEl, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["aria-label", "aria-level", "role"],
+    });
+
     if (showIndicator) Indicator.show(false);
     doSkim("initial");
   }
@@ -84,94 +131,128 @@
     clearTimeout(debounceTimer);
   }
 
-  function setPaused(p) {
-    paused = p;
-    if (paused) {
-      stopObserving();
-      if (showIndicator) Indicator.show(true);
+  function handleLeaseUpdate(newLease, newPaused, newConsentVersion, grantedOriginsList, newShowIndicator, newHostCapture) {
+    if (newLease) {
+      lease = {
+        token: newLease.token,
+        generation: newLease.generation,
+        freshnessMs: newLease.freshnessMs,
+        receivedAt: now(),
+      };
     } else {
-      startObserving();
+      lease = null;
+    }
+    if (typeof newPaused === "boolean") paused = newPaused;
+    if (typeof newConsentVersion === "number") consentVersion = newConsentVersion;
+    originGranted = Array.isArray(grantedOriginsList) && grantedOriginsList.includes(location.origin);
+    if (typeof newShowIndicator === "boolean") showIndicator = newShowIndicator;
+    if (typeof newHostCapture === "string") hostCapture = newHostCapture;
+
+    phase = "running";
+
+    const decision = getDecision();
+    if (decision.open) {
+      if (!observer && !rootEl) waitForRoot();
+      else if (!observer && rootEl) startObserving();
+    } else {
+      stopObserving();
+      if (showIndicator && paused) Indicator.show(true);
+      else if (!showIndicator) Indicator.remove();
     }
   }
 
-  // Boot: self-gate against the allowlist (the content script is registered for
-  // the port-less hostname, so a tab at a non-allowlisted host:port must stay
-  // dormant), then announce, learn the paused state, and wait for the SPA root.
-  function boot() {
-    if (started) return;
-    started = true;
-    try {
-      chrome.storage.local.get("cfg", (r) => {
-        const cfg = (r && r.cfg) || {};
-        const allow = cfg.allowlist || [];
-        const Hosts = globalThis.SolstoneHosts;
-        if (Hosts && !Hosts.hostAllowed(location.host, allow)) {
-          return; // this exact host:port isn't observed — no indicator, no skim
-        }
-        paused = !!cfg.paused;
-        showIndicator = !!cfg.showPageIndicator;
-        send({ kind: "hello", meta: meta() });
-        if (showIndicator) Indicator.show(paused);
-        waitForRoot();
-      });
-    } catch (_e) {
-      // storage unavailable — fail closed (do not observe)
-    }
-  }
-
-  // SPAs mount their content root after load; poll briefly for it.
   function waitForRoot() {
     let tries = 0;
-    const iv = setInterval(() => {
+    let iv = null;
+    iv = setInterval(() => {
       tries++;
-      const r = A.pickRoot(adapter, document);
+      const decision = getDecision();
+      const discovered = Gate.runIfPermitted(decision, {
+        discover: getHooks().discover,
+      });
+      const r = discovered && discovered.root;
       const ready = r && (r.tagName !== "BODY" || r.children.length > 0);
       if (ready) {
-        clearInterval(iv);
-        if (!paused) startObserving();
-        else if (showIndicator) Indicator.show(true);
-      } else if (tries > 40) {
-        clearInterval(iv); // ~20s; give up quietly, leave indicator
+        if (iv !== null) clearInterval(iv);
+        rootEl = r;
+        startObserving();
+      } else if (tries > 40 || !decision.open) {
+        if (iv !== null) clearInterval(iv);
       }
     }, 500);
   }
 
-  // Worker -> content messages (pause toggle, resnapshot nudge).
-  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (!msg) return;
-    if (msg.kind === "setPaused") setPaused(!!msg.paused);
-    else if (msg.kind === "resnapshot") doSkim("segment-rotate");
-    else if (msg.kind === "stop") {
+  function boot() {
+    if (started) return;
+    started = true;
+    try {
+      chrome.runtime.sendMessage({ kind: "hello", realmToken: REALM_TOKEN }, (response) => {
+        if (!response || !response.ok) return;
+        handleLeaseUpdate(
+          response.lease,
+          response.paused,
+          response.consentVersion,
+          response.grantedOrigins,
+          response.showPageIndicator,
+          response.hostCapture
+        );
+      });
+    } catch (_e) {
+      /* ignore */
+    }
+  }
+
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (!msg || !sender) return false;
+    if (sender.id !== chrome.runtime.id || sender.tab) return false;
+
+    if (msg.kind === "leaseUpdate") {
+      handleLeaseUpdate(msg.lease, msg.paused, msg.consentVersion, msg.grantedOrigins, msg.showIndicator, msg.hostCapture);
+    } else if (msg.kind === "setPaused") {
+      paused = !!msg.paused;
+      const decision = getDecision();
+      if (decision.open) startObserving();
+      else stopObserving();
+      if (showIndicator) Indicator.show(paused);
+    } else if (msg.kind === "resnapshot") {
+      doSkim("change");
+    } else if (msg.kind === "stop") {
       stopObserving();
       Indicator.remove();
     } else if (msg.kind === "setIndicator") {
-      const Hosts = globalThis.SolstoneHosts;
-      if (Hosts && !Hosts.hostAllowed(location.host, msg.allowlist || [])) return false;
       showIndicator = !!msg.show;
       if (showIndicator) Indicator.show(paused);
       else Indicator.remove();
-    } else if (msg.kind === "ping") sendResponse({ ok: true, host, adapter: adapter.name });
+    } else if (msg.kind === "ping") {
+      sendResponse({ ok: true });
+    }
     return false;
   });
 
-  // Page Lifecycle resilience (per the research synthesis): flush a final skim
-  // before the tab is hidden/frozen so the worker buffers the latest before any
-  // freeze/discard; re-skim on resume / bfcache-restore. These are the reliable
-  // signals — never `unload`/`beforeunload` (deprecated + break bfcache).
   function flush(reason) {
-    if (!paused && rootEl) doSkim(reason);
+    doSkim(reason);
   }
+
   document.addEventListener("visibilitychange", () => {
-    if (paused) return;
     if (document.visibilityState === "hidden") flush("hidden");
     else if (rootEl) doSkim("visible");
     else startObserving();
   });
-  window.addEventListener("freeze", () => flush("freeze"), { capture: true });
-  window.addEventListener("resume", () => { if (!paused) doSkim("resume"); }, { capture: true });
-  window.addEventListener("pageshow", (e) => { if (e.persisted && !paused) doSkim("bfcache-restore"); });
 
-  window.addEventListener("pagehide", () => { flush("pagehide"); send({ kind: "bye" }); }, { once: true });
+  window.addEventListener("freeze", () => flush("freeze"), { capture: true });
+  window.addEventListener("resume", () => {
+    doSkim("resume");
+  }, { capture: true });
+  window.addEventListener("pageshow", (e) => {
+    if (e.persisted) {
+      doSkim("bfcache-restore");
+    }
+  });
+
+  window.addEventListener("pagehide", () => {
+    flush("pagehide");
+    send({ kind: "bye" });
+  }, { once: true });
 
   if (document.readyState === "complete" || document.readyState === "interactive") boot();
   else window.addEventListener("DOMContentLoaded", boot, { once: true });

@@ -104,6 +104,9 @@ try {
   const cwsManifest = JSON.parse(readFileSync(cwsManifestPath, "utf8"));
   delete cwsManifest.key;
   delete cwsManifest.update_url;
+  if (cwsManifest.browser_specific_settings?.gecko) {
+    cwsManifest.browser_specific_settings.gecko.id = "browser@solstone.app";
+  }
   writeFileSync(cwsManifestPath, `${JSON.stringify(cwsManifest, null, 2)}\n`);
   zipTree(stage, devZipPath);
   zipTree(cwsStage, cwsZipPath);

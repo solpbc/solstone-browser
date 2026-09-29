@@ -127,16 +127,15 @@ test("addSite confirms before intent and permission in exact order", async () =>
   const result = await View.addSite("mail.google.com", {
     disclose: async (host) => { calls.push(["disclose", host]); return true; },
     cmd: async (message) => {
-      calls.push([message.cmd, message.host]);
-      return message.cmd === "siteIntent" ? { ok: true, added: true } : { ok: true };
+      calls.push([message.cmd, message.origin || message.host]);
+      return { ok: true };
     },
     requestPermission: async (request) => { calls.push(["permission", request.origins[0]]); return true; },
   });
   assert.deepEqual(calls, [
     ["disclose", "mail.google.com"],
-    ["siteIntent", "mail.google.com"],
     ["permission", "*://mail.google.com/*"],
-    ["siteGranted", "mail.google.com"],
+    ["addGrantedOrigin", "https://mail.google.com"],
   ]);
   assert.deepEqual(result, { ok: true });
 });
@@ -152,18 +151,18 @@ test("an unconfirmed add reaches no mutation or permission effect", async () => 
   assert.deepEqual(calls, ["disclose"]);
 });
 
-test("a declined grant rolls back a newly added intent", async () => {
+test("a declined grant does not add origin", async () => {
   const calls = [];
   const result = await View.addSite("example.com", {
     disclose: async () => true,
     cmd: async (message) => {
       calls.push(message.cmd);
-      return message.cmd === "siteIntent" ? { ok: true, added: true } : { ok: true };
+      return { ok: true };
     },
     requestPermission: async () => false,
   });
-  assert.deepEqual(calls, ["siteIntent", "removeSite"]);
-  assert.deepEqual(result, { ok: false, denied: true, added: true });
+  assert.deepEqual(calls, []);
+  assert.deepEqual(result, { ok: false, denied: true });
 });
 
 test("grantSite is the direct allow-again path with no disclosure call", async () => {
@@ -171,10 +170,10 @@ test("grantSite is the direct allow-again path with no disclosure call", async (
   const result = await View.grantSite("example.com", {
     cmd: async (message) => {
       calls.push(message.cmd);
-      return message.cmd === "siteIntent" ? { ok: true, added: false } : { ok: true };
+      return { ok: true };
     },
     requestPermission: async () => { calls.push("permission"); return true; },
   });
-  assert.deepEqual(calls, ["siteIntent", "permission", "siteGranted"]);
+  assert.deepEqual(calls, ["permission", "addGrantedOrigin"]);
   assert.deepEqual(result, { ok: true });
 });

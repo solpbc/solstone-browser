@@ -8,40 +8,25 @@ import { fileURLToPath } from "node:url";
 
 const manifestPath = fileURLToPath(new URL("../extension/manifest.json", import.meta.url));
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-const expectedPermissions = ["storage", "unlimitedStorage", "alarms", "scripting", "activeTab"];
+const expectedPermissions = ["storage", "unlimitedStorage", "alarms", "scripting", "activeTab", "nativeMessaging"];
 const expectedOptionalHostPermissions = ["*://*/*"];
-const PIN_RATIONALE = "The Chrome Web Store listing declaration, the privacy policy (clo/compliance/privacy-policy.md § \"from the browser extension\"), and the in-product disclosure (extension/lib/disclosure.js) all describe this surface and all three must move together. Any addition to this permission or injection surface must be argued for, not just added.";
+const expectedCsp = "script-src 'self'; object-src 'self'; connect-src 'none'";
+const expectedDataCollection = ["websiteContent", "browsingActivity", "personalCommunications"];
 
 test("manifest permission and injection surfaces stay pinned", () => {
-  assert.deepStrictEqual(
-    manifest.permissions,
-    expectedPermissions,
-    `manifest permissions changed: observed ${JSON.stringify(manifest.permissions)}; expected ${JSON.stringify(expectedPermissions)}. ${PIN_RATIONALE}`,
-  );
-  assert.deepStrictEqual(
-    manifest.optional_host_permissions,
-    expectedOptionalHostPermissions,
-    `manifest optional_host_permissions changed: observed ${JSON.stringify(manifest.optional_host_permissions)}; expected ${JSON.stringify(expectedOptionalHostPermissions)}. ${PIN_RATIONALE}`,
-  );
+  assert.deepStrictEqual(manifest.permissions, expectedPermissions);
+  assert.deepStrictEqual(manifest.optional_host_permissions, expectedOptionalHostPermissions);
+  assert.equal(manifest.content_security_policy?.extension_pages, expectedCsp);
+  assert.equal(manifest.minimum_chrome_version, "121");
+  assert.equal(manifest.incognito, "not_allowed");
+  assert.equal(manifest.browser_specific_settings?.gecko?.id, "browser.dev@solstone.app");
+  assert.equal(manifest.browser_specific_settings?.gecko?.strict_min_version, "140.0");
+  assert.deepStrictEqual(manifest.browser_specific_settings?.gecko?.data_collection_permissions?.required, expectedDataCollection);
+  assert.equal(manifest.background?.service_worker, "background.js");
+  assert.ok(Array.isArray(manifest.background?.scripts) && manifest.background.scripts.length > 0);
+  assert.equal(manifest.background.scripts.at(-1), "background.js");
 
-  const hostPermissions = { present: Object.hasOwn(manifest, "host_permissions"), value: manifest.host_permissions };
-  assert.equal(
-    hostPermissions.present,
-    false,
-    `manifest host_permissions changed: observed ${JSON.stringify(hostPermissions)}; expected ${JSON.stringify({ present: false })}. ${PIN_RATIONALE}`,
-  );
-
-  const optionalPermissions = { present: Object.hasOwn(manifest, "optional_permissions"), value: manifest.optional_permissions };
-  assert.equal(
-    optionalPermissions.present,
-    false,
-    `manifest optional_permissions changed: observed ${JSON.stringify(optionalPermissions)}; expected ${JSON.stringify({ present: false })}. ${PIN_RATIONALE}`,
-  );
-
-  const contentScripts = { present: Object.hasOwn(manifest, "content_scripts"), value: manifest.content_scripts };
-  assert.equal(
-    contentScripts.present,
-    false,
-    `manifest content_scripts changed: observed ${JSON.stringify(contentScripts)}; expected ${JSON.stringify({ present: false })}. ${PIN_RATIONALE}`,
-  );
+  assert.equal(Object.hasOwn(manifest, "host_permissions"), false);
+  assert.equal(Object.hasOwn(manifest, "optional_permissions"), false);
+  assert.equal(Object.hasOwn(manifest, "content_scripts"), false);
 });

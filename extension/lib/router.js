@@ -71,9 +71,16 @@
   function isExtensionPageSender(sender, runtimeId) {
     if (!sender) return false;
     if (sender.id !== runtimeId) return false;
-    if (sender.tab) return false;
-    const url = sender.url || "";
-    return url.startsWith("chrome-extension://") || url.startsWith("moz-extension://");
+    try {
+      // Options pages opened in a tab also carry sender.tab. Authenticate the
+      // browser-supplied extension URL instead of treating every tab as content.
+      const expected = new URL(typeof chrome !== "undefined" && chrome.runtime?.getURL
+        ? chrome.runtime.getURL("/") : `chrome-extension://${runtimeId}/`);
+      const actual = new URL(sender.url || "");
+      return (expected.protocol === "chrome-extension:" || expected.protocol === "moz-extension:") &&
+        actual.protocol === expected.protocol && actual.host === expected.host &&
+        !actual.username && !actual.password;
+    } catch (_err) { return false; }
   }
 
   async function route(msg, sender, deps = {}) {
@@ -115,7 +122,8 @@
           const epoch = grantEpoch;
           const permissionEpoch = port.permissionEpoch || 0;
           const operation = grantChain.catch(() => {}).then(async () => {
-            const canGrant = () => epoch === grantEpoch && permissionEpoch === (port.permissionEpoch || 0) && port.consentVersion === Gate.CONSENT_VERSION &&
+            const canGrant = () => epoch === grantEpoch && permissionEpoch === (port.permissionEpoch || 0) &&
+              !port.paused && !port.pressure?.active && port.consentVersion === Gate.CONSENT_VERSION &&
               port.capturePermitted === true && port.hostCapture === "permitted" && !port.custody?.full &&
               port.lease && port.now() < port.lease.receivedAt + port.lease.freshnessMs;
             if (!canGrant()) return { ok: false, error: "capture_unavailable" };

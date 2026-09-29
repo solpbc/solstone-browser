@@ -535,3 +535,39 @@ test("router: setPaused with failing setCfg handles unpause and pause properly",
   assert.equal(port.paused, true);
 });
 
+
+test("router: trusted options tab uses exact extension origin, not absence of a tab", async () => {
+  await resetDB();
+  const port = makePort();
+  const base = `chrome-extension://${EXT_ID}/`;
+  const sender = { id: EXT_ID, tab: { id: 8 }, url: base + "options.html" };
+  assert.equal((await Router.route({cmd:"getState"}, sender, {runtimeId:EXT_ID,port})).ok, true);
+  for (const url of ["https://example.test/options.html", "chrome-extension://other/options.html", "chrome-extension://" + EXT_ID + ".example/options.html"]) {
+    assert.equal(Router.isExtensionPageSender({...sender,url},EXT_ID),false);
+  }
+  const previous = chrome.runtime;
+  try {
+    chrome.runtime = {getURL: () => "moz-extension://generated-uuid/"};
+    assert.equal(Router.isExtensionPageSender({...sender,url:"moz-extension://generated-uuid/options.html"},EXT_ID),true);
+    assert.equal(Router.isExtensionPageSender({...sender,url:"moz-extension://other/options.html"},EXT_ID),false);
+  } finally { chrome.runtime = previous; }
+});
+
+test("router: a new grant requires no local pause or pressure across permission waits", async () => {
+  await resetDB();
+  const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+  for (const hold of [p=>{p.paused=true;},p=>{p.pressure={active:true};}]) {
+    const port=makePort();hold(port);
+    const result=await Router.route({cmd:"addGrantedOrigin",origin:"https://example.test"},sender,{runtimeId:EXT_ID,port});
+    assert.equal(result.ok,false);
+    assert.equal(port.grantedOrigins.size,0);
+  }
+  const port=makePort();
+  const previous=chrome.permissions.contains;
+  try {
+    chrome.permissions.contains=async()=>{port.paused=true;return true;};
+    const result=await Router.route({cmd:"addGrantedOrigin",origin:"https://example.test"},sender,{runtimeId:EXT_ID,port});
+    assert.equal(result.ok,false);
+    assert.equal(port.grantedOrigins.size,0);
+  } finally { chrome.permissions.contains=previous; }
+});

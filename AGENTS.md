@@ -1,180 +1,53 @@
-# AGENTS.md
+# Contributor instructions
 
-Development guidelines for solstone-browser, a Chromium desktop Manifest V3
-semantic browser observer for solstone.
+This repository implements the native-messaging browser extension for desktop Chrome, Edge and Firefox. Read [README.md](README.md), [INSTALL.md](INSTALL.md), and [RELEASE.md](RELEASE.md) before changing its lifecycle or packaging.
 
-## Project overview
+## Architecture and boundaries
 
-solstone-browser is one of the owner's observers. It experiences the web apps
-the owner explicitly chooses, taking in their **rendered text and rough
-layout**, and relays what it takes in to a solstone journal as a distinct
-`<host>.browser` stream. Never pixels. Never raw HTML. It follows the same
-segment-and-sync pattern as solstone-tmux and the screen/audio observers:
-accumulate into segments, then deliver through the paired relay. The difference
-is the source: semantic DOM content instead of pixels or terminal text.
+The extension has one background-owned native connection. The native helper connects it to the solstone app on the same computer. Pairing credentials, destination identity and delivery to the journal belong to the app. Do not add an extension pairing flow, relay client, credential store or data-bearing network path.
 
-This is a **Chromium Web Store candidate** for desktop Chromium. It is opt-in per
-site and delivers through a paired relay to the owner's home. Cross-browser
-Firefox and Safari packaging, and the iOS Safari path, remain deliberately out
-of scope.
+The content scripts produce semantic page blocks. They do not segment files or upload content. `background.js` and `lib/router.js` validate browser-supplied message provenance and own site authorization. `lib/gate.js` requires current disclosure consent, the exact site grant, a positive unexpired app lease, and no applicable pause or pressure before a DOM walk. Revocation and asynchronous work must use the same authoritative state; a late callback cannot reopen an expired gate.
 
-## Architecture
+`lib/native_port.js` owns port identity, freshness, reconnect and receipt handling. `lib/native_outbox.js` persists complete skims and their durable batch identities in IndexedDB. Sending is at least once: retry the saved batch under the same identity. Recovery snapshots come from its original skim, never a new DOM read. The app assigns periods and handles finalization; a boundary can require a new snapshot. App acceptance means kept locally, not delivered to the journal.
 
-Two halves, one substrate (the WebExtensions API):
+Keep page-reading authorization separate from delivery. Pause closes new page reading but does not erase or hold back material already taken in. Generation changes must prevent an old batch from reaching a newly paired journal. Never evict accepted material to make room or turn local queue expiry into a delivery claim.
 
-- **Content script** (`content.js` + `skim.js` + `adapters.js` + `indicator.js`)
-  runs in each granted-origin tab. It picks an adapter, optionally shows the
-  on-page marker when the owner enables it, runs a **semantic skim** of the app
-  root's rendered text and rough layout, gated by `checkVisibility` with a
-  rendered-box fallback, and relays the current block list to the worker on load
-  and whenever the page settles after a mutation (debounced, change-gated). It is
-  a thin producer — no segmenting, no diffing, no network.
-- **Service worker** (`background.js` + `lib/*`) is the event-driven persistent
-  half. It buffers each
-  tab's skims into a segment in `chrome.storage`, diffs successive skims into a
-  snapshot+delta stream, rotates segments via `chrome.alarms`, and, after a
-  pasted `0x06` pair link, delivers HPKE-sealed blobs over the relay tunnel. It
-  keeps its non-extractable ECDH
-  identity and durable outbox in IndexedDB, and owns the opt-in per-site
-  lifecycle (grant → register a content script; revoke → tear down). MV3
-  service-worker ephemerality is handled by persisting state and waking on
-  alarms.
+`contracts/native-browser/` is the versioned wire authority. It imports the journal's browser-record schema; do not maintain a second record definition. Generated constants, registration data, JavaScript validation and Rust framing must stay in agreement. Update the manifest and conformance vectors deliberately when the contract changes. Native implementations consume this bundle.
 
-There is no separate native host. The paired relay path works inside the MV3
-worker. A native host may return for the cross-platform and iOS shape later.
+## Page semantics
 
-Every release must satisfy the compatibility precondition documented in
-the [release checklist](RELEASE.md#cut-a-tagged-release-like-our-other-surfaces).
+The page reader takes text and rough structure, not pixels or raw HTML. Its semantics are broader than the visible viewport: text below the fold and in background tabs, accessibility labels, tooltips and other page-held text can enter a skim. Do not describe it as visible-text-only or promise that unsent or sensitive text is excluded. The disclosure in the extension is the owner-facing explanation.
 
-## The block model
+Blocks use stable IDs where available and carry bounded text, type, depth and attributes. Page addresses omit query, fragment and credentials; link targets are reduced to host. Preserve the canonical field bounds and explicit truncation signal. The app and journal validate records independently.
 
-A block is `{id, type, depth, text, attrs}`:
+## Development checks
 
-- `type` is derived ARIA role first, then semantic tag, then a heuristic
-  (`lib/blocks.js` `typeFromRoleTag`).
-- `text` comes from the normalized `nodeValue` of an element's immediate
-  text-node children, never `innerText` or `textContent`. The element is gated by
-  `checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })` with a
-  rendered-box fallback, but there is no viewport or clip test, so rendered text
-  below the fold and in background tabs is included. The source is capped by
-  `MAX_TEXT = 2000` before a truncation ellipsis is appended.
-- `id` prefers an app-stable id (`data-message-id`, `data-item-key`, …) read by
-  the adapter, so deltas key to the right message across virtualized-list node
-  recycling; otherwise a content hash.
-- `attrs` keeps `aria-label`, or fallback `title`, as `label`, plus `aria-level`
-  and the host of an absolute link. At an adapter boundary, `attrs.label` can
-  become the block's entire `text`, including the labels pages hand to screen
-  readers and tooltips, which sometimes aren't drawn on screen. The link target's
-  full URL, query string, fragment, and credentials are not kept.
-
-## Source layout
-
-```
-extension/   the unpacked MV3 extension (see README for the per-file map)
-  lib/blocks.js, lib/segment.js   pure, shared by worker + tests
-  lib/db.js, lib/identity.js      IndexedDB + non-extractable extension identity
-  lib/pairlink.js, lib/uuid.js    pure pair-link and UUID helpers
-  lib/remote_blob.js              tar/blob/HPKE helpers
-  lib/remote_tunnel.js            relay WebSocket client
-  lib/outbox.js, lib/outbox_store.js pure FIFO logic + IDB adapter
-  vendor/hpke/                    pinned @hpke/core IIFE artifact
-test/        node --test pure logic/vectors, real-Chrome CDP skim smoke, relay round-trips
+```sh
+make install        # locked npm development dependencies
+npm test            # JavaScript unit and contract tests
+npm run test:idb    # production IndexedDB adapter using fake-indexeddb
+make ci             # locked install, JS tests, IDB, Rust framing and contract drift
+make dist           # full gate, unpacked build and verified ZIPs
+make package-check  # verify already-built artifacts
 ```
 
-## Build and test
+The shipped runtime is plain scripts with no npm runtime dependency. `make ci` does not launch a browser, install a native host or demonstrate app/journal delivery. Keep deterministic transition and contract tests in routine CI. Exercise real permissions, lifecycle races, native processes and network behavior with caller-owned integration runs on isolated profiles and test journals.
 
-`make ci` is the gate. It installs locked development dependencies, then runs
-the pure unit suite, real-IndexedDB transaction tests, and vendored-HPKE
-reproducibility verification. No formatter/linter is wired yet. The underlying
-commands:
+`make smoke` is a DOM-skim diagnostic requiring a real Chrome; `make popup-check` is a browser layout diagnostic requiring Playwright Chromium. `make e2e-deps` installs Playwright Chromium for the layout diagnostic. These diagnostics are separate from `make ci`. There is no relay end-to-end target.
 
-```bash
-make install        # locked dev install; node_modules never ships in extension/
-make ci             # locked install + pure units + real-IDB + vendor verification
-npm test            # pure-logic unit tests + pair-link/HPKE byte vectors — no browser, no deps
-npm run test:idb    # production IDB adapter tests (needs fake-indexeddb)
-make smoke          # (npm run smoke) headless Chrome over CDP: skim the Gmail/Slack/article fixtures
-make e2e-deps       # one-time: npm install + npx playwright install chromium (dev-only deps)
-make popup-check    # render popup states + enforce the 600px ceiling (needs make e2e-deps; outside make ci)
-make e2e            # (npm run e2e) agentic integration: content script -> SW -> relay, headless
-make dist           # full gate + load-unpacked directory + separate dev and Store ZIPs
-make cws            # Store-upload spelling of the same full, package-checked build
-make package-check  # reopen and verify already-built dev and Store ZIPs
-```
+For permission tests, use the real owner gesture and browser prompt. A fixture manifest with pregranted host access cannot prove the production grant flow. Instrument before the first page-script statement when claiming zero reads; inspecting only later mutations misses bootstrap work. Runtime egress checks must detect attempted calls even when CSP blocks the request, and must fail under a deliberate leak mutation.
 
-`make ci` is the CI-able gate and needs a locked dev install. `npm test` and
-`make test` remain dependency-free. The smoke needs a real Chrome; popup-check
-and the e2e harness need the Playwright chromium build. Popup-check is
-deliberately outside `make ci`.
-All dependencies are development-only: the shipped extension remains runtime-
-dependency-free and loads no code from npm or the network.
+## Packaging and changes
 
-## Agentic e2e (the live path, headless)
+One manifest contains both browser background forms. Keep the Firefox script order aligned with the service worker imports, preserve private-window exclusion and the required data declarations, and reopen every archive to check referenced runtime files. Production and development identities select different native host names; never merge their allowlists.
 
-`make e2e` (`test/e2e.mjs`) drives the one path the unit tests can't reach —
-**dynamically-registered content script → service worker → remote relay**
-end-to-end under browser automation with no display, against an in-process stub
-relay. It is the automated half of `test/GUIDED.md`.
+Keep the existing manually dispatched Chrome Web Store workflow as the only GitHub workflow. Do not publish, submit to a store or change a release channel as a side effect of tests. Package construction and release approval are separate steps.
 
-The prototype believed this leg was un-verifiable headlessly. It isn't; the fix
-is two binary choices:
-
-1. **Playwright `channel:'chromium'`** — selects the real new-headless build, not
-   the extension-blind `chromium-headless-shell`. That build injects MV3 content
-   scripts (static **and** dynamic) with no display and no Xvfb. (Verified: our
-   `chrome.scripting.registerContentScripts` opt-in path fires under it.)
-2. **`--load-extension`** — honored by Chrome-for-Testing / the Playwright
-   chromium build; *branded* Chrome dropped it in Chrome 137, which is why the
-   earlier headless/Xvfb attempts against branded Chrome loaded nothing.
-
-**Permission faithfulness:** the shipped extension gets host access to a site via
-the per-site `optional_host_permissions` grant, which needs a real user gesture
-and **cannot** be obtained under headless automation (the harness confirms this
-with a non-gating probe). So the harness pre-grants the fixture origin by adding
-it to a *throwaway copy* of the manifest's `host_permissions`. This isolates the
-question it answers (does our **dynamic** registration inject + relay under
-new-headless?) from the orthogonal permission-UI question — the live per-site
-opt-in is what the guided walkthrough verifies. The stub binds an **ephemeral
-port** and implements the raw WebSocket pairing/data relay used to prove the
-HPKE-sealed remote path.
-
-There is no build step. The shared `lib/*.js` files are classic scripts that
-publish a `globalThis` namespace, so the same source loads as a content script,
-is `importScripts`-ed by the worker, and is side-effect-imported by node tests.
-The exception is the committed `extension/vendor/hpke/` bundle:
-`@hpke/core@1.9.0` is vendored as an IIFE and regenerated deterministically with
-the locked development tooling described in `extension/vendor/hpke/README.md`;
-it is not a runtime npm or CDN dependency.
-
-## Principles
-
-- **Semantic-only.** Never call `captureVisibleTab` or read pixels. The OS screen
-  observer owns pixels; this owns text.
-- **Opt-in, least authorization.** Install with zero site access
-  (`optional_host_permissions`); request each site on an explicit user gesture;
-  honor a browser-side revoke (`permissions.onRemoved`).
-- **Visible + pausable.** The toolbar icon is the always-visible six-state
-  observation signal; the on-page marker is opt-in and off by default. Pause-all
-  is one tap. No silent observation.
-- **Privacy in the data.** Keep rendered text + structure: what you can see now
-  and what you'd see by scrolling, including background tabs, plus the labels
-  pages hand to screen readers and tooltips, which sometimes aren't drawn on
-  screen. Reduce page URLs to origin + path and link hrefs to host; leave the
-  page address's query string, fragment, and credentials out. Never pixels.
-  Never raw HTML.
-- **Pure logic stays testable.** Diffing, serialization, and id/type derivation
-  live in `lib/*` with no DOM or chrome APIs, so node tests cover them. DOM-bound
-  behavior is validated in real Chrome.
-
-## File headers
-
-All `.js` source files begin with:
+New JavaScript source begins with:
 
 ```js
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 ```
 
-## License
-
-AGPL-3.0-only. Copyright (c) 2026 sol pbc.
+License: AGPL-3.0-only.

@@ -1,44 +1,27 @@
 # solstone-browser
 
-> **Status: parked.** This extension is not abandoned. This source tree is not a usable release and does not currently deliver material to any journal.
+Development source for the browser extension that connects to the solstone app on the same computer through native messaging. The native return is under development; this checkout is not a published extension release.
 
-This repository contains a Chromium Manifest V3 semantic browser extension for solstone. It is retained for future development of text intake from web apps an owner chooses.
+The solstone app takes in what you share with it, and all of it goes into your journal. In this extension, you choose sites and agree to the disclosure before any page reading begins. A compatible running app must also authorize it. The extension sends page material only through the native connection; the app owns delivery to your journal.
 
-## Source tree
+The browser targets are desktop Chrome, Edge and Firefox. Building the extension does not install the app or its native helper. Use an isolated development profile and a matching development host for integration work.
 
-```text
-extension/            unpacked-loadable MV3 extension
-  manifest.json        browser permissions and extension metadata
-  background.js        service worker
-  content.js           per-tab coordinator
-  skim.js              semantic DOM walker
-  adapters.js          site adapters and generic fallback
-  popup.html/.js       toolbar popup
-  options.html/.js     settings interface
-  lib/                 shared implementation modules
-test/                  unit, source, and browser checks
-scripts/               packaging and verification helpers
-```
+## Build and check
 
-## Development setup
-
-This section is for contributors working on the parked source tree, not for product installation.
-
-```bash
+```sh
 make dist
 ```
 
-Open `chrome://extensions`, enable **Developer mode**, select **Load unpacked**, and choose `dist/current`. After a later `make dist`, select **reload** on the extension card.
+This runs the development checks and writes the unpacked development build to `dist/current`, plus separate development and Chrome Web Store candidate ZIPs. It does not upload or publish them. See [INSTALL.md](INSTALL.md) for setup and browser loading, and [RELEASE.md](RELEASE.md) for package identities and release gates.
 
-## Tests
+## Source tree
 
-```bash
-npm test
-make ci
-```
+- `extension/`: background controller, page scripts, toolbar and settings.
+- `extension/lib/`: authorization, native connection, durable outbox and shared logic.
+- `contracts/native-browser/`: versioned envelope schemas, generated constants, registration authority and conformance vectors.
+- `native-browser/`: JavaScript contract validation.
+- `crates/native-browser-frame/`: shared Rust native-message framing.
+- `scripts/`: contract generation, package verification and release tooling.
+- `test/`: unit tests, IndexedDB tests and browser diagnostics.
 
-See [AGENTS.md](AGENTS.md) for contributor guidance and [INSTALL.md](INSTALL.md) for the source-tree setup details.
-
-## License
-
-AGPL-3.0-only. See [LICENSE](LICENSE).
+Contributor guidance is in [AGENTS.md](AGENTS.md). Licensed under [AGPL-3.0-only](LICENSE).

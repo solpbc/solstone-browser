@@ -28,6 +28,8 @@
       }
       [hidden] { display: none !important; }
       body {
+        box-sizing: border-box;
+        overflow-x: hidden;
         font: 14px/1.5 "InterBody", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         background: var(--ground);
         color: var(--ink);
@@ -56,8 +58,16 @@
         padding: 16px 18px;
         margin: 16px 0;
       }
-      .first-run { background: var(--orange-wash); }
-      .muted { color: var(--muted); font-size: 12px; }
+      .warm-card { background: var(--orange-wash); }
+      .step {
+        padding: 12px 0;
+        border-top: 1px solid var(--line);
+      }
+      .step:first-child {
+        padding-top: 0;
+        border-top: 0;
+      }
+      .muted { color: var(--muted); font-size: 13px; }
       .strongish { color: var(--ink); }
       label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; }
       input {
@@ -89,7 +99,6 @@
         outline: 2px solid var(--focus);
         outline-offset: 2px;
       }
-      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
       .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
       .lead-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
       .journal-lead { color: var(--soft); }
@@ -124,13 +133,12 @@
       .destination-box .detail { margin-top: 2px; color: var(--soft); font-size: 12px; overflow-wrap: anywhere; }
       details { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
       summary { cursor: pointer; color: var(--muted); font-size: 12px; }
-      .detail-row { margin-top: 9px; overflow-wrap: anywhere; }
-      .detail-row .key { display: block; color: var(--muted); font-size: 11px; }
-      .waiting-host { margin-top: 8px; }
-      .waiting-host strong { font-size: 12px; }
-      .waiting-host ul { margin: 4px 0 0 18px; padding: 0; color: var(--soft); font-size: 12px; }
-      .loss-detail { color: var(--bad); }
-      .loss-detail button { margin-top: 8px; }
+      .disclosure-pre {
+        white-space: pre-wrap;
+        font: inherit;
+        color: var(--soft);
+        margin: 12px 0 0;
+      }
       .addrow { display: flex; gap: 8px; align-items: flex-end; }
       .addrow > div { flex: 1; }
       .site {
@@ -143,7 +151,7 @@
       }
       .site:first-child { border-top: 0; }
       .site-copy { min-width: 0; overflow-wrap: anywhere; }
-      .site-host { font-weight: 600; }
+      .site-host { font-weight: 600; overflow-wrap: anywhere; }
       .site-state { color: var(--soft); font-size: 12px; }
       .site-state.ok { color: var(--success-ink); }
       .site-state.bad { color: var(--bad); }
@@ -156,7 +164,6 @@
       footer { color: var(--muted); font-size: 12px; }
       @media (max-width: 620px) {
         body { padding: 18px; }
-        .grid { grid-template-columns: 1fr; }
         .site { align-items: flex-start; flex-direction: column; }
       }
     </style>
@@ -165,124 +172,133 @@
     <div class="wrap">
       <header id="pageHeader">
         <h1 id="pageTitle">
-          <img src="brand/mark-healthy.svg" width="24" height="24" alt="" />
-          solstone <span class="desc">settings</span>
+          <img id="optionsMark" src="brand/mark-healthy.svg" width="24" height="24" alt="" />
+          solstone <span class="desc" id="pageSubTitle">in your browser</span>
         </h1>
       </header>
-      <p id="intro" class="muted">pair your journal, manage your sites, and choose whether added pages show the on-page marker.</p>
 
-      <section id="firstRun" class="card first-run" hidden>
-        <h2 id="firstRunHeading"></h2>
-        <p id="firstRunComposition" class="strongish"></p>
-        <p id="firstRunCovenant" class="strongish"></p>
-        <h3 id="firstRunScope"></h3>
-        <p id="firstRunWhat"></p>
-        <p id="firstRunUnsent"></p>
-        <p id="firstRunNever"></p>
-        <p id="firstRunAbsolutes" class="strongish"></p>
-        <div class="destination-box">
-          <div class="key">it goes to</div>
-          <div id="firstRunDestination" class="value"></div>
-          <div id="firstRunDestinationDetail" class="detail"></div>
-          <button id="firstRunChange" type="button" aria-label="set up your journal">set up</button>
-        </div>
-        <p id="firstRunNothingYet" class="muted"></p>
-      </section>
-
-      <section id="journalCard" class="card">
-        <h2>your journal</h2>
-        <div class="lead-row">
-          <div id="journalLead" class="journal-lead"></div>
-          <span id="journalStateChip" class="state-chip calm"></span>
+      <div id="welcomeView" hidden>
+        <!-- Warm Card: 3 lines in exact order -->
+        <div id="warmCard" class="card warm-card">
+          <p id="warmKinship0" class="strongish"></p>
+          <p id="warmKinship1" class="strongish"></p>
+          <p id="warmKinship2" class="strongish"></p>
         </div>
 
-        <form id="connForm" novalidate>
-          <div class="grid">
-            <div>
-              <label for="hostname">this computer's short name</label>
-              <input id="hostname" placeholder="e.g. laptop" />
-              <div class="muted">labels this browser at your paired home.</div>
+        <!-- Light Card: 3 Steps -->
+        <div id="stepsCard" class="card">
+          <!-- Step 1 -->
+          <section id="step1Section" class="step">
+            <h2 id="step1HeadingRow">
+              <span id="step1Check" hidden>✓ </span>
+              <span id="step1Heading">looking for the solstone app on this computer…</span>
+            </h2>
+            <p id="step1Body" class="muted"></p>
+            <div id="step1Actions" class="actions">
+              <button id="step1ActionBtn" class="primary" type="button" hidden></button>
             </div>
-            <div>
-              <label for="segmentSec">send to your journal every (seconds)</label>
-              <input id="segmentSec" type="number" min="30" step="30" placeholder="300" />
-              <div class="muted">automatic browser batch interval, in seconds. default: 300.</div>
-            </div>
-          </div>
-          <div class="actions"><button id="saveBtn" class="primary" type="submit">save</button></div>
-        </form>
+          </section>
 
-        <form id="pairForm" novalidate>
-          <label for="pairLink">pair link</label>
-          <input id="pairLink" placeholder="https://go.solstone.app/p#…" />
-          <div class="actions">
-            <button id="pairBtn" class="primary" type="submit">pair</button>
-            <button id="unpairBtn" type="button">unpair</button>
-          </div>
-        </form>
-
-        <div class="actions">
-          <button id="flushBtn" type="button">send now</button>
-        </div>
-
-        <details id="journalDetails">
-          <summary id="journalDetailsSummary">journal details</summary>
-          <div id="pairInstanceId" class="detail-row" hidden></div>
-          <div id="pairRelayOrigin" class="detail-row" hidden></div>
-          <div id="journalError" class="detail-row" hidden></div>
-          <div id="lastSyncDetail" class="detail-row" hidden></div>
-          <div id="waitingRow" class="detail-row" hidden>
-            <span class="key">waiting to sync</span>
-            <div id="waitingPreview"></div>
-          </div>
-          <div id="lossDetail" class="detail-row loss-detail" hidden></div>
-        </details>
-      </section>
-
-      <section id="sitesCard" class="card">
-        <h2>your sites</h2>
-        <p class="muted">the solstone app takes in what you share with it only on sites you add: rendered text and rough layout, never pixels. all of it goes into your journal. Chrome asks before a site is added, and you can remove it any time.</p>
-        <div id="sitesMain">
-          <form id="addForm" novalidate>
-            <div class="addrow">
-              <div>
-                <label for="newHost">add a site by host</label>
-                <input id="newHost" placeholder="mail.google.com" />
+          <!-- Step 2 -->
+          <section id="step2Section" class="step">
+            <h2 id="step2HeadingRow">
+              <span id="step2Check" hidden>✓ </span>
+              <span id="step2Heading">what the solstone extension takes in</span>
+            </h2>
+            <div id="step2Content">
+              <div id="step2DisclosureBody" class="disclosure-pre"></div>
+              <p id="step2PendingText" class="muted" hidden></p>
+              <div class="actions" id="step2Actions">
+                <button id="agreeDisclosureBtn" class="primary" type="button" hidden>agree and go on</button>
               </div>
-              <button id="addBtn" class="primary" type="submit">add</button>
             </div>
-          </form>
-          <div id="siteList"></div>
-        </div>
-        <section id="siteDisclosure" hidden>
-          <h3 id="siteDisclosureTitle"></h3>
-          <p id="siteDisclosureWhat" class="strongish"></p>
-          <p id="siteDisclosureUnsent"></p>
-          <div class="destination-box">
-            <div class="key">it goes to</div>
-            <div id="siteDisclosureDestination" class="value"></div>
-            <div id="siteDisclosureDestinationDetail" class="detail"></div>
-          </div>
-          <p id="siteDisclosureChrome"></p>
-          <div class="actions">
-            <button id="siteDisclosureConfirm" class="primary" type="button"></button>
-            <button id="siteDisclosureCancel" type="button"></button>
-          </div>
-        </section>
-      </section>
+            <div id="step2Completed" hidden>
+              <details id="step2ReReadDetails">
+                <summary id="step2ReadAgain">read it again</summary>
+                <div id="step2ReReadBody" class="disclosure-pre"></div>
+              </details>
+            </div>
+          </section>
 
-      <section id="indicatorCard" class="card">
-        <h2>on-page marker</h2>
-        <label class="marker-label">
-          <input type="checkbox" id="showPageIndicator" />
-          also show a floating sol-mark “on” marker on added pages
-        </label>
-        <p class="muted">off by default. the toolbar icon shows on, paused, or needs attention. turn this on to show an on-page marker too.</p>
-      </section>
+          <!-- Step 3 -->
+          <section id="step3Section" class="step">
+            <h2 id="step3HeadingRow">
+              <span id="step3Check" hidden>✓ </span>
+              <span id="step3Heading">choose your first site</span>
+            </h2>
+            <div id="step3Content" hidden>
+              <p id="step3Body" class="muted"></p>
+              <label class="marker-label" style="margin-top: 14px;">
+                <input type="checkbox" id="welcomeShowPageIndicator" />
+                show a small solstone mark on pages you've added
+              </label>
+              <div id="welcomeSiteList"></div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div id="settingsView">
+        <section id="statusCard" class="card">
+          <div class="lead-row">
+            <div id="statusLead" class="journal-lead"></div>
+            <span id="statusStateChip" class="state-chip calm"></span>
+          </div>
+          <p id="statusReason" class="muted" hidden></p>
+        </section>
+
+        <section id="sitesCard" class="card">
+          <h2>your sites</h2>
+          <div id="sitesMain">
+            <form id="addForm" novalidate>
+              <div class="addrow">
+                <div>
+                  <label for="newHost">add this site</label>
+                  <input id="newHost" placeholder="mail.google.com" />
+                </div>
+                <button id="addBtn" class="primary" type="submit">add this site</button>
+              </div>
+            </form>
+            <div id="siteList"></div>
+          </div>
+          <section id="siteDisclosure" hidden>
+            <h3 id="siteDisclosureTitle"></h3>
+            <p id="siteDisclosureWhat" class="strongish"></p>
+            <p id="siteDisclosureUnsent"></p>
+            <div class="destination-box">
+              <div class="key">it goes to</div>
+              <div id="siteDisclosureDestination" class="value"></div>
+              <div id="siteDisclosureDestinationDetail" class="detail"></div>
+            </div>
+            <p id="siteDisclosureChrome"></p>
+            <div class="actions">
+              <button id="siteDisclosureConfirm" class="primary" type="button"></button>
+              <button id="siteDisclosureCancel" type="button"></button>
+            </div>
+          </section>
+        </section>
+
+        <section id="indicatorCard" class="card">
+          <h2>on-page marker</h2>
+          <label class="marker-label">
+            <input type="checkbox" id="showPageIndicator" />
+            show a small solstone mark on pages you've added
+          </label>
+        </section>
+
+        <section id="disclosureCard" class="card">
+          <h2>what the solstone extension takes in</h2>
+          <details id="disclosureDetails">
+            <summary>read it again</summary>
+            <div id="settingsDisclosureBody" class="disclosure-pre"></div>
+          </details>
+        </section>
+      </div>
 
       <div id="actionMessage" class="action-message" aria-live="polite"></div>
-      <footer id="pageFooter">solstone <span id="ver"></span> · semantic only · opt in</footer>
+      <footer id="pageFooter">solstone <span id="ver"></span></footer>
     </div>
+    <script src="lib/copy.js"></script>
     <script src="lib/hosts.js"></script>
     <script src="lib/status.js"></script>
     <script src="lib/failures.js"></script>

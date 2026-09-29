@@ -4,7 +4,6 @@
 (function () {
   "use strict";
 
-  const SolstoneHosts = globalThis.SolstoneHosts;
   const Status = globalThis.SolstoneStatus;
   const Failures = globalThis.SolstoneFailures;
   const Disclosure = globalThis.SolstoneDisclosure;
@@ -47,13 +46,14 @@
   let state = null;
   let page = { origin: "", host: "", ok: false };
   let disclosureResolve = null;
+  let previousActiveElement = null;
 
   function showActionMessage(message) {
     $("actionMessage").textContent = message || "";
   }
 
   function showActionError(error) {
-    showActionMessage(Failures.classify(error));
+    showActionMessage(Failures.classify(error, state));
   }
 
   function openSettings() {
@@ -61,18 +61,39 @@
     chrome.runtime.openOptionsPage();
   }
 
-  function setUp() {
-    openSettings();
+  async function runAction(action) {
+    if (!action) return;
+    showActionMessage("");
+    if (action.id === "open-settings" || action.id === "get-app" || action.id === "finish-setup") {
+      openSettings();
+    } else if (action.id === "update-now") {
+      const fresh = await cmd({ cmd: "getState" });
+      if (fresh && fresh.updateCheck === "update-available") {
+        chrome.runtime.reload();
+      } else {
+        await refresh();
+      }
+    } else if (action.id === "dismiss-loss") {
+      await cmd({ cmd: "dismissLoss", seq: action.seq || (state && state.lossNotice && state.lossNotice.seq) });
+      await refresh();
+    } else if (action.id === "allow-again") {
+      const result = await View.grantSite(action.host, siteEffects());
+      if (result.denied) showActionMessage("permission declined. this site stays paused.");
+      else if (result.error) showActionError(result.error);
+      await refresh();
+    } else if (action.id === "dismiss-truncation") {
+      await cmd({ cmd: "dismissTruncation", origin: action.origin || action.host, bound: action.bound });
+      await refresh();
+    } else if (action.id === "remove-site") {
+      const origin = action.origin || (action.host && action.host.startsWith("http") ? action.host : `https://${action.host}`);
+      const result = await cmd({ cmd: "removeGrantedOrigin", origin });
+      if (result.error) showActionError(result.error);
+      await refresh();
+    }
   }
 
-  const ACTION = {
-    "try-now": openSettings,
-    "dismiss": openSettings,
-    "open-settings": openSettings,
-    "set-up": setUp,
-  };
-
   function renderVerdict(section) {
+    if (!section) return;
     const treatment = TONE[section.tone] || TONE.unavailable;
     const verdict = $("verdict");
     verdict.className = `verdict ${treatment.bandClass}`;
@@ -88,8 +109,7 @@
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = section.action.label;
-      const handler = ACTION[section.action.id];
-      if (handler) button.addEventListener("click", handler);
+      button.addEventListener("click", () => runAction(section.action));
       actions.append(button);
     }
   }
@@ -101,25 +121,11 @@
     };
   }
 
-  async function runSiteAction(action) {
-    showActionMessage("");
-    if (action.id === "remove-site") {
-      const origin = action.origin || (action.host.startsWith("http") ? action.host : `https://${action.host}`);
-      const result = await cmd({ cmd: "removeGrantedOrigin", origin });
-      if (result.error) showActionError(result.error);
-    } else if (action.id === "allow-site") {
-      const result = await View.grantSite(action.host, siteEffects());
-      if (result.denied) showActionMessage("permission declined. this site stays paused.");
-      else if (result.error) showActionError(result.error);
-    }
-    await refresh();
-  }
-
   function renderSiteIssues(section) {
     const block = $("siteIssues");
     const rows = $("siteIssueRows");
     rows.replaceChildren();
-    if (!section) {
+    if (!section || !section.rows || section.rows.length === 0) {
       block.hidden = true;
       return;
     }
@@ -127,17 +133,27 @@
     for (const row of section.rows) {
       const item = document.createElement("div");
       item.className = "site-issue";
-      const host = document.createElement("div");
-      host.className = "h";
-      host.textContent = row.host;
-      const why = document.createElement("div");
-      why.className = "w";
-      why.textContent = row.label;
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = row.action.label;
-      button.addEventListener("click", () => runSiteAction(row.action));
-      item.append(host, why, button);
+      if (row.isAlso) {
+        const h = document.createElement("div");
+        h.className = "h";
+        h.textContent = row.headline;
+        item.append(h);
+      } else {
+        const host = document.createElement("div");
+        host.className = "h";
+        host.textContent = row.host;
+        const why = document.createElement("div");
+        why.className = "w";
+        why.textContent = row.label;
+        item.append(host, why);
+      }
+      if (row.action) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = row.action.label;
+        button.addEventListener("click", () => runAction(row.action));
+        item.append(button);
+      }
       rows.append(item);
     }
   }
@@ -161,6 +177,7 @@
   }
 
   function renderPage(section) {
+    if (!section) return;
     $("pageHost").textContent = section.host;
     $("currentPageState").textContent = section.state;
 
@@ -196,17 +213,21 @@
     $("popupFooter").hidden = false;
     const resolve = disclosureResolve;
     disclosureResolve = null;
+    if (previousActiveElement && typeof previousActiveElement.focus === "function") {
+      previousActiveElement.focus();
+    }
     resolve(confirmed);
   }
 
   function presentDisclosure(host) {
+    previousActiveElement = document.activeElement;
     const copy = Disclosure.addSite(host, state);
     $("disclosureTitle").textContent = copy.title;
-    $("disclosureWhat").textContent = copy.whatSolTakesIn;
-    $("disclosureUnsent").textContent = copy.unsentText;
-    $("disclosureDestination").textContent = copy.destination.label;
-    $("disclosureDestinationDetail").textContent = copy.destination.detail;
-    $("disclosureChrome").textContent = copy.whatChromeDoes;
+    $("disclosureWhat").textContent = copy.what;
+    $("disclosureUnsent").textContent = copy.unsent;
+    $("disclosureDestination").textContent = copy.destination;
+    $("disclosureDestinationDetail").textContent = copy.destinationDetail;
+    $("disclosureChrome").textContent = copy.browser;
     $("disclosureConfirm").textContent = copy.confirmLabel;
     $("disclosureCancel").textContent = copy.cancelLabel;
     $("popupMain").hidden = true;
@@ -223,24 +244,19 @@
     const tab = await currentTab();
     const current = tab && tab.url ? originFor(tab.url) : { origin: "", host: "", ok: false };
     page = { origin: current.origin, host: current.host, ok: current.ok };
-    const allowlist = Array.isArray(state.allowlist)
-      ? state.allowlist
-      : Array.isArray(state.grantedOrigins)
-      ? state.grantedOrigins.map((o) => {
-          try { return new URL(o).host; } catch (_e) { return o; }
-        })
-      : [];
-    const entryMatchHosts = Object.fromEntries(allowlist.map((h) => [h, SolstoneHosts.matchHostFor(h)]));
-    const verdict = Status.verdict(state, {
-      activeSites: state.activeSites,
-      outbox: state.outbox,
-      entryMatchHosts,
-    });
-    const sections = View.arrange(verdict, state, page);
+    const extras = {
+      anyGrantedTabOpen: !!tab,
+      openTabOrigins: tab && tab.url ? [current.origin] : [],
+    };
+    const derived = Status.derive(state, extras);
+    const sections = View.arrange(derived, state, page, extras);
     renderVerdict(sections.find((section) => section.id === "verdict"));
     renderSiteIssues(sections.find((section) => section.id === "siteIssues"));
     renderPage(sections.find((section) => section.id === "page"));
     renderSiteCount(sections.find((section) => section.id === "siteCount"));
+    if ($("headerMark")) {
+      $("headerMark").src = `brand/mark-${derived.mark || "healthy"}.svg`;
+    }
   }
 
   $("disclosureConfirm").addEventListener("click", () => closeDisclosure(true));
@@ -256,6 +272,16 @@
     event.preventDefault();
     openSettings();
   });
+
+  try {
+    const port = chrome.runtime.connect({ name: "status" });
+    port.onMessage.addListener((msg) => {
+      if (msg && msg.topic === "status") refresh();
+    });
+    port.onDisconnect.addListener(() => {
+      refresh();
+    });
+  } catch (_e) {}
 
   globalThis.SolstonePopup = { refresh };
   refresh();

@@ -10,7 +10,7 @@
     return [];
   }
 
-  function reconcile({ granted, manifestOrigins, exemptOrigins, allowlist, pausedHosts } = {}) {
+  function reconcile({ granted, manifestOrigins, exemptOrigins, exemptPatterns, allowlist, pausedHosts } = {}) {
     if (granted === null) return [];
 
     const groups = new Map();
@@ -33,6 +33,7 @@
     const claimedOrigins = new Set([
       ...(manifestOrigins || []),
       ...(exemptOrigins || []),
+      ...(exemptPatterns || []),
       ...[...groups.keys()].map((matchHost) => H.matchPatternFor(matchHost)),
     ]);
     for (const origin of [...grantedSet].sort()) {

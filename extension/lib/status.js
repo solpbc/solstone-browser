@@ -4,338 +4,602 @@
 (function () {
   "use strict";
 
-  const SUB_FLOWING = "going to your journal at your home, sealed on the way";
-  const SUB_QUEUED = "kept here, going to your journal at your home when it answers";
-  const SUB_BY_KIND = {
-    on: SUB_FLOWING,
-    idle: SUB_FLOWING,
-    "first-sync-pending": SUB_FLOWING,
-    dropped: SUB_QUEUED,
-    unreachable: SUB_QUEUED,
-    "browser-paused": SUB_FLOWING,
-    "site-error": SUB_FLOWING,
-    paused: "nothing is being taken in",
-    "no-journal": "nothing is being taken in, and nothing is going anywhere",
-    "pairing-unfinished": "nowhere yet. pairing isn't finished.",
-    "no-sites": "nothing is taken in until you add a site.",
-    unavailable: "",
-  };
-  const DESTINATION_SUB_KINDS = new Set([
-    "on",
-    "idle",
-    "first-sync-pending",
-    "dropped",
-    "unreachable",
-    "browser-paused",
-    "site-error",
-  ]);
-  const ICON_BY_KIND = {
-    dropped: { prefix: "icon-attention-", badge: "!" },
-    "browser-paused": { prefix: "icon-attention-", badge: "!" },
-    "site-error": { prefix: "icon-attention-", badge: "!" },
-    paused: { prefix: "icon-paused-", badge: "" },
-    "no-sites": { prefix: "icon-paused-", badge: "" },
-    "no-journal": { prefix: "icon-paused-", badge: "" },
-    "pairing-unfinished": { prefix: "icon-paused-", badge: "" },
-    unreachable: { prefix: "icon-offline-", badge: "" },
-    "first-sync-pending": { prefix: "icon", badge: "" },
-    unavailable: { prefix: "icon-error-", badge: "" },
-    on: { prefix: "icon", badge: "" },
-    idle: { prefix: "icon", badge: "" },
+  const PREFIX_BY_MARK = {
+    healthy: "icon",
+    paused: "icon-paused-",
+    attention: "icon-attention-",
+    offline: "icon-offline-",
+    error: "icon-error-",
+    connecting: "icon-connecting-",
   };
 
-  function remotePaired(remote) {
-    return !!(remote && remote.instanceId && remote.deviceToken && remote.homeSpki);
-  }
-
-  function normalize(cfg, extras) {
-    cfg = cfg || {};
+  function derive(status, extras) {
+    const C = globalThis.SolstoneCopy;
     extras = extras || {};
-    const health = cfg.health || {};
-    const remote = cfg.remote || null;
-    const remotePending = cfg.remotePending || null;
-    const paired = remotePaired(remote);
-    const pending = !paired && !!(remotePending || remote);
-    const dropped = extras.dropped || cfg.dropped || {};
 
-    return {
-      hostname: cfg.hostname || "",
-      paused: !!cfg.paused,
-      allowlist: Array.isArray(cfg.allowlist) ? cfg.allowlist.slice() : [],
-      pausedHosts: Object.assign({}, cfg.pausedHosts || {}),
-      siteErrors: Object.assign({}, cfg.siteErrors || {}),
-      health: {
-        lastError: health.lastError || null,
-        lastUploadAt: health.lastUploadAt || null,
-        segmentsUploaded: Math.max(0, Number(health.segmentsUploaded || 0)),
-        lastStatus: typeof health.lastStatus === "undefined" ? null : health.lastStatus,
-        consecutiveFailures: Math.max(0, Number(health.consecutiveFailures || 0)),
-      },
-      remote: {
-        paired,
-        pending,
-        instanceId: (remote && remote.instanceId) || "",
-        relayOrigin: paired
-          ? (remote && remote.relayOrigin) || ""
-          : (remotePending && remotePending.relayOrigin) || (remote && remote.relayOrigin) || "",
-        pairedAt: (remote && remote.pairedAt) || null,
-      },
-      waiting: Math.max(0, Number(typeof extras.waiting === "undefined" ? cfg.waiting || 0 : extras.waiting)),
-      outboxLines: Math.max(0, Number(typeof extras.outboxLines === "undefined" ? cfg.outboxLines || 0 : extras.outboxLines)),
-      dropped: {
-        segments: Math.max(0, Number(dropped.segments || 0)),
-        lines: Math.max(0, Number(dropped.lines || 0)),
-      },
-    };
-  }
-
-  function connection(status) {
-    status = status || {};
-    const health = status.health || {};
-    const remote = status.remote || {};
-    let kind = "unpaired";
-    if (remote.paired) {
-      if (health.lastError) kind = "remote-error";
-      else if (remote.pairedAt && Number(health.lastUploadAt || 0) >= Number(remote.pairedAt)) kind = "remote-connected";
-      else kind = "remote-ready";
-    } else if (remote.pending) {
-      kind = "remote-pending";
+    if (!status || typeof status !== "object" || status.ok === false) {
+      return {
+        kind: "unavailable",
+        mark: "error",
+        badge: "",
+        headline: "status unavailable",
+        sub: "",
+        reason: "the solstone extension can't show its status right now.",
+        action: { id: "open-settings", label: "open settings" },
+        also: [],
+        connecting: null,
+      };
     }
 
-    const connected = kind === "remote-connected";
-    let stateLabel = "not paired";
-    let destination = "nowhere yet";
-    let destinationDetail = "your journal at your home, once you pair it";
-    let consequence = "set up your journal first. until then, browser updates wait here.";
-    if (kind === "remote-connected") {
-      stateLabel = "connected";
-      destination = "your home";
-      destinationDetail = "your home, reached over a sealed link";
-      consequence = "";
-    } else if (kind === "remote-ready") {
-      stateLabel = "paired · waiting for first sync";
-      destination = "your home";
-      destinationDetail = "your home, reached over a sealed link";
-      consequence = "";
-    } else if (kind === "remote-error") {
-      stateLabel = "can't reach";
-      destination = "your home";
-      destinationDetail = "your home, reached over a sealed link";
-      consequence = "the connection to your journal is unavailable. browser updates wait here until they can go into your journal.";
-    } else if (kind === "remote-pending") {
-      stateLabel = "pairing not finished";
-      destination = "your home";
-      destinationDetail = "your home, once pairing finishes";
-      consequence = "";
-    }
-
-    return { kind, connected, stateLabel, destination, destinationDetail, consequence };
-  }
-
-  function isRecord(value) {
-    return !!value && typeof value === "object" && !Array.isArray(value);
-  }
-
-  function subFor(kind) {
-    return SUB_BY_KIND[kind];
-  }
-
-  function unavailableVerdict() {
-    return {
-      kind: "unavailable",
-      tone: "unavailable",
-      headline: "status unavailable",
-      sub: SUB_BY_KIND.unavailable,
-      reason: "",
-      actions: [{ id: "open-settings", label: "open settings" }],
-      also: [],
-    };
-  }
-
-  function verdictForConnection(conn, status, extras) {
-    if (
-      !isRecord(status)
-      || !Array.isArray(status.allowlist)
-      || !isRecord(status.health)
-      || !isRecord(status.dropped)
-    ) {
-      throw new Error("status is not a normalize() output");
-    }
-
-    extras = extras || {};
-    if (Object.prototype.hasOwnProperty.call(extras, "activeSites") && !Array.isArray(extras.activeSites)) {
-      throw new Error("activeSites is not an array");
-    }
-
-    const allowlist = status.allowlist;
-    const pausedHosts = status.pausedHosts || {};
-    const siteErrors = status.siteErrors || {};
-    const entryMatchHosts = extras.entryMatchHosts || {};
-    const journalUnreachable = conn.kind === "remote-error";
-    const browserPausedCount = allowlist.filter((entry) => pausedHosts[entryMatchHosts[entry] ?? entry]).length;
-    const siteErrorCount = Object.keys(siteErrors).length;
-
-    // The first live rung wins. Every other live rung becomes `also`, in this
-    // same order. The terminal `on` and `idle` fallbacks never appear there.
-    const ladder = [
-      { kind: "dropped", fires: Number(status.dropped.segments || 0) > 0 },
-      { kind: "unreachable", fires: journalUnreachable },
-      { kind: "paused", fires: !!status.paused },
-      { kind: "browser-paused", fires: browserPausedCount > 0 },
-      { kind: "site-error", fires: siteErrorCount > 0 },
-      { kind: "no-journal", fires: conn.kind === "unpaired" },
-      { kind: "pairing-unfinished", fires: conn.kind === "remote-pending" },
-      { kind: "no-sites", fires: allowlist.length === 0 },
-      { kind: "first-sync-pending", fires: conn.kind === "remote-ready" },
-    ];
-    const winner = ladder.find((entry) => entry.fires);
-    let kind;
-    let also;
-    if (winner) {
-      kind = winner.kind;
-      also = ladder.filter((entry) => entry !== winner && entry.fires).map((entry) => entry.kind);
-    } else {
-      // Unreachable under today's connection(): every non-connected kind is
-      // caught above. This assert keeps a future kind from silently earning green.
-      if (!conn.connected) throw new Error(`unhandled connection kind: ${conn.kind}`);
-      kind = Object.prototype.hasOwnProperty.call(extras, "activeSites") && extras.activeSites.length === 0 ? "idle" : "on";
-      also = [];
-    }
-
-    let tone;
-    let headline;
-    let reason = "";
-    let actions = [];
-    switch (kind) {
-      case "dropped":
-        tone = "attention";
-        headline = "some updates couldn't be kept";
-        if (journalUnreachable) {
-          reason = "the connection to your journal was unavailable for a while. the oldest waiting updates were dropped to make room.";
-          actions = [{ id: "try-now", label: "try now" }];
-        } else {
-          reason = "the oldest waiting updates were dropped to make room.";
-          if (extras.outbox && extras.outbox.lines === 0) actions = [{ id: "dismiss", label: "dismiss" }];
-        }
-        break;
-      case "unreachable":
-        tone = "attention";
-        headline = "can't reach your journal";
-        // connection() is the single source of consequence copy. A fallback
-        // literal here would recreate the parallel truth source this verdict removes.
-        reason = conn.consequence;
-        actions = [{ id: "try-now", label: "try now" }];
-        break;
-      case "paused":
-        tone = "calm";
-        headline = "paused";
-        if (status.waiting > 0) reason = "what you shared earlier is waiting to go into your journal.";
-        break;
-      case "browser-paused":
-        tone = "attention";
-        headline = browserPausedCount === 1
-          ? "1 site paused by your browser"
-          : `${browserPausedCount} sites paused by your browser`;
-        reason = "site access is no longer available. allow it again to resume the affected sites.";
-        break;
-      case "site-error":
-        tone = "attention";
-        headline = siteErrorCount === 1 ? "1 site needs attention" : `${siteErrorCount} sites need attention`;
-        break;
-      case "no-journal":
-        tone = "calm";
-        headline = "no journal yet";
-        actions = [{ id: "set-up", label: "set up your journal" }];
-        break;
-      case "pairing-unfinished":
-        tone = "calm";
-        headline = "pairing isn't finished";
-        actions = [{ id: "set-up", label: "finish pairing" }];
-        break;
-      case "no-sites":
-        tone = "calm";
-        headline = "no sites yet";
-        break;
-      case "first-sync-pending":
-        tone = "calm";
-        headline = "paired, nothing sent yet";
-        reason = "the first pages go out on the next batch.";
-        break;
-      case "idle":
-        tone = "ok";
-        headline = "on";
-        reason = "none of your sites are open right now.";
-        break;
-      case "on":
-        tone = "ok";
-        headline = "on";
-        if (status.outboxLines > 0) reason = `${status.outboxLines} update${status.outboxLines === 1 ? "" : "s"} from earlier waiting to sync.`;
-        break;
-      default:
-        throw new Error(`unknown verdict kind: ${kind}`);
-    }
-
-    return { kind, tone, headline, sub: subFor(kind), reason, actions, also };
-  }
-
-  function verdict(status, extras) {
     try {
-      return verdictForConnection(connection(status), status, extras);
-    } catch (err) {
-      console.warn("[solstone] status verdict unavailable", err);
-      return unavailableVerdict();
+      const brand = status.brand || "";
+      const platform = status.platform || "";
+      const bName = C ? C.browserName(brand) : "your browser";
+      const chosenOrigins = Array.isArray(status.chosenOrigins) ? status.chosenOrigins : [];
+      const grantedOrigins = Array.isArray(status.grantedOrigins) ? status.grantedOrigins : [];
+      const inactiveOrigins = Array.isArray(status.inactiveOrigins) ? status.inactiveOrigins : [];
+      const siteNotices = Array.isArray(status.siteNotices) ? status.siteNotices : [];
+      const hostCapture = status.hostCapture;
+      const hostDelivery = status.hostDelivery;
+      const hostFailure = status.hostFailure;
+      const custody = status.custody;
+      const lease = status.lease;
+      const capturePermitted = status.capturePermitted === true;
+      const paused = !!status.paused;
+      const pressure = status.pressure || {};
+      const consentVersion = status.consentVersion;
+      const updateCheck = status.updateCheck || "pending";
+      const behind = status.behind;
+      const connected = !!status.connected;
+      const handshake = status.handshake;
+      const everConnected = !!status.everConnected;
+      const lossNotice = status.lossNotice;
+
+      const anyGrantedTabOpen = typeof extras.anyGrantedTabOpen === "boolean" ? extras.anyGrantedTabOpen : (
+        Array.isArray(extras.activeSites) ? extras.activeSites.length > 0 : true
+      );
+
+      const items = [];
+
+      // Layer 1: Version Skew
+      if (behind === "extension") {
+        let reason = `the solstone app on this computer needs a newer version of this extension. ${bName} hasn't found it yet; it checks again on its own.`;
+        let action = null;
+        if (updateCheck === "pending") {
+          reason = `the solstone app on this computer needs a newer version of this extension. ${bName} is checking for it now.`;
+        } else if (updateCheck === "manual") {
+          reason = `the solstone app on this computer needs a newer version of this extension. in Firefox, open Add-ons and themes, then choose Check for Updates from the gear menu.`;
+        } else if (updateCheck === "update-available") {
+          reason = "the update is ready.";
+          action = { id: "update-now", label: "update now" };
+        }
+        items.push({
+          layer: 1,
+          kind: "update-extension",
+          mark: "attention",
+          badge: "!",
+          headline: "update the solstone extension",
+          sub: "nothing new is taken in until it's updated",
+          reason,
+          action,
+          connecting: null,
+        });
+      } else if (behind === "app") {
+        const reason = platform === "linux" ? "" : "this extension needs a newer version of the solstone app on this computer. look under updates in the solstone app's settings.";
+        items.push({
+          layer: 1,
+          kind: "update-app",
+          mark: "attention",
+          badge: "!",
+          headline: "update the solstone app",
+          sub: "nothing new is taken in until it's updated",
+          reason,
+          action: null,
+          connecting: null,
+        });
+      }
+
+      // Layer 2: Transport & Host Reachability
+      const isHandshakeConnecting = (connected && handshake === "pending") ||
+        (hostCapture === "permitted" && !capturePermitted && custody?.full !== true && (!lease || lease.freshnessMs === 0));
+
+      if (isHandshakeConnecting) {
+        items.push({
+          layer: 2,
+          kind: "connecting",
+          mark: "connecting",
+          badge: "",
+          headline: "connecting to the solstone app",
+          sub: "",
+          reason: "",
+          action: null,
+          connecting: "handshake",
+        });
+      } else if (!connected || hostCapture == null || hostCapture === "unavailable") {
+        let reason = "";
+        let action = null;
+        let mark = "offline";
+        if (!everConnected) {
+          mark = "paused";
+          reason = "the solstone extension works with the solstone app on this computer. if the solstone app isn't on this computer yet, get it at solstone.app.";
+          action = { id: "get-app", label: "get the solstone app" };
+        } else if (connected) {
+          reason = "the solstone app on this computer isn't answering. open it to go on.";
+        } else if (platform !== "linux") {
+          reason = "open the solstone app on this computer. if it's already open, look under sources in its settings.";
+        }
+        items.push({
+          layer: 2,
+          kind: "cant-reach-app",
+          mark,
+          badge: "",
+          headline: "can't reach the solstone app",
+          sub: "nothing is taken in until it answers",
+          reason,
+          action,
+          connecting: null,
+        });
+      }
+
+      // Layer 3: App Mode & Consent
+      if (hostCapture === "not_paired") {
+        items.push({
+          layer: 3,
+          kind: "not-paired",
+          mark: "paused",
+          badge: "",
+          headline: "the solstone app isn't paired yet",
+          sub: "nothing is taken in until it is",
+          reason: "pair the solstone app on this computer with your journal, then come back.",
+          action: null,
+          connecting: null,
+        });
+      }
+
+      if (consentVersion !== 1) {
+        items.push({
+          layer: 3,
+          kind: "consent-needed",
+          mark: "paused",
+          badge: "",
+          headline: "finish setting up",
+          sub: "nothing is taken in until you do",
+          reason: "read what the solstone extension takes in, then choose your first site.",
+          action: { id: "finish-setup", label: "finish setting up" },
+          connecting: null,
+        });
+      }
+
+      if (hostCapture === "paused") {
+        items.push({
+          layer: 3,
+          kind: "app-paused",
+          mark: "paused",
+          badge: "",
+          headline: "the solstone app is paused",
+          sub: "nothing new is taken in",
+          reason: "pausing doesn't hold back what's already taken in. resume from the solstone app.",
+          action: null,
+          connecting: null,
+        });
+      }
+
+      if (hostCapture === "intake_off" && (!hostFailure || hostFailure === "relay_unavailable" || hostFailure === "journal_rejected")) {
+        const reason = platform === "linux" ? "" : "turn browser pages back on under sources in the solstone app's settings.";
+        items.push({
+          layer: 3,
+          kind: "intake-off",
+          mark: "paused",
+          badge: "",
+          headline: "browser pages are off in the solstone app",
+          sub: "nothing new is taken in",
+          reason,
+          action: null,
+          connecting: null,
+        });
+      }
+
+      if (paused) {
+        items.push({
+          layer: 3,
+          kind: "paused-here",
+          mark: "paused",
+          badge: "",
+          headline: "paused in this browser",
+          sub: "nothing new is taken in from this browser",
+          reason: "pausing doesn't hold back what's already taken in.",
+          action: null,
+          connecting: null,
+        });
+      }
+
+      if (chosenOrigins.length === 0) {
+        items.push({
+          layer: 3,
+          kind: "no-sites",
+          mark: "paused",
+          badge: "",
+          headline: "no sites yet",
+          sub: "nothing is taken in until you add a site",
+          reason: "open a site you want to share and choose add this site.",
+          action: null,
+          connecting: null,
+        });
+      }
+
+      // Layer 4: Custody Limits & Storage Pressure
+      const isQueueFullStore = hostCapture === "intake_off" && hostFailure === "queue_full" && custody?.full !== false;
+      const isPermittedStoreFull = custody?.full === true && hostCapture === "permitted" && hostCapture !== "intake_off";
+
+      if (isPermittedStoreFull || isQueueFullStore) {
+        items.push({
+          layer: 4,
+          kind: "app-store-full",
+          mark: "offline",
+          badge: "",
+          headline: "no room for more right now",
+          sub: "nothing new is taken in until there's room",
+          reason: "the room on this computer for what you share from your browsers is full. new pages are taken in again once there's room. the solstone app has the details.",
+          action: null,
+          connecting: null,
+        });
+      }
+
+      if (hostCapture === "intake_off" && hostFailure === "unaccepted_lost") {
+        items.push({
+          layer: 4,
+          kind: "lost-and-held",
+          mark: "attention",
+          badge: "!",
+          headline: "some pages couldn't be kept",
+          sub: "nothing new is taken in right now",
+          reason: "part of what you shared from your browsers couldn't be kept, so it won't go into your journal. the solstone app has the details.",
+          action: null,
+          connecting: null,
+        });
+        if (custody?.full === true && !items.some(it => it.kind === "app-store-full")) {
+          items.push({
+            layer: 4,
+            kind: "app-store-full",
+            mark: "offline",
+            badge: "",
+            headline: "no room for more right now",
+            sub: "nothing new is taken in until there's room",
+            reason: "the room on this computer for what you share from your browsers is full. new pages are taken in again once there's room. the solstone app has the details.",
+            action: null,
+            connecting: null,
+          });
+        }
+      } else if (
+        hostCapture === "intake_off" &&
+        (hostFailure === "local_io" || hostFailure === "resource_exhausted" || hostFailure === "age_policy" || (hostFailure === "queue_full" && custody?.full === false))
+      ) {
+        items.push({
+          layer: 4,
+          kind: "intake-held",
+          mark: "offline",
+          badge: "",
+          headline: "nothing new is taken in right now",
+          sub: "",
+          reason: "the solstone app on this computer isn't taking in new pages right now.",
+          action: null,
+          connecting: null,
+        });
+        if (custody?.full === true && !items.some(it => it.kind === "app-store-full")) {
+          items.push({
+            layer: 4,
+            kind: "app-store-full",
+            mark: "offline",
+            badge: "",
+            headline: "no room for more right now",
+            sub: "nothing new is taken in until there's room",
+            reason: "the room on this computer for what you share from your browsers is full. new pages are taken in again once there's room. the solstone app has the details.",
+            action: null,
+            connecting: null,
+          });
+        }
+      }
+
+      if (pressure?.active && hostCapture === "permitted") {
+        items.push({
+          layer: 4,
+          kind: "pressure-here",
+          mark: "offline",
+          badge: "",
+          headline: "no room for more right now",
+          sub: "nothing new is taken in until there's room",
+          reason: "what you shared from this browser is waiting for the solstone app to accept it. new pages are taken in again once there's room.",
+          action: null,
+          connecting: null,
+        });
+      }
+
+      // Layer 5: Local Losses, Stale Custody & Site Errors
+      if (lossNotice != null) {
+        items.push({
+          layer: 5,
+          kind: "dropped",
+          mark: "attention",
+          badge: "!",
+          headline: "some pages couldn't be kept",
+          sub: "",
+          reason: "part of what you shared from this browser couldn't be kept, so it won't go into your journal.",
+          action: { id: "dismiss-loss", label: "dismiss" },
+          connecting: null,
+        });
+      }
+
+      if (custody?.stale === true) {
+        items.push({
+          layer: 5,
+          kind: "waiting-over-a-week",
+          mark: "attention",
+          badge: "!",
+          headline: "some pages have waited more than a week",
+          sub: "",
+          reason: "some pages from your browsers have waited more than a week to go into your journal. they're still kept on this computer. the solstone app has the details.",
+          action: null,
+          connecting: null,
+        });
+      }
+
+      if (inactiveOrigins.length > 0) {
+        const n = inactiveOrigins.length;
+        const headline = n === 1 ? `1 site paused by ${bName}` : `${n} sites paused by ${bName}`;
+        items.push({
+          layer: 5,
+          kind: "sites-paused-by-browser",
+          mark: "attention",
+          badge: "!",
+          headline,
+          sub: "",
+          reason: `${bName} took back this extension's access. allow it again to go on.`,
+          action: null,
+          connecting: null,
+        });
+      }
+
+      const hasSiteErrors = siteNotices.some((sn) => sn.kind === "enqueue" || sn.kind === "registration");
+      if (hasSiteErrors) {
+        const siteErrorCount = new Set(siteNotices.filter((sn) => sn.kind === "enqueue" || sn.kind === "registration").map((sn) => sn.origin)).size;
+        const headline = siteErrorCount === 1 ? "1 site needs attention" : `${siteErrorCount} sites need attention`;
+        items.push({
+          layer: 5,
+          kind: "site-error",
+          mark: "attention",
+          badge: "!",
+          headline,
+          sub: "",
+          reason: "",
+          action: null,
+          connecting: null,
+        });
+      }
+
+      // Layer 6: Remote Delivery Failure
+      if (hostDelivery === "failed") {
+        items.push({
+          layer: 6,
+          kind: "delivery-failed",
+          mark: "offline",
+          badge: "",
+          headline: "not reaching your journal",
+          sub: "kept on this computer for now",
+          reason: "what you share from this browser is kept on this computer for now. the solstone app has the details.",
+          action: null,
+          connecting: null,
+        });
+      }
+
+      // Layer 7: Active Capture
+      const effectiveGateOpen = hostCapture === "permitted" && capturePermitted && custody?.full !== true &&
+        consentVersion === 1 && !paused && !pressure?.active;
+
+      const layers0to4Clear = !items.some((it) => it.layer >= 0 && it.layer <= 4);
+
+      if (effectiveGateOpen && layers0to4Clear) {
+        if (hostDelivery === "unknown" || hostDelivery == null) {
+          items.push({
+            layer: 7,
+            kind: "connecting",
+            mark: "connecting",
+            badge: "",
+            headline: "on",
+            sub: "no word yet on whether it's reaching your journal",
+            reason: "",
+            action: null,
+            connecting: "delivery",
+          });
+        } else {
+          let deliverySub = "";
+          if (hostDelivery === "delivered") {
+            deliverySub = hostFailure ? "the last pages reached your journal" : "reaching your journal";
+          } else if (hostDelivery === "kept_locally") {
+            deliverySub = "kept on this computer, waiting to go into your journal";
+          } else if (hostDelivery === "idle") {
+            deliverySub = "nothing waiting to go into your journal";
+          }
+
+          if (!anyGrantedTabOpen) {
+            items.push({
+              layer: 7,
+              kind: "idle",
+              mark: "healthy",
+              badge: "",
+              headline: "on",
+              sub: deliverySub,
+              reason: "none of your sites are open right now.",
+              action: null,
+              connecting: null,
+            });
+          } else {
+            items.push({
+              layer: 7,
+              kind: "on",
+              mark: "healthy",
+              badge: "",
+              headline: "on",
+              sub: deliverySub,
+              reason: "",
+              action: null,
+              connecting: null,
+            });
+          }
+        }
+      }
+
+      const winner = items[0] || {
+        layer: 0,
+        kind: "unavailable",
+        mark: "error",
+        badge: "",
+        headline: "status unavailable",
+        sub: "",
+        reason: "the solstone extension can't show its status right now.",
+        action: { id: "open-settings", label: "open settings" },
+        connecting: null,
+      };
+
+      const also = items
+        .filter((it) => it !== winner && it.kind !== "on" && it.kind !== "idle")
+        .map((it) => ({ kind: it.kind, headline: it.headline, action: it.action }));
+
+      return {
+        kind: winner.kind,
+        mark: winner.mark,
+        badge: winner.badge,
+        headline: winner.headline,
+        sub: winner.sub,
+        reason: winner.reason,
+        action: winner.action,
+        also,
+        connecting: winner.connecting,
+      };
+    } catch (_err) {
+      return {
+        kind: "unavailable",
+        mark: "error",
+        badge: "",
+        headline: "status unavailable",
+        sub: "",
+        reason: "the solstone extension can't show its status right now.",
+        action: { id: "open-settings", label: "open settings" },
+        also: [],
+        connecting: null,
+      };
     }
   }
 
-  function iconState(status, secondArg) {
-    const extras = secondArg && typeof secondArg === "object" && ["activeSites", "outbox", "entryMatchHosts"].some(
-      (key) => Object.prototype.hasOwnProperty.call(secondArg, key) && typeof secondArg[key] !== "string"
-    )
-      ? secondArg
-      : { entryMatchHosts: secondArg || {} };
-    const result = verdict(status, extras);
-    const icon = ICON_BY_KIND[result.kind];
+  function iconState(status, extras) {
+    const result = derive(status, extras);
+    const prefix = PREFIX_BY_MARK[result.mark] || "icon-error-";
     let title = `solstone · ${result.headline}`;
-    if (DESTINATION_SUB_KINDS.has(result.kind)) title += ` · ${result.sub}`;
-    return { prefix: icon.prefix, title, badge: icon.badge };
-  }
-
-  function siteRowState(entry, state) {
-    state = state || {};
-    const siteErrors = state.siteErrors || {};
-    if (siteErrors[entry]) return { kind: "error", label: siteErrors[entry] };
-    if ((state.pausedHosts || {})[state.matchHost]) return { kind: "paused-browser", label: "paused by browser" };
-    if (state.paused) return { kind: "paused", label: "paused" };
-    const active = (state.activeSites || []).includes(entry);
-    const conn = connection(state);
-    if (active && conn.connected) return { kind: "on", label: "on now" };
-    if (active && conn.kind === "remote-ready") return { kind: "waiting", label: "on, waiting for first sync" };
-    if (active) return { kind: "waiting", label: "on, waiting to sync" };
-    if (entry === state.pageHost) return { kind: "reload", label: "reload this tab to begin" };
-    return { kind: "idle", label: "added. open or reload a tab" };
-  }
-
-  function updateHealth(prev, res) {
-    const h = Object.assign({}, prev || {});
-    if (typeof res.status !== "undefined") h.lastStatus = res.status;
-    if (res.ok) {
-      h.lastError = null;
-      h.consecutiveFailures = 0;
-    } else {
-      h.lastError = res.error || `HTTP ${res.status}`;
-      h.consecutiveFailures = (h.consecutiveFailures || 0) + 1;
+    const shouldAppendSub = result.kind === "delivery-failed" ||
+      (result.kind === "connecting" && result.connecting === "delivery") ||
+      result.kind === "on" || result.kind === "idle";
+    if (shouldAppendSub && result.sub) {
+      title += ` · ${result.sub}`;
     }
-    return h;
+    return { prefix, title, badge: result.badge || "" };
+  }
+
+  function siteRow(entry, status, extras) {
+    const C = globalThis.SolstoneCopy;
+    status = status || {};
+    extras = extras || {};
+    const bName = C ? C.browserName(status.brand) : "your browser";
+    const inactiveOrigins = Array.isArray(status.inactiveOrigins) ? status.inactiveOrigins : [];
+    const grantedOrigins = Array.isArray(status.grantedOrigins) ? status.grantedOrigins : [];
+    const siteNotices = Array.isArray(status.siteNotices) ? status.siteNotices : [];
+    const openTabOrigins = Array.isArray(extras.openTabOrigins) ? extras.openTabOrigins : (
+      extras.activeSites ? extras.activeSites : []
+    );
+
+    const isInactive = inactiveOrigins.some((o) => o === entry || (o.startsWith("http") && new URL(o).host === entry));
+    if (isInactive) {
+      return {
+        kind: "paused-by-browser",
+        label: `paused by ${bName}`,
+        action: { id: "allow-again", label: "allow again" },
+      };
+    }
+
+    if (status.paused || status.hostCapture === "paused") {
+      return {
+        kind: "paused",
+        label: "paused",
+        action: null,
+      };
+    }
+
+    const isGranted = grantedOrigins.some((o) => o === entry || (o.startsWith("http") && new URL(o).host === entry));
+    const isTabOpen = openTabOrigins.some((o) => o === entry || (o.startsWith("http") && new URL(o).host === entry));
+
+    if (status.pressure?.active && isGranted && isTabOpen) {
+      return {
+        kind: "pressure-here",
+        label: "no room for more right now",
+        action: null,
+      };
+    }
+
+    const truncNotice = siteNotices.find((n) => n.kind === "truncation" && (n.origin === entry || (n.origin.startsWith("http") && new URL(n.origin).host === entry)));
+    if (truncNotice) {
+      return {
+        kind: "truncated",
+        label: "part of this page was too long to keep",
+        action: { id: "dismiss-truncation", label: "dismiss", bound: truncNotice.bound },
+      };
+    }
+
+    const regNotice = siteNotices.find((n) => n.kind === "registration" && (n.origin === entry || (n.origin.startsWith("http") && new URL(n.origin).host === entry)));
+    if (regNotice && regNotice.bound === "reload" && isTabOpen) {
+      return {
+        kind: "reload-tab",
+        label: "reload this tab to begin",
+        action: null,
+      };
+    }
+
+    if (isGranted && !isTabOpen && (!regNotice || regNotice.bound !== "failed")) {
+      return {
+        kind: "added-idle",
+        label: "added. open or reload a tab",
+        action: null,
+      };
+    }
+
+    const capturePermitted = status.capturePermitted === true;
+    const isCapturable = isGranted && status.consentVersion === 1 && !status.paused && !status.pressure?.active &&
+      status.hostCapture === "permitted" && capturePermitted && status.custody?.full !== true &&
+      (!regNotice || regNotice.bound !== "failed");
+
+    if (!isCapturable) {
+      return {
+        kind: "not-taken-in",
+        label: "not taken in right now",
+        action: null,
+      };
+    }
+
+    if (isTabOpen) {
+      return {
+        kind: "on-now",
+        label: "on now",
+        action: null,
+      };
+    }
+
+    return {
+      kind: "added-idle",
+      label: "added. open or reload a tab",
+      action: null,
+    };
   }
 
   globalThis.SolstoneStatus = {
-    remotePaired,
-    normalize,
-    connection,
-    verdictForConnection,
-    verdict,
+    derive,
     iconState,
-    siteRowState,
-    updateHealth,
+    siteRow,
   };
 })();

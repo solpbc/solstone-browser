@@ -54,11 +54,12 @@ brand-sync:
 	@# the manifest and chrome.action.setIcon declare, each straight from the
 	@# vector (never downsampled from one raster). Prefixes match lib/status.js.
 	@set -e; for size in $(BRAND_ICON_SIZES); do \
-	  rsvg-convert -w $$size -h $$size extension/brand/mark-healthy.svg   -o extension/icons/icon$$size.png; \
-	  rsvg-convert -w $$size -h $$size extension/brand/mark-paused.svg    -o extension/icons/icon-paused-$$size.png; \
-	  rsvg-convert -w $$size -h $$size extension/brand/mark-attention.svg -o extension/icons/icon-attention-$$size.png; \
-	  rsvg-convert -w $$size -h $$size extension/brand/mark-offline.svg   -o extension/icons/icon-offline-$$size.png; \
-	  rsvg-convert -w $$size -h $$size extension/brand/mark-error.svg     -o extension/icons/icon-error-$$size.png; \
+	  rsvg-convert -w $$size -h $$size extension/brand/mark-healthy.svg    -o extension/icons/icon$$size.png; \
+	  rsvg-convert -w $$size -h $$size extension/brand/mark-paused.svg     -o extension/icons/icon-paused-$$size.png; \
+	  rsvg-convert -w $$size -h $$size extension/brand/mark-attention.svg  -o extension/icons/icon-attention-$$size.png; \
+	  rsvg-convert -w $$size -h $$size extension/brand/mark-offline.svg    -o extension/icons/icon-offline-$$size.png; \
+	  rsvg-convert -w $$size -h $$size extension/brand/mark-error.svg      -o extension/icons/icon-error-$$size.png; \
+	  rsvg-convert -w $$size -h $$size extension/brand/mark-connecting.svg -o extension/icons/icon-connecting-$$size.png; \
 	done
 	@echo "brand: synced from $(BRAND_DIR)"
 

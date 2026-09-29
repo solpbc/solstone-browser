@@ -24,12 +24,16 @@
     return true;
   }
 
-  function directText(el) {
+  function directTextResult(el) {
     let s = "";
     for (const node of el.childNodes) {
       if (node.nodeType === 3) s += node.nodeValue;
     }
-    return B.normalizeText(s);
+    return B.normalizeTextResult ? B.normalizeTextResult(s) : { text: B.normalizeText(s), truncated: false };
+  }
+
+  function directText(el) {
+    return directTextResult(el).text;
   }
 
   function matchesAny(el, selector) {
@@ -41,8 +45,7 @@
     }
   }
 
-  function walk(el, adapter, out, depth, boundaryId, maxBlocks) {
-    if (out.length >= maxBlocks) return;
+  function walk(el, adapter, out, depth, boundaryId, maxBlocks, state) {
     if (!isVisible(el)) return;
     if (matchesAny(el, adapter.skip)) return;
 
@@ -57,23 +60,30 @@
       const attrs = B.readAttrs(el);
       const label = attrs.label || "";
       if (sid || label) {
+        if (out.length >= maxBlocks) {
+          state.omitted = true;
+          return;
+        }
         const role = el.getAttribute && el.getAttribute("role");
         const type = B.typeFromRoleTag(role, tag, false);
         const utype = type === "text" ? "unit" : type;
         const id = B.blockId(sid, utype, depth, label);
         const block = { id, type: utype, depth, text: label };
         if (Object.keys(attrs).length) block.attrs = attrs;
-        if (out.length < maxBlocks) {
-          out.push(block);
-        }
+        out.push(block);
       }
       if (sid) nextBoundaryId = sid;
     }
 
-    if (out.length >= maxBlocks) return;
+    const textRes = directTextResult(el);
+    const text = textRes.text;
+    if (textRes.truncated) state.omitted = true;
 
-    const text = directText(el);
     if (text && B.visibleLen(text) > 1) {
+      if (out.length >= maxBlocks) {
+        state.omitted = true;
+        return;
+      }
       const role = el.getAttribute && el.getAttribute("role");
       const hasLevel = !!(el.getAttribute && el.getAttribute("aria-level"));
       const type = B.typeFromRoleTag(role, tag, hasLevel);
@@ -82,32 +92,27 @@
       const id = B.blockId(keyed, type, depth, text);
       const block = { id, type, depth, text };
       if (Object.keys(attrs).length) block.attrs = attrs;
-      if (out.length < maxBlocks) {
-        out.push(block);
-      }
+      out.push(block);
     }
-
-    if (out.length >= maxBlocks) return;
 
     if (el.shadowRoot) {
       for (const child of el.shadowRoot.children) {
-        walk(child, adapter, out, depth + 1, nextBoundaryId, maxBlocks);
-        if (out.length >= maxBlocks) return;
+        walk(child, adapter, out, depth + 1, nextBoundaryId, maxBlocks, state);
       }
     }
     for (const child of el.children) {
-      walk(child, adapter, out, depth + 1, nextBoundaryId, maxBlocks);
-      if (out.length >= maxBlocks) return;
+      walk(child, adapter, out, depth + 1, nextBoundaryId, maxBlocks, state);
     }
   }
 
   function skim(root, adapter) {
     const out = [];
-    if (!root) return out;
+    const state = { omitted: false };
+    if (!root) return { blocks: out, omitted: false };
     const maxBlocks = getMaxBlocks();
-    walk(root, adapter, out, 0, null, maxBlocks);
-    return out;
+    walk(root, adapter, out, 0, null, maxBlocks, state);
+    return { blocks: out, omitted: !!state.omitted };
   }
 
-  globalThis.SolstoneSkim = { skim, isVisible, directText };
+  globalThis.SolstoneSkim = { skim, isVisible, directText, directTextResult };
 })();

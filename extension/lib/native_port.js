@@ -102,17 +102,22 @@
       this.everConnected = false;
       this.updateCheck = "pending";
       this.paused = false;
+      this.chosenOrigins = new Set();
       this.grantedOrigins = new Set();
+      this.pendingIntent = null;
+      this.siteNotices = [];
+      this.batchOriginMap = new Map();
       this.consentVersion = 0;
       this.showPageIndicator = false;
       this.capturePermitted = false;
       this.brand = resolveBrand();
+      this.platform = options.platform || "";
       this.hostName = resolveHostName(this.runtimeId);
     }
 
     syncCaptureAuthority() {
       const signature = JSON.stringify([this.connectionToken, this.stateRevision, this.paused,
-        this.consentVersion, [...this.grantedOrigins].sort(), this.pressure.active,
+        this.consentVersion, [...this.chosenOrigins].sort(), [...this.grantedOrigins].sort(), this.pressure.active,
         this.capturePermitted, this.hostCapture, this.lease]);
       if (signature !== this.captureSignature) {
         this.captureSignature = signature;
@@ -129,13 +134,65 @@
       }
     }
 
+    async setSiteNotice(origin, kind, bound) {
+      this.siteNotices = (this.siteNotices || []).filter((n) => !(n.origin === origin && n.kind === kind));
+      this.siteNotices.push({ origin, kind, bound });
+      if (this.siteNotices.length > 48) this.siteNotices.shift();
+      try {
+        await DB.put("meta", { seq: Date.now(), items: this.siteNotices }, "siteNotices");
+      } catch (_e) {}
+      this.notify();
+    }
+
+    async clearRegistrationNotice(origin) {
+      const prevLen = (this.siteNotices || []).length;
+      this.siteNotices = (this.siteNotices || []).filter((n) => !(n.origin === origin && n.kind === "registration"));
+      if (this.siteNotices.length !== prevLen) {
+        try {
+          await DB.put("meta", { seq: Date.now(), items: this.siteNotices }, "siteNotices");
+        } catch (_e) {}
+        this.notify();
+      }
+    }
+
+    async dismissTruncation(origin, bound) {
+      const prevLen = (this.siteNotices || []).length;
+      this.siteNotices = (this.siteNotices || []).filter((n) => !(n.origin === origin && n.kind === "truncation" && n.bound === bound));
+      const dismissed = this.siteNotices.length !== prevLen;
+      if (dismissed) {
+        try {
+          await DB.put("meta", { seq: Date.now(), items: this.siteNotices }, "siteNotices");
+        } catch (_e) {}
+        this.notify();
+      }
+      return dismissed;
+    }
+
     getStatus() {
       this.syncCaptureAuthority();
       const nowMs = this.now();
+      if (this.pendingIntent && nowMs >= this.pendingIntent.expiresAt) {
+        this.pendingIntent = null;
+      }
+      const chosenList = Array.from(this.chosenOrigins).sort();
+      const grantedList = Array.from(this.grantedOrigins).sort();
+      const inactiveOrigins = chosenList.filter((o) => !this.grantedOrigins.has(o)).sort();
       const originGranted = this.grantedOrigins.size > 0;
       const fresh = (this.hostStateDeadline == null || nowMs < this.hostStateDeadline) &&
         (!this.lease || nowMs < this.lease.receivedAt + this.lease.freshnessMs);
       const capturePermitted = fresh && this.capturePermitted === true;
+
+      const addSiteDecision = Gate.computeDecision({
+        lease: this.lease,
+        paused: this.paused,
+        consentVersion: this.consentVersion,
+        originGranted: true,
+        pressure: this.pressure,
+        hostCapture: fresh ? this.hostCapture : null,
+        capturePermitted,
+        now: nowMs,
+      });
+      const addSiteEligible = addSiteDecision.open === true;
 
       const gate = Gate.computeDecision({
         lease: this.lease,
@@ -155,6 +212,7 @@
         connected: this.livePort != null,
         handshake: this.handshake,
         brand: this.brand,
+        platform: this.platform,
         hostCapture: fresh ? this.hostCapture : null,
         hostDelivery: fresh ? this.hostDelivery : null,
         hostFailure: fresh ? this.hostFailure : null,
@@ -165,15 +223,19 @@
         connectionToken: this.connectionToken,
         behind: this.behind,
         pressure: { ...this.pressure },
-        siteRejection: this.siteRejection ? { ...this.siteRejection } : null,
+        siteNotices: this.siteNotices ? this.siteNotices.slice() : [],
+        siteRejection: null,
         lossNotice: this.lossNotice ? { ...this.lossNotice } : null,
         drift: this.drift ? { ...this.drift } : null,
         paused: !!this.paused,
         consentVersion: this.consentVersion,
-        grantedOrigins: Array.from(this.grantedOrigins),
+        chosenOrigins: chosenList,
+        grantedOrigins: grantedList,
+        inactiveOrigins,
         showPageIndicator: !!this.showPageIndicator,
         updateCheck: this.updateCheck,
         capturePermitted,
+        addSiteEligible,
         gate,
       };
     }
@@ -400,7 +462,7 @@
                     const st = typeof status === "string" ? status : status?.status;
                     if (st === "no_update" || st === "no-update") this.updateCheck = "no-update";
                     else if (st === "throttled") this.updateCheck = "throttled";
-                    else if (st === "update_available" || st === "update-available") this.updateCheck = "update-available";
+                    else if (st === "update_available" || st === "update-available") this.updateCheck = "no-update";
                     else this.updateCheck = "failure";
                     this.notify();
                   },
@@ -435,6 +497,11 @@
           try {
             if (val.result === "accepted" || val.result === "duplicate") {
               await Outbox.removeBatch(batchId);
+              if (this.batchOriginMap && this.batchOriginMap.has(batchId)) {
+                const bOrigin = this.batchOriginMap.get(batchId);
+                this.batchOriginMap.delete(batchId);
+                await this.clearRegistrationNotice(bOrigin);
+              }
               if (this.opEpoch !== fence.epoch || this.livePort !== fence.port) return;
               await this.refreshStorageStatus();
               if (this.opEpoch !== fence.epoch || this.livePort !== fence.port) return;

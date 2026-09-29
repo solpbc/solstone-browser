@@ -414,8 +414,9 @@ test("skim: caps total blocks at BLOCKS_MAX (1500)", () => {
     checkVisibility: () => true,
   };
 
-  const blocks = Skim.skim(mockRoot, Adapters.GENERIC);
-  assert.equal(blocks.length, Constants.BLOCKS_MAX); // 1500
+  const res = Skim.skim(mockRoot, Adapters.GENERIC);
+  assert.equal(res.blocks.length, Constants.BLOCKS_MAX); // 1500
+  assert.equal(res.omitted, true);
 });
 
 test("skim: boundary block counting respects 1499 edge", () => {
@@ -433,8 +434,9 @@ test("skim: boundary block counting respects 1499 edge", () => {
     checkVisibility: () => true,
   };
 
-  const blocks = Skim.skim(mockRoot, Adapters.GENERIC);
-  assert.equal(blocks.length, 1499);
+  const res = Skim.skim(mockRoot, Adapters.GENERIC);
+  assert.equal(res.blocks.length, 1499);
+  assert.equal(res.omitted, false);
 });
 
 test("account: monotonic floor, backward wall jump, future skew, and missing ageSampleWallMs", async () => {
@@ -879,7 +881,7 @@ test("account: outbox-full sets siteRejection with pressure reflecting DB status
 
   assert.equal(skimRes.ok, false);
   assert.equal(skimRes.error, "outbox-full");
-  assert.deepEqual(port.siteRejection, { origin: "https://example.test", reason: "outbox-full" });
+  assert.equal(port.siteNotices.some((n) => n.origin === "https://example.test" && n.kind === "enqueue" && n.bound === "outbox-full"), true);
   assert.equal(port.pressure.active, true);
 });
 

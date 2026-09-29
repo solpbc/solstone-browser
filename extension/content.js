@@ -96,12 +96,14 @@
     rootEl = targetRoot;
 
     const meta = getHooks().readMeta();
-    const blocks = Skim.skim(targetRoot, adapter);
+    const skimRes = Skim.skim(targetRoot, adapter);
+    const blocks = Array.isArray(skimRes) ? skimRes : (skimRes && skimRes.blocks) || [];
+    const omitted = !Array.isArray(skimRes) && skimRes && skimRes.omitted ? true : undefined;
 
     const decisionAfter = getDecision();
     if (!decisionAfter.open) return;
 
-    send({
+    const msg = {
       kind: "skim",
       reason,
       meta,
@@ -110,7 +112,9 @@
       connectionGeneration,
       destinationGeneration,
       leaseToken: lease?.token || null,
-    });
+    };
+    if (omitted) msg.omitted = true;
+    send(msg);
   }
 
   function scheduleSkim() {

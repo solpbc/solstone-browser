@@ -149,12 +149,17 @@
     return count;
   }
 
-  // Pure: strip invisibles, collapse whitespace, trim, cap length.
-  function normalizeText(s) {
-    if (s == null) return "";
+  // Pure: strip invisibles, collapse whitespace, trim, cap length, record truncation.
+  function normalizeTextResult(s) {
+    if (s == null) return { text: "", truncated: false };
     let out = String(s).replace(/[ \t ]+/g, " ").replace(/\s*\n\s*/g, "\n").replace(INVISIBLE, "").trim();
-    if (countCodePoints(out) > MAX_TEXT) out = sliceCodePoints(out, MAX_TEXT) + "…";
-    return out;
+    const truncated = countCodePoints(out) > MAX_TEXT;
+    if (truncated) out = sliceCodePoints(out, MAX_TEXT) + "…";
+    return { text: out, truncated };
+  }
+
+  function normalizeText(s) {
+    return normalizeTextResult(s).text;
   }
 
   // Pure: derive a block id. Prefer an app-stable id from `stableId` (e.g. a
@@ -207,6 +212,7 @@
     typeFromRoleTag,
     hashStr,
     normalizeText,
+    normalizeTextResult,
     visibleLen,
     blockId,
     originPath,

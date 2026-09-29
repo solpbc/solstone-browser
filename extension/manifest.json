@@ -17,6 +17,7 @@
       "native-browser/schemas.js",
       "native-browser/schema-validator.js",
       "native-browser/codec.js",
+      "lib/copy.js",
       "lib/uuid.js",
       "lib/db.js",
       "lib/blocks.js",
@@ -27,6 +28,7 @@
       "lib/gate.js",
       "lib/native_outbox.js",
       "lib/native_port.js",
+      "lib/status.js",
       "lib/router.js",
       "background.js"
     ],

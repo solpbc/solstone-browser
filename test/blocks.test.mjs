@@ -54,6 +54,21 @@ test("normalizeText caps at MAX_TEXT", () => {
   assert.ok(out.endsWith("…"));
 });
 
+test("normalizeTextResult accurately reports truncation strictly over 2000 code points", () => {
+  const short = "hello world";
+  assert.deepEqual(B.normalizeTextResult(short), { text: "hello world", truncated: false });
+
+  // Exactly MAX_TEXT characters ending in ellipsis is NOT truncated by our pass
+  const exactWithEllipsis = "a".repeat(B.MAX_TEXT - 1) + "…";
+  assert.deepEqual(B.normalizeTextResult(exactWithEllipsis), { text: exactWithEllipsis, truncated: false });
+
+  // Over MAX_TEXT characters is truncated
+  const long = "a".repeat(B.MAX_TEXT + 10);
+  const result = B.normalizeTextResult(long);
+  assert.equal(result.truncated, true);
+  assert.equal(result.text, "a".repeat(B.MAX_TEXT) + "…");
+});
+
 test("normalizeText strips invisible/zero-width chars (preheader junk)", () => {
   assert.equal(B.normalizeText("a​b"), "ab"); // zero-width space
   assert.equal(B.normalizeText("hi⁠ there"), "hi there"); // word-joiner, space kept

@@ -23,27 +23,17 @@ test("popup HTML fixes the section order and heading contract", () => {
 });
 
 test("popup consumes the upstream status derivations without recreating them", () => {
-  assert.match(popupSource, /Status\.verdict\(state,/);
-  assert.match(viewSource, /SolstoneStatus\.siteRowState\(entry,/);
+  assert.match(popupSource, /Status\.derive\(state,/);
+  assert.match(viewSource, /SolstoneStatus\.siteRow\(/);
   assert.doesNotMatch(popupSource, /cfg\.key|localRegistered|journalUrl|journalPermission|journalIntent/);
-  assert.doesNotMatch(popupSource, /(?:allowlist\.length|sites)\s*>\s*0\s*&&\s*!\s*(?:state\.)?paused/);
-  assert.doesNotMatch(`${popupSource}\n${viewSource}`, /switch\s*\(/);
-
-  // connection() and siteRowState() are intentionally allowed. They consume
-  // the upstream decisions; cfg.key, localRegistered, and the combined site
-  // count plus pause predicate would create parallel decisions here.
 });
 
-test("popup has exactly the four tone and four verdict-action lookup entries", () => {
+test("popup has the tone mapping and dispatches actions", () => {
   for (const tone of ["ok", "calm", "attention", "unavailable"]) {
     assert.match(popupSource, new RegExp(`\\b${tone}: \\{ bandClass:`));
   }
-  for (const action of ["try-now", "dismiss", "open-settings", "set-up"]) {
-    assert.match(popupSource, new RegExp(`["']?${action}["']?:`));
-  }
   assert.match(popupSource, /TONE\[section\.tone\] \|\| TONE\.unavailable/);
-  assert.match(popupSource, /ACTION\[section\.action\.id\]/);
-  assert.match(popupSource, /function setUp\(\) \{\s*openSettings\(\);\s*\}/);
+  assert.match(popupSource, /runAction\(section\.action\)/);
 });
 
 test("popup uses real DOM construction and removes all retired selectors", () => {
@@ -122,23 +112,31 @@ class FakeNode {
 
 function popupState(overrides = {}) {
   return Object.assign({
-    ok: true,
+    inst: "00112233-4455-6677-8899-aabbccddeeff",
+    captureEpoch: 1,
+    everConnected: true,
+    connected: true,
+    handshake: "complete",
+    brand: "chrome",
+    platform: "mac",
+    hostCapture: "permitted",
+    hostDelivery: "delivered",
+    hostFailure: null,
+    custody: { full: false, stale: false },
+    behind: null,
+    pressure: { active: false },
+    siteNotices: [],
+    siteRejection: null,
+    lossNotice: null,
     paused: false,
-    allowlist: ["mail.google.com"],
-    pausedHosts: {},
-    siteErrors: {},
-    health: { lastError: null, lastUploadAt: 1, segmentsUploaded: 1, lastStatus: 200, consecutiveFailures: 0 },
-    remote: {
-      paired: true,
-      pending: false,
-      instanceId: "00112233445566778899aabbccddeeff",
-      relayOrigin: "https://relay.example",
-      pairedAt: 1,
-    },
-    activeSites: ["mail.google.com"],
-    waiting: 0,
-    dropped: { segments: 0, lines: 0 },
-    outbox: { entries: 0, lines: 0 },
+    consentVersion: 1,
+    chosenOrigins: ["https://mail.google.com"],
+    grantedOrigins: ["https://mail.google.com"],
+    inactiveOrigins: [],
+    showPageIndicator: false,
+    updateCheck: "no-update",
+    capturePermitted: true,
+    addSiteEligible: true,
   }, overrides);
 }
 
@@ -149,7 +147,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
     "currentPageState", "pageSiteAction", "pauseAction", "siteCount", "siteCountText",
     "disclosure", "disclosureTitle", "disclosureWhat", "disclosureUnsent", "disclosureDestination",
     "disclosureDestinationDetail", "disclosureChrome", "disclosureConfirm",
-    "disclosureCancel", "popupMain", "popupFooter", "allSitesLink", "settingsLink",
+    "disclosureCancel", "popupMain", "popupFooter", "allSitesLink", "settingsLink", "headerMark",
   ];
   const nodes = Object.fromEntries(ids.map((id) => [id, new FakeNode(id)]));
   nodes.disclosure.hidden = true;
@@ -180,6 +178,12 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
       openOptionsPage() {
         optionsOpened += 1;
       },
+      connect() {
+        return {
+          onMessage: { addListener() {} },
+          onDisconnect: { addListener() {} },
+        };
+      },
     },
     tabs: { query: (...args) => tabQuery(...args) },
     permissions: {
@@ -191,6 +195,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
     },
   };
 
+  await import(new URL("../extension/lib/copy.js", import.meta.url));
   await import(new URL("../extension/lib/hosts.js", import.meta.url));
   await import(new URL("../extension/lib/status.js", import.meta.url));
   await import(new URL("../extension/lib/failures.js", import.meta.url));
@@ -205,21 +210,18 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   nodes.actionMessage.textContent = "previous action";
 
   liveState = popupState({
-    remote: { paired: false, pending: false, instanceId: "", relayOrigin: "", pairedAt: null },
-    activeSites: [],
+    hostCapture: "not_paired",
+    chosenOrigins: ["https://mail.google.com"],
   });
   await globalThis.SolstonePopup.refresh();
-  assert.equal(nodes.verdictHeadline.textContent, "no journal yet");
-  assert.equal(nodes.verdictActions.children[0].textContent, "set up your journal");
-  await nodes.verdictActions.children[0].listeners.click();
-  assert.equal(optionsOpened, 1);
-  assert.equal(permissionRequests, 0);
+  assert.equal(nodes.verdictHeadline.textContent, "the solstone app isn't paired yet");
+  assert.equal(nodes.verdictActions.children.length, 0);
   nodes.actionMessage.textContent = "previous action";
 
-  liveState = popupState({ paused: true, activeSites: [] });
+  liveState = popupState({ paused: true });
   await globalThis.SolstonePopup.refresh();
   assert.strictEqual(nodes.verdict, verdictNode);
-  assert.equal(nodes.verdictHeadline.textContent, "paused");
+  assert.equal(nodes.verdictHeadline.textContent, "paused in this browser");
   assert.equal(nodes.actionMessage.textContent, "previous action");
 
   liveState = { ok: false, error: "worker state unavailable" };
@@ -235,7 +237,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   assert.equal(nodes.siteCount.hidden, true);
 
   tabQuery = async () => [{ id: 7, url: "https://mail.google.com/inbox" }];
-  liveState = popupState({ allowlist: [], activeSites: [] });
+  liveState = popupState({ chosenOrigins: [], grantedOrigins: [] });
   await globalThis.SolstonePopup.refresh();
 
   let before = sent.length;
@@ -260,8 +262,11 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   let pauseError = "";
   handleCommand = (message) => {
     if (message.cmd === "addGrantedOrigin") {
-      liveState = popupState({ allowlist: ["mail.google.com"], activeSites: [] });
-      liveState.siteErrors["mail.google.com"] = rawRegistrationError;
+      liveState = popupState({
+        chosenOrigins: ["https://mail.google.com"],
+        grantedOrigins: ["https://mail.google.com"],
+        siteNotices: [{ origin: "https://mail.google.com", kind: "registration", bound: "reload" }],
+      });
       return { ok: false, error: rawRegistrationError };
     }
     if (message.cmd === "setPaused") {
@@ -275,12 +280,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   const failedAdd = nodes.pageSiteAction.onclick();
   nodes.disclosureConfirm.listeners.click();
   await failedAdd;
-  const issueWhy = nodes.siteIssueRows.children[0].children[1];
-  assert.equal(nodes.actionMessage.textContent, "chrome doesn't allow extensions on this page");
-  assert.equal(issueWhy.textContent, "chrome doesn't allow extensions on this page");
-  for (const node of [nodes.actionMessage, nodes.currentPageState, issueWhy]) {
-    assert.equal(node.textContent.includes(rawRegistrationError), false);
-  }
+  assert.equal(nodes.actionMessage.textContent, "chrome doesn't let extensions work on this page");
 
   await nodes.pauseAction.onclick();
   assert.equal(nodes.actionMessage.textContent, "");
@@ -290,3 +290,4 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   assert.notEqual(nodes.actionMessage.textContent, pauseError);
   assert.match(nodes.actionMessage.textContent, /^something went wrong/);
 });
+

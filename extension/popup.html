@@ -25,11 +25,17 @@
       [hidden] { display: none !important; }
       body {
         width: 300px;
+        max-height: 600px;
         margin: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        box-sizing: border-box;
         font: 13px/1.45 "InterBody", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         background: var(--ground);
         color: var(--ink);
       }
+      header, footer { flex: none; }
       header {
         display: flex;
         align-items: center;
@@ -42,7 +48,25 @@
         letter-spacing: -0.3px;
       }
       .desc { color: var(--muted); font-size: 12px; }
-      main { padding: 0 14px 12px; }
+      main {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+        padding: 0 14px 12px;
+      }
+      #verdict, #page, #siteCount, #actionMessage { flex: none; }
+      #siteIssues {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+      }
+      #disclosure {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+      }
       .verdict {
         display: grid;
         grid-template-columns: 10px 1fr;
@@ -167,7 +191,7 @@
   </head>
   <body>
     <header>
-      <img src="brand/mark-healthy.svg" width="20" height="20" alt="" />
+      <img id="headerMark" src="brand/mark-healthy.svg" width="20" height="20" alt="" />
       <span class="word">solstone</span>
       <span class="desc">in your browser</span>
     </header>
@@ -231,6 +255,7 @@
       <a href="#" id="settingsLink">settings ›</a>
     </footer>
 
+    <script src="lib/copy.js"></script>
     <script src="lib/hosts.js"></script>
     <script src="lib/status.js"></script>
     <script src="lib/failures.js"></script>

@@ -229,6 +229,45 @@ function assertContractFilesByteIdentical(root, filesText, label) {
   }
 }
 
+const REQUIRED_ICON_PATHS = [
+  "icons/icon16.png",
+  "icons/icon48.png",
+  "icons/icon128.png",
+  ...["paused", "attention", "offline", "error", "connecting"].flatMap((name) => [
+    `icons/icon-${name}-16.png`,
+    `icons/icon-${name}-48.png`,
+    `icons/icon-${name}-128.png`,
+  ]),
+];
+
+function assertRequiredArchiveFiles(root, filesSet, label) {
+  const htmlFiles = ["popup.html", "options.html"];
+  for (const file of htmlFiles) {
+    const content = readFileSync(join(root, "extension", file), "utf8");
+    const scriptMatches = content.matchAll(/<script[^>]+src=["']([^"']+)["']/g);
+    for (const match of scriptMatches) {
+      assert.ok(
+        filesSet.has(match[1]),
+        `${label} is missing ${match[1]} referenced in ${file}`,
+      );
+    }
+    const fontMatches = content.matchAll(/url\(["'](fonts\/[^"']+)["']\)/g);
+    for (const match of fontMatches) {
+      assert.ok(
+        filesSet.has(match[1]),
+        `${label} is missing ${match[1]} referenced in ${file}`,
+      );
+    }
+  }
+
+  for (const iconPath of REQUIRED_ICON_PATHS) {
+    assert.ok(
+      filesSet.has(iconPath),
+      `${label} is missing required icon file ${iconPath}`,
+    );
+  }
+}
+
 export function verifyReleaseArtifacts({
   root = ROOT,
   version,
@@ -303,6 +342,9 @@ export function verifyReleaseArtifacts({
 
   assertContractFilesByteIdentical(root, devZip.filesText, "development ZIP");
   assertContractFilesByteIdentical(root, cwsZip.filesText, "Chrome Web Store ZIP");
+
+  assertRequiredArchiveFiles(root, devZip.files, "development ZIP");
+  assertRequiredArchiveFiles(root, cwsZip.files, "Chrome Web Store ZIP");
 
   // Verify host selection behavior
   const constants = JSON.parse(

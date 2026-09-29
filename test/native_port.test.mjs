@@ -218,7 +218,7 @@ test("port: update check settles to failure", async () => {
   assert.equal(controller.updateCheck, "failure");
 });
 
-test("port: update check settles to update-available", async () => {
+test("port: update check settles to no-update when update_available is reported", async () => {
   await resetDB();
   const mockPort = new MockPort();
   const controller = new PortController({
@@ -230,7 +230,7 @@ test("port: update check settles to update-available", async () => {
   controller.connect();
   await mockPort.receive({ type: "unsupported", protocol: 1, behind: "extension" });
   await new Promise((r) => queueMicrotask(r));
-  assert.equal(controller.updateCheck, "update-available");
+  assert.equal(controller.updateCheck, "no-update");
 });
 
 test("port: poll reconnects after disconnect", async () => {
@@ -1148,6 +1148,128 @@ test("port: poll awaits retirement before connect or drain and records lossNotic
   } finally {
     Outbox.retireExpired = originalRetire;
   }
+});
+
+test("port: accepted message clears registration notice for matching batch origin only", async () => {
+  await resetDB();
+  const mockPort = new MockPort();
+  const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+    connectNative: () => mockPort,
+  });
+
+  // Set notices
+  await controller.setSiteNotice("https://example.com", "registration", "reload");
+  await controller.setSiteNotice("https://other.com", "registration", "reload");
+  await controller.setSiteNotice("https://example.com", "truncation", "1");
+
+  assert.equal(controller.siteNotices.length, 3);
+
+  // Map batch to https://example.com
+  const batchId = "a".repeat(32);
+  controller.batchOriginMap.set(batchId, "https://example.com");
+
+  controller.connect();
+  await mockPort.receive({
+    type: "hello_ack",
+    capture: "permitted",
+    delivery: "delivered",
+    freshness_ms: 10000,
+    destination_generation: "gen-1",
+    period_id: "p-1",
+  });
+
+  controller.inflightBatch = {
+    batchId,
+    seq: 1,
+    destinationGeneration: "gen-1",
+    wireBatch: { id: batchId, seq: 1 },
+    postedAt: controller.now(),
+  };
+
+  await mockPort.receive({
+    type: "accepted",
+    result: "accepted",
+    batch_id: batchId,
+    destination_generation: "gen-1",
+    inst: controller.inst,
+    period_id: "p-1",
+  });
+
+  // Registration notice for https://example.com should be cleared
+  // Truncation notice for https://example.com and registration for https://other.com remain!
+  assert.equal(controller.siteNotices.length, 2);
+  assert.equal(controller.siteNotices.some((n) => n.origin === "https://example.com" && n.kind === "registration"), false);
+  assert.equal(controller.siteNotices.some((n) => n.origin === "https://example.com" && n.kind === "truncation"), true);
+  assert.equal(controller.siteNotices.some((n) => n.origin === "https://other.com" && n.kind === "registration"), true);
+});
+
+test("port: dismissTruncation removes only matching origin and bound", async () => {
+  await resetDB();
+  const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+  });
+
+  await controller.setSiteNotice("https://example.com", "truncation", "1");
+  await controller.setSiteNotice("https://example.com", "truncation", "2");
+
+  assert.equal(controller.siteNotices.length, 1); // replaces in place by (origin, kind)
+  assert.equal(controller.siteNotices[0].bound, "2");
+
+  const res1 = await controller.dismissTruncation("https://example.com", "1");
+  assert.equal(res1, false);
+  assert.equal(controller.siteNotices.length, 1);
+
+  const res2 = await controller.dismissTruncation("https://example.com", "2");
+  assert.equal(res2, true);
+  assert.equal(controller.siteNotices.length, 0);
+});
+
+test("port: getStatus().addSiteEligible evaluates eligibility independently of grantedOrigins count", async () => {
+  await resetDB();
+  const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+  });
+
+  controller.consentVersion = 1;
+  controller.paused = false;
+  controller.pressure = { active: false };
+  controller.hostCapture = "permitted";
+  controller.capturePermitted = true;
+  controller.lease = { token: "tok-1", generation: "gen-1", freshnessMs: 10000, receivedAt: controller.now() };
+  controller.grantedOrigins.clear();
+
+  // 1. True with zero grantedOrigins when conditions are met
+  let status = controller.getStatus();
+  assert.equal(status.grantedOrigins.length, 0);
+  assert.equal(status.addSiteEligible, true);
+  assert.equal(status.gate.open, false);
+
+  // 2. False when consent missing
+  controller.consentVersion = 0;
+  status = controller.getStatus();
+  assert.equal(status.addSiteEligible, false);
+  controller.consentVersion = 1;
+
+  // 3. False when paused
+  controller.paused = true;
+  status = controller.getStatus();
+  assert.equal(status.addSiteEligible, false);
+  controller.paused = false;
+
+  // 4. False when pressure active
+  controller.pressure = { active: true };
+  status = controller.getStatus();
+  assert.equal(status.addSiteEligible, false);
+  controller.pressure = { active: false };
+
+  // 5. False when lease is expired
+  controller.lease = { token: "tok-1", generation: "gen-1", freshnessMs: 1000, receivedAt: controller.now() - 2000 };
+  status = controller.getStatus();
+  assert.equal(status.addSiteEligible, false);
 });
 
 

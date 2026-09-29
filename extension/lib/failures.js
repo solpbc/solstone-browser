@@ -4,24 +4,11 @@
 (function () {
   "use strict";
 
-  function classify(raw, status) {
-    raw = raw == null ? "" : String(raw);
-    const m = /HTTP\s+(\d{3})/.exec(raw);
-    const code = typeof status === "number" ? status : m ? Number(m[1]) : null;
-
-    if (code === 0 || /Failed to fetch|NetworkError|TypeError/i.test(raw)) {
-      return "your journal didn't answer. is your journal running on this computer?";
-    }
-    if (code && code >= 400) {
-      return `your journal said no (HTTP ${code}). try again, or check settings`;
-    }
-    if (/Cannot access|chrome:\/\/|Web Store|match pattern/i.test(raw)) {
-      return "chrome doesn't allow extensions on this page";
-    }
-
-    let short = raw.replace(/\s+/g, " ").trim();
-    if (short.length > 80) short = short.slice(0, 80) + "…";
-    return `something went wrong: ${short}`;
+  function classify(raw, statusOrBrand) {
+    const brand = typeof statusOrBrand === "string" ? statusOrBrand : (statusOrBrand && statusOrBrand.brand) || "";
+    const C = globalThis.SolstoneCopy;
+    if (C && C.classifyFailure) return C.classifyFailure(raw, brand);
+    return `something went wrong: ${raw}`;
   }
 
   function contentScriptRegistrationSatisfied(id, registeredScripts) {

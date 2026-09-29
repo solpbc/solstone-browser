@@ -7,6 +7,7 @@ if (typeof importScripts === "function") {
     "native-browser/schemas.js",
     "native-browser/schema-validator.js",
     "native-browser/codec.js",
+    "lib/copy.js",
     "lib/uuid.js",
     "lib/db.js",
     "lib/blocks.js",
@@ -17,6 +18,7 @@ if (typeof importScripts === "function") {
     "lib/gate.js",
     "lib/native_outbox.js",
     "lib/native_port.js",
+    "lib/status.js",
     "lib/router.js"
   );
 }
@@ -29,6 +31,7 @@ const Uuid = globalThis.SolstoneUuid;
 const Router = globalThis.SolstoneRouter;
 const PortController = globalThis.SolstoneNativePort;
 const Outbox = globalThis.SolstoneNativeOutbox;
+const Status = globalThis.SolstoneStatus;
 
 const VERSION = "0.2.0";
 const ALARM_NAME = "native-port";
@@ -50,7 +53,7 @@ const CONTENT_SCRIPT_FILES = [
 const DEFAULT_CFG = {
   paused: false,
   showPageIndicator: false,
-  grantedOrigins: [],
+  chosenOrigins: [],
 };
 
 let port = null;
@@ -63,10 +66,21 @@ const statusPorts = new Set();
 async function getCfg() {
   const r = await chrome.storage.local.get("cfg");
   const stored = r.cfg || {};
+  let chosenOrigins = stored.chosenOrigins;
+  if (!Array.isArray(chosenOrigins)) {
+    chosenOrigins = Array.isArray(stored.grantedOrigins) ? stored.grantedOrigins : [];
+    const next = {
+      paused: !!stored.paused,
+      showPageIndicator: !!stored.showPageIndicator,
+      chosenOrigins,
+    };
+    await chrome.storage.local.set({ cfg: next });
+    return next;
+  }
   return {
     paused: !!stored.paused,
     showPageIndicator: !!stored.showPageIndicator,
-    grantedOrigins: Array.isArray(stored.grantedOrigins) ? stored.grantedOrigins : [],
+    chosenOrigins,
   };
 }
 
@@ -94,35 +108,13 @@ async function updateBadge(status) {
   if (!status && port) status = port.getStatus();
   if (!status) return;
 
-  let prefix = "icon-offline-";
-  let badge = "";
+  const iconInfo = Status && Status.iconState
+    ? Status.iconState(status)
+    : { prefix: "icon-offline-", badge: "", title: "solstone" };
 
-  if (status.hostDelivery === "failed") {
-    prefix = "icon-error-";
-    badge = "!";
-  } else if (!status.connected || status.hostCapture == null || status.hostCapture === "unavailable") {
-    prefix = "icon-offline-";
-    badge = "";
-  } else if (
-    status.pressure?.active ||
-    status.lossNotice != null ||
-    status.siteRejection != null
-  ) {
-    prefix = "icon-attention-";
-    badge = "!";
-  } else if (
-    status.paused ||
-    status.consentVersion !== 1 ||
-    status.grantedOrigins.length === 0 ||
-    !status.gate?.open ||
-    ["paused", "intake_off", "not_paired"].includes(status.hostCapture)
-  ) {
-    prefix = "icon-paused-";
-    badge = "";
-  } else if (status.gate?.open) {
-    prefix = "icon";
-    badge = "";
-  }
+  const prefix = iconInfo.prefix;
+  const badge = iconInfo.badge || "";
+  const title = iconInfo.title || "solstone";
 
   // Authority publication never waits for browser action painting.
   for (const sp of statusPorts) {
@@ -138,7 +130,7 @@ async function updateBadge(status) {
     if (badgeEpoch !== currentBadgeEpoch) return;
     if (badge) await chrome.action.setBadgeBackgroundColor({ color: "#9F2D2D" });
     if (badgeEpoch !== currentBadgeEpoch) return;
-    await chrome.action.setTitle({ title: "solstone" });
+    await chrome.action.setTitle({ title });
   });
   await badgeChain.catch(() => {});
 }
@@ -231,11 +223,12 @@ async function registerSite(host) {
     try {
       registered = await chrome.scripting.getRegisteredContentScripts({ ids: [id] });
     } catch (_e) {
-      throw error;
+      return "failed";
     }
-    if (!Failures.contentScriptRegistrationSatisfied(id, registered)) throw error;
+    if (!Failures.contentScriptRegistrationSatisfied(id, registered)) return "failed";
   }
 
+  let hadTabError = false;
   try {
     const tabs = await chrome.tabs.query({ url: pattern });
     for (const tab of tabs) {
@@ -243,12 +236,14 @@ async function registerSite(host) {
       try {
         await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: CONTENT_SCRIPT_FILES });
       } catch (_e) {
-        /* restricted page */
+        hadTabError = true;
       }
     }
   } catch (_e) {
     /* host permission not yet effective */
   }
+
+  return hadTabError ? "reload" : "ready";
 }
 
 async function removeSiteOrigin(exactOrigin) {
@@ -261,7 +256,7 @@ async function removeSiteOrigin(exactOrigin) {
 
   const matchHost = H.matchHostFor(host);
   if (port) {
-    const hasSibling = Array.from(port.grantedOrigins).some((o) => {
+    const hasSibling = Array.from(port.chosenOrigins || []).some((o) => {
       try { return H.matchHostFor(new URL(o).host) === matchHost; } catch (_e) { return false; }
     });
     if (!hasSibling) {
@@ -309,11 +304,16 @@ async function runReconcile() {
     return [];
   }
 
+  const exemptPatterns = (port?.pendingIntent && port.now() < port.pendingIntent.expiresAt)
+    ? [port.pendingIntent.pattern]
+    : [];
+
   const actions = Reconcile.reconcile({
     granted,
     manifestOrigins: [],
     exemptOrigins: [],
-    allowlist: cfg.grantedOrigins.map((o) => {
+    exemptPatterns,
+    allowlist: (cfg.chosenOrigins || []).map((o) => {
       try { return new URL(o).host; } catch (_e) { return o; }
     }),
     pausedHosts: {},
@@ -346,26 +346,39 @@ async function doInit() {
   const consentVersion = (await DB.get("meta", "consentVersion")) || 0;
   const everConnected = !!(await DB.get("meta", "everConnected"));
   const cfg = await getCfg();
-
   const lossNotice = await DB.get("meta", "lossNotice");
+  const storedNotices = (await DB.get("meta", "siteNotices"))?.items || [];
+
+  let platform = "";
+  try {
+    if (typeof chrome !== "undefined" && chrome.runtime?.getPlatformInfo) {
+      const info = await chrome.runtime.getPlatformInfo();
+      platform = info?.os || "";
+    }
+  } catch (_e) {}
+
   if (!port) {
     await DB.clear("producer");
     port = new PortController({
       inst,
+      platform,
       manifestVersion: VERSION,
       requestSnapshots,
       onStatusChange: (status) => updateBadge(status),
     });
   } else {
     port.inst = inst;
+    port.platform = platform;
     port.requestSnapshots = requestSnapshots;
   }
 
+  port.siteNotices = storedNotices;
   port.consentVersion = consentVersion;
   port.lossNotice = lossNotice || null;
   port.everConnected = everConnected;
   port.paused = cfg.paused;
   port.showPageIndicator = cfg.showPageIndicator;
+  port.chosenOrigins = new Set(cfg.chosenOrigins || []);
 
   port.permissionEpoch = permissionEpoch;
   let permissionsSettled = false;
@@ -376,20 +389,30 @@ async function doInit() {
     if (epoch !== permissionEpoch) continue;
     const liveGranted = new Set();
     const missingPatterns = [];
-    for (const origin of latestCfg.grantedOrigins) {
+    for (const origin of latestCfg.chosenOrigins) {
       try {
         const u = new URL(origin);
         const pattern = H.matchPatternFor(u.host);
-        if (perms.origins?.includes(pattern)) {
+        if (perms.origins?.includes(pattern) || perms.origins?.includes("*://*/*")) {
           liveGranted.add(origin);
-          await registerSite(u.host);
-        } else missingPatterns.push(pattern);
+          const regRes = await registerSite(u.host);
+          if (regRes === "failed") {
+            await port.setSiteNotice(origin, "registration", "failed");
+          } else if (regRes === "reload") {
+            await port.setSiteNotice(origin, "registration", "reload");
+          } else {
+            await port.clearRegistrationNotice(origin);
+          }
+        } else {
+          missingPatterns.push(pattern);
+        }
       } catch (_e) {}
       if (epoch !== permissionEpoch) break;
     }
     if (epoch !== permissionEpoch) continue;
+    port.chosenOrigins = new Set(latestCfg.chosenOrigins);
     port.grantedOrigins = liveGranted;
-    port.drift = missingPatterns.length ? { patterns: missingPatterns } : null;
+    port.drift = missingPatterns.length ? { patterns: Array.from(new Set(missingPatterns)).sort() } : null;
     permissionsSettled = true;
     break;
   }
@@ -465,7 +488,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
-chrome.permissions.onRemoved.addListener((details) => {
+chrome.permissions.onRemoved.addListener(async (details) => {
   const removedPatterns = details?.origins || [];
   permissionEpoch++;
   if (port) {
@@ -490,16 +513,56 @@ chrome.permissions.onRemoved.addListener((details) => {
     for (const o of toRemove) {
       port.grantedOrigins.delete(o);
     }
-    port.drift = { patterns: removedPatterns };
+    const perms = await chrome.permissions.getAll().catch(() => ({ origins: [] }));
+    const missing = [];
+    for (const o of port.chosenOrigins) {
+      try {
+        const pat = H.matchPatternFor(new URL(o).host);
+        if (!perms.origins?.includes(pat) && !perms.origins?.includes("*://*/*")) {
+          missing.push(pat);
+        }
+      } catch (_e) {}
+    }
+    port.drift = missing.length ? { patterns: Array.from(new Set(missing)).sort() } : null;
     port.notify();
-    setCfg({ grantedOrigins: Array.from(port.grantedOrigins) }).catch(() => {});
   }
   runReconcile().catch(() => {});
 });
 
-chrome.permissions.onAdded.addListener(() => {
-  permissionEpoch++;
-  if (port) port.permissionEpoch = permissionEpoch;
+chrome.permissions.onAdded.addListener(async (details) => {
+  const addedPatterns = details?.origins || [];
+  const isPendingMatch = port?.pendingIntent && port.now() < port.pendingIntent.expiresAt &&
+    addedPatterns.length > 0 && addedPatterns.every((p) => p === port.pendingIntent.pattern);
+
+  if (!isPendingMatch) {
+    permissionEpoch++;
+    if (port) port.permissionEpoch = permissionEpoch;
+  }
+
+  if (port) {
+    const perms = await chrome.permissions.getAll().catch(() => ({ origins: [] }));
+    for (const o of port.chosenOrigins) {
+      try {
+        const u = new URL(o);
+        const pat = H.matchPatternFor(u.host);
+        if (perms.origins?.includes(pat) || perms.origins?.includes("*://*/*")) {
+          port.grantedOrigins.add(o);
+          registerSite(u.host).catch(() => {});
+        }
+      } catch (_e) {}
+    }
+    const missing = [];
+    for (const o of port.chosenOrigins) {
+      try {
+        const pat = H.matchPatternFor(new URL(o).host);
+        if (!perms.origins?.includes(pat) && !perms.origins?.includes("*://*/*")) {
+          missing.push(pat);
+        }
+      } catch (_e) {}
+    }
+    port.drift = missing.length ? { patterns: Array.from(new Set(missing)).sort() } : null;
+    port.notify();
+  }
   runReconcile().catch(() => {});
 });
 

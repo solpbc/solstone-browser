@@ -234,17 +234,18 @@ test("lifecycle: setCfg serialized promise chain", async () => {
   await Promise.all([
     BG.setCfg({ paused: true }),
     BG.setCfg({ showPageIndicator: true }),
-    BG.setCfg({ grantedOrigins: ["https://example.com"] }),
+    BG.setCfg({ chosenOrigins: ["https://example.com"] }),
   ]);
 
   const cfg = await BG.getCfg();
   assert.equal(cfg.paused, true);
   assert.equal(cfg.showPageIndicator, true);
-  assert.deepEqual(cfg.grantedOrigins, ["https://example.com"]);
+  assert.deepEqual(cfg.chosenOrigins, ["https://example.com"]);
 });
 
 test("lifecycle: permissions.onRemoved drops exact origin, sets drift, and messages content", async () => {
   const mock = createMockChrome();
+  mock.grantedPermissions.clear();
   mock.grantedPermissions.add("*://example.com/*");
   const sandbox = createSandbox(mock, true);
   const bgCode = readExtFile("background.js");
@@ -252,15 +253,18 @@ test("lifecycle: permissions.onRemoved drops exact origin, sets drift, and messa
   const BG = sandbox.SolstoneBackground;
   await BG.ensureInit();
 
-  await BG.setCfg({ grantedOrigins: ["https://example.com", "https://example.com:8443"] });
+  await BG.setCfg({ chosenOrigins: ["https://example.com", "https://example.com:8443"] });
+  BG.port.chosenOrigins = new Set(["https://example.com", "https://example.com:8443"]);
   BG.port.grantedOrigins = new Set(["https://example.com", "https://example.com:8443"]);
 
+  mock.grantedPermissions.delete("*://example.com/*");
   for (const fn of mock.listeners.onRemovedPerm) {
-    fn({ origins: ["*://example.com/*"] });
+    await fn({ origins: ["*://example.com/*"] });
   }
 
   assert.equal(BG.port.grantedOrigins.size, 0);
-  assert.deepEqual(BG.port.drift?.patterns, ["*://example.com/*"]);
+  assert.equal(BG.port.chosenOrigins.size, 2);
+  assert.equal(JSON.stringify(BG.port.drift?.patterns), JSON.stringify(["*://example.com/*"]));
 
   const permMsgs = mock.sentTabMessages.filter((m) => m.msg?.kind === "leaseUpdate" && m.msg.grantedOrigins.length === 0);
   assert.ok(permMsgs.length > 0);
@@ -313,7 +317,7 @@ test("lifecycle: removeGrantedOrigin keeps cs- host registration if sibling exac
     unregisterSite: BG.unregisterSite,
   });
 
-  // cs-example.com must still be registered because https://example.com:8443 is still in grantedOrigins
+  // cs-example.com must still be registered because https://example.com:8443 is still in chosenOrigins
   assert.ok(mock.registeredScripts.has("cs-example.com"));
 
   // Remove last origin
@@ -332,11 +336,11 @@ test("lifecycle: init skips ungranted origins, leaves in cfg, sets port.drift", 
   const mock = createMockChrome();
   // Clear granted permissions so no origins are granted by browser
   mock.grantedPermissions.clear();
-  // Set storage with grantedOrigins
+  // Set storage with chosenOrigins
   mock.storageData["cfg"] = {
     paused: false,
     showPageIndicator: false,
-    grantedOrigins: ["https://example.com"],
+    chosenOrigins: ["https://example.com"],
   };
 
   const sandbox = createSandbox(mock, true);
@@ -347,11 +351,13 @@ test("lifecycle: init skips ungranted origins, leaves in cfg, sets port.drift", 
 
   // Port live granted origins must be empty
   assert.equal(port.grantedOrigins.size, 0);
+  assert.equal(port.chosenOrigins.has("https://example.com"), true);
+  assert.equal(JSON.stringify(port.getStatus().inactiveOrigins), JSON.stringify(["https://example.com"]));
   // Drift must contain missing pattern
   assert.equal(JSON.stringify(port.drift?.patterns), JSON.stringify(["*://example.com/*"]));
   // Stored cfg must NOT have purged https://example.com
   const cfg = await BG.getCfg();
-  assert.equal(JSON.stringify(cfg.grantedOrigins), JSON.stringify(["https://example.com"]));
+  assert.equal(JSON.stringify(cfg.chosenOrigins), JSON.stringify(["https://example.com"]));
   // Content script must not be registered
   assert.equal(mock.registeredScripts.has("cs-example.com"), false);
 });
@@ -408,10 +414,11 @@ function deferred() {
   return {promise, resolve};
 }
 function states(bg) {
-  const permitted = {...bg.port.getStatus(), connected:true, hostCapture:"permitted",
+  const permitted = {...bg.port.getStatus(), everConnected:true, connected:true, hostCapture:"permitted",
     capturePermitted:true, consentVersion:1, grantedOrigins:["https://example.com"],
+    chosenOrigins:["https://example.com"],
     gate:{open:true}, lease:{token:"t",generation:"g",receivedAt:100,freshnessMs:15000}};
-  return {permitted, closed:{...permitted, connected:false, hostCapture:null,
+  return {permitted, closed:{...permitted, everConnected:true, connected:false, hostCapture:null,
     capturePermitted:false, lease:null, gate:{open:false}}};
 }
 
@@ -464,11 +471,11 @@ test("lifecycle: concurrent grants both survive the next worker's configuration"
   p.lease={token:"t",generation:"g",receivedAt:p.now(),freshnessMs:10000};
   const id="fgfnkcefedeheoeamppkiiloncfekakf";
   const sender={id,url:`chrome-extension://${id}/popup.html`};
-  const deps={runtimeId:id,port:p,setCfg:bg.setCfg};
+  const deps={runtimeId:id,port:p,setCfg:bg.setCfg,registerSite:bg.registerSite};
   const origins=["https://a.example","https://b.example"];
   const results=await Promise.all(origins.map(origin=>sandbox.SolstoneRouter.route({cmd:"addGrantedOrigin",origin},sender,deps)));
   assert.ok(results.every(result=>result.ok), JSON.stringify(results));
-  assert.deepEqual(Array.from((await bg.getCfg()).grantedOrigins).sort(),origins);
+  assert.deepEqual(Array.from((await bg.getCfg()).chosenOrigins).sort(),origins);
 });
 
 test("lifecycle: restart loads loss notice and prunes orphan producer text", async () => {
@@ -481,10 +488,10 @@ test("lifecycle: restart loads loss notice and prunes orphan producer text", asy
   assert.equal((await second.sandbox.SolstoneDB.getAll("producer")).length,0);
 });
 
-
 test("lifecycle: permission withdrawal during initialization cannot restore an old grant", async () => {
   const mock=createMockChrome(), stalled=deferred(), entered=deferred();
-  mock.storageData.cfg={paused:false,showPageIndicator:false,grantedOrigins:["https://example.com"]};
+  mock.grantedPermissions.clear();
+  mock.storageData.cfg={paused:false,showPageIndicator:false,chosenOrigins:["https://example.com"]};
   mock.grantedPermissions.add("*://example.com/*");
   const original=mock.chrome.permissions.getAll;
   let calls=0;

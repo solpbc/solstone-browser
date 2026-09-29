@@ -10,46 +10,29 @@ const html = await readFile(new URL("extension/options.html", root), "utf8");
 const optionsSource = await readFile(new URL("extension/options.js", root), "utf8");
 const backgroundSource = await readFile(new URL("extension/background.js", root), "utf8");
 
-test("options HTML fixes the region, heading, and form contract", () => {
-  const ids = ["pageHeader", "intro", "firstRun", "journalCard", "sitesCard", "indicatorCard", "actionMessage", "pageFooter"];
+test("options HTML fixes the region, heading, and layout contract", () => {
+  const ids = ["pageHeader", "welcomeView", "settingsView", "actionMessage", "pageFooter"];
   const positions = ids.map((id) => html.indexOf(`id="${id}"`));
   assert.ok(positions.every((position) => position >= 0));
   assert.deepEqual(positions, positions.slice().sort((a, b) => a - b));
   assert.match(html, /<title>solstone settings<\/title>/);
-  assert.match(html, /<h1 id="pageTitle">[\s\S]*?solstone\s*<span class="desc">settings<\/span>[\s\S]*?<\/h1>/);
-  for (const heading of ["your journal", "your sites", "on-page marker"]) {
-    assert.equal((html.match(new RegExp(`<h2>${heading}<\\/h2>`, "g")) || []).length, 1, heading);
-  }
-
-  const connectionStart = html.indexOf('<form id="connForm"');
-  const connectionEnd = html.indexOf("</form>", connectionStart);
-  const connectionForm = html.slice(connectionStart, connectionEnd);
-  assert.match(connectionForm, /id="hostname"/);
-  assert.match(connectionForm, /id="segmentSec"/);
-  assert.match(connectionForm, /id="saveBtn"/);
-  assert.equal((connectionForm.match(/<form\b/g) || []).length, 1);
-  assert.match(html.slice(connectionEnd), /id="pairForm"[\s\S]*id="pairBtn"[\s\S]*id="unpairBtn"/);
+  assert.match(html, /<h1 id="pageTitle">[\s\S]*?solstone\s*<span class="desc" id="pageSubTitle">in your browser<\/span>[\s\S]*?<\/h1>/);
 });
 
 test("options consumes shared derivations and removes every retired selector", () => {
-  assert.match(optionsSource, /Status\.connection\(state\)/);
-  assert.match(optionsSource, /Status\.verdict\(state,/);
-  assert.match(optionsSource, /Status\.siteRowState\(entry,/);
-  assert.match(optionsSource, /Disclosure\.firstRun\(state\)/);
-  assert.match(optionsSource, /View\.addSite\(host,/);
-  assert.match(optionsSource, /View\.grantSite\(action\.host,/);
-  assert.match(optionsSource, /journalLead"\)\.textContent = verdict\.sub/);
-  assert.match(optionsSource, /journalStateChip"\)\.textContent = verdict\.headline/);
-  assert.match(optionsSource, /journalStateChip"\)\.className = `state-chip \$\{verdict\.tone\}`/);
+  assert.match(optionsSource, /Status\.derive\(state,/);
+  assert.match(optionsSource, /Status\.siteRow\(/);
+  assert.match(optionsSource, /View\.addSite\(/);
+  assert.match(optionsSource, /View\.grantSite\(/);
   assert.doesNotMatch(optionsSource, /cfg\.key|localRegistered|requestSiteAccess/);
   assert.doesNotMatch(optionsSource, /innerHTML/);
   assert.match(optionsSource, /document\.createElement\(/);
   assert.match(optionsSource, /\.textContent\s*=/);
-  assert.doesNotMatch(html, /lib\/escape\.js/);
 
   const retired = [
     "waitingDetails", "waitingSummary", "waitingBody", "connStatus",
-    "pairStatus", "remoteState", "addStatus",
+    "pairStatus", "remoteState", "addStatus", "connForm", "pairForm",
+    "hostname", "segmentSec", "saveBtn", "pairLink", "pairBtn", "unpairBtn", "flushBtn",
     "destinationChoice", "destinationLocal", "destinationRemote", "localDestination",
     "remoteDestination", "journalUrl", "registerBtn", "streamLabel", "journalLink",
   ];
@@ -57,46 +40,23 @@ test("options consumes shared derivations and removes every retired selector", (
     assert.doesNotMatch(html, new RegExp(`id=["']${id}["']`), id);
     assert.doesNotMatch(optionsSource, new RegExp(`\\(["']${id}["']\\)`), id);
   }
-  for (const match of optionsSource.matchAll(/\$\("([^"]+)"\)/g)) {
-    assert.match(html, new RegExp(`id="${match[1]}"`), match[1]);
-  }
-  assert.doesNotMatch(optionsSource, /journalUrl|localRegistered|journalPermission|protocolVersion|streamName/);
-});
-
-test("options keeps technical journal details behind the details disclosure", () => {
-  const detailsStart = html.indexOf('<details id="journalDetails">');
-  const detailsEnd = html.indexOf("</details>", detailsStart);
-  const details = html.slice(detailsStart, detailsEnd);
-  assert.ok(detailsStart > html.indexOf('<section id="journalCard"'));
-  for (const id of ["pairInstanceId", "pairRelayOrigin", "journalError", "lastSyncDetail", "waitingRow", "lossDetail"]) {
-    assert.match(details, new RegExp(`id=["']${id}["']`), id);
-  }
-  assert.match(details, /<summary id="journalDetailsSummary">journal details<\/summary>/);
-  assert.doesNotMatch(html, /\btitle=/);
-  assert.match(optionsSource, /Failures\.classify\(error, status\)/);
 });
 
 test("options applies the shared accessibility and color layer", () => {
-  assert.match(html, /id="firstRunChange"[^>]+aria-label="set up your journal"[^>]*>set up<\/button>/);
   assert.match(html, /id="actionMessage"[^>]+aria-live="polite"/);
   assert.match(html, /\[hidden\]\s*\{\s*display:\s*none !important;/);
   assert.match(html, /button:focus-visible,\s*input:focus-visible,\s*summary:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--focus\)[^}]*outline-offset:\s*2px/s);
   assert.doesNotMatch(html, /outline\s*:\s*(?:none|0)\b/i);
   assert.match(html, /--focus:\s*#B06A1A;/);
   assert.match(html, /--field-line:\s*#96896F;/);
-  assert.doesNotMatch(html, /--orange-ink/);
-  assert.equal((html.match(/#B06A1A/g) || []).length, 1);
   assert.match(html, /\.site button\s*\{[^}]*min-height:\s*24px[^}]*font-size:\s*12px/s);
   assert.match(html, /\.action-message\.ok\s*\{[^}]*color:\s*var\(--success-ink\)/);
   assert.match(html, /\.action-message\.bad\s*\{[^}]*color:\s*var\(--bad\)/);
-  assert.doesNotMatch(html, /<a\b|<code\b|<fieldset\b|<legend\b|type="radio"/);
-  assert.doesNotMatch(html, /\ba\s*\{|a:focus-visible|\.stream-row|\.destination-options|input\[type="radio"\]/);
+  assert.match(html, /body\s*\{[^}]*box-sizing:\s*border-box[^}]*overflow-x:\s*hidden/s);
+  assert.match(html, /\.site-host\s*\{[^}]*overflow-wrap:\s*anywhere/s);
 });
 
-test("options source fixes the predicates, destination state, and install opening", () => {
-  assert.match(optionsSource, /allowlist\.length !== 0/);
-  assert.match(optionsSource, /firstRunChange"\)\.addEventListener\("click", \(\) => \{\s*if \(\$\("newHost"\)\) \$\("newHost"\)\.focus\(\)/);
-  assert.doesNotMatch(optionsSource, /selectedDestination|showDestination|renderDestination|destinationOverride/);
+test("options source fixes install opening and disclosure routing", () => {
   assert.match(optionsSource, /Disclosure\.addSite\(host, state\)/);
   assert.match(optionsSource, /disclose: presentDisclosure/);
   assert.match(backgroundSource, /onInstalled\.addListener\(\(details\) => \{[\s\S]*details\.reason === "install"[\s\S]*openOptionsPage\(\)[\s\S]*init\(\)/);
@@ -156,46 +116,48 @@ class FakeNode {
 
 function optionsState(overrides = {}) {
   return Object.assign({
-    ok: true,
-    hostname: "laptop",
-    segmentSec: 300,
-    showPageIndicator: false,
-    version: "0.2.0",
+    inst: "00112233-4455-6677-8899-aabbccddeeff",
+    captureEpoch: 1,
+    everConnected: true,
+    connected: true,
+    handshake: "complete",
+    brand: "chrome",
+    platform: "mac",
+    hostCapture: "permitted",
+    hostDelivery: "delivered",
+    hostFailure: null,
+    custody: { full: false, stale: false },
+    behind: null,
+    pressure: { active: false },
+    siteNotices: [],
+    siteRejection: null,
+    lossNotice: null,
     paused: false,
-    allowlist: [],
-    pausedHosts: {},
-    siteErrors: {},
-    health: { lastError: null, lastUploadAt: 20, segmentsUploaded: 1, lastStatus: 200, consecutiveFailures: 0 },
-    remote: {
-      paired: true,
-      pending: false,
-      instanceId: "instance-8cf0e2",
-      relayOrigin: "https://relay.example",
-      pairedAt: 10,
-    },
-    activeSites: [],
-    waiting: 0,
-    dropped: { segments: 0, lines: 0 },
-    outbox: { entries: 0, lines: 0 },
+    consentVersion: 0,
+    chosenOrigins: [],
+    grantedOrigins: [],
+    inactiveOrigins: [],
+    showPageIndicator: false,
+    updateCheck: "no-update",
+    capturePermitted: true,
+    addSiteEligible: true,
   }, overrides);
 }
 
-function descendantText(node) {
-  return [node.textContent, ...node.children.flatMap((child) => descendantText(child))].join(" ");
-}
-
-test("the options binder drives settings, disclosure, details, and site management", async () => {
+test("the options binder drives Welcome mode, disclosure agreement, and Settings mode", async () => {
   const ids = [
-    "actionMessage", "firstRun", "firstRunHeading", "firstRunComposition", "firstRunCovenant",
-    "firstRunScope", "firstRunWhat", "firstRunUnsent", "firstRunNever", "firstRunAbsolutes", "firstRunDestination",
-    "firstRunDestinationDetail", "firstRunNothingYet", "firstRunChange", "journalCard",
-    "journalLead", "journalStateChip", "connForm", "hostname", "segmentSec",
-    "saveBtn", "pairForm", "pairLink", "pairBtn", "unpairBtn",
-    "flushBtn", "journalDetails", "pairInstanceId", "pairRelayOrigin", "journalError",
-    "lastSyncDetail", "waitingRow", "waitingPreview", "lossDetail", "sitesMain", "addForm", "newHost",
-    "addBtn", "siteList", "siteDisclosure", "siteDisclosureTitle", "siteDisclosureWhat", "siteDisclosureUnsent",
-    "siteDisclosureDestination", "siteDisclosureDestinationDetail", "siteDisclosureChrome",
-    "siteDisclosureConfirm", "siteDisclosureCancel", "showPageIndicator", "ver",
+    "pageHeader", "pageTitle", "pageSubTitle", "welcomeView", "settingsView",
+    "warmCard", "warmKinship0", "warmKinship1", "warmKinship2", "stepsCard",
+    "step1Section", "step1HeadingRow", "step1Check", "step1Heading", "step1Body", "step1Actions", "step1ActionBtn",
+    "step2Section", "step2HeadingRow", "step2Check", "step2Heading", "step2Content", "step2DisclosureBody",
+    "step2PendingText", "step2Actions", "agreeDisclosureBtn", "step2Completed", "step2ReReadDetails", "step2ReadAgain", "step2ReReadBody",
+    "step3Section", "step3HeadingRow", "step3Check", "step3Heading", "step3Content", "step3Body", "welcomeShowPageIndicator", "welcomeSiteList",
+    "statusCard", "statusLead", "statusStateChip", "statusReason", "sitesCard",
+    "sitesMain", "addForm", "newHost", "addBtn", "siteList", "siteDisclosure",
+    "siteDisclosureTitle", "siteDisclosureWhat", "siteDisclosureUnsent", "siteDisclosureDestination",
+    "siteDisclosureDestinationDetail", "siteDisclosureChrome", "siteDisclosureConfirm",
+    "siteDisclosureCancel", "indicatorCard", "showPageIndicator", "disclosureCard",
+    "disclosureDetails", "settingsDisclosureBody", "actionMessage", "pageFooter", "ver", "optionsMark",
   ];
   const nodes = Object.fromEntries(ids.map((id) => [id, new FakeNode(id)]));
   nodes.siteDisclosure.hidden = true;
@@ -208,40 +170,53 @@ test("the options binder drives settings, disclosure, details, and site manageme
     },
   };
 
-  let liveState = optionsState();
-  let permissionRequests = 0;
-  const sent = [];
-  const actionOrder = [];
+  let liveState = null;
+  let ackResponse = { ok: true, consentVersion: 1 };
   globalThis.chrome = {
     runtime: {
       sendMessage(message, callback) {
-        sent.push(message);
         if (message.cmd === "getState") callback(liveState);
         else if (message.cmd === "setConfig") {
           liveState = optionsState(Object.assign({}, liveState, {
             showPageIndicator: message.showPageIndicator,
           }));
           callback({ ok: true });
+        } else if (message.cmd === "acknowledgeDisclosure") {
+          if (ackResponse.ok) {
+            liveState = optionsState(Object.assign({}, liveState, {
+              consentVersion: 1,
+            }));
+          }
+          callback(ackResponse);
         } else if (message.cmd === "addGrantedOrigin") {
-          actionOrder.push("addGrantedOrigin");
-          liveState = optionsState({ allowlist: ["mail.google.com"], activeSites: ["mail.google.com"] });
-          callback({ ok: true });
+          liveState = optionsState(Object.assign({}, liveState, {
+            consentVersion: 1,
+            chosenOrigins: ["https://mail.google.com"],
+            grantedOrigins: ["https://mail.google.com"],
+          }));
+          callback({ ok: true, origin: message.origin, registration: "ready" });
         } else if (message.cmd === "removeGrantedOrigin") {
-          actionOrder.push("removeGrantedOrigin");
-          liveState = optionsState({ allowlist: [], activeSites: [] });
+          liveState = optionsState(Object.assign({}, liveState, {
+            consentVersion: 1,
+            chosenOrigins: [],
+            grantedOrigins: [],
+          }));
           callback({ ok: true });
         } else callback({ ok: true });
       },
+      connect() {
+        return {
+          onMessage: { addListener() {} },
+          onDisconnect: { addListener() {} },
+        };
+      },
     },
     permissions: {
-      request: async () => {
-        permissionRequests += 1;
-        actionOrder.push("permission");
-        return true;
-      },
+      request: async () => true,
     },
   };
 
+  await import(new URL("../extension/lib/copy.js", import.meta.url));
   await import(new URL("../extension/lib/hosts.js", import.meta.url));
   await import(new URL("../extension/lib/status.js", import.meta.url));
   await import(new URL("../extension/lib/failures.js", import.meta.url));
@@ -250,58 +225,89 @@ test("the options binder drives settings, disclosure, details, and site manageme
   await import(new URL("../extension/options.js", import.meta.url));
   await new Promise((resolve) => setImmediate(resolve));
 
-  let expectedDisclosure = globalThis.SolstoneDisclosure.firstRun(liveState);
-  assert.equal(nodes.firstRun.hidden, false);
-  assert.equal(nodes.firstRunDestination.textContent, expectedDisclosure.destination.label);
-  assert.equal(nodes.firstRunDestinationDetail.textContent, expectedDisclosure.destination.detail);
-  assert.equal(nodes.actionMessage.textContent, "");
+  const C = globalThis.SolstoneCopy;
 
-  nodes.firstRunChange.listeners.click();
-  assert.equal(nodes.newHost.focusCount, 1);
-
-  liveState = optionsState({ allowlist: ["mail.google.com"], activeSites: ["mail.google.com"] });
+  // 1. No status yet
+  liveState = null;
   await globalThis.SolstoneOptions.refresh();
-  assert.equal(nodes.firstRun.hidden, true, "the allowlist alone ends first run");
+  assert.equal(nodes.step1Heading.textContent, "looking for the solstone app on this computer…");
+  assert.equal(nodes.step1Check.hidden, true);
 
-  nodes.newHost.value = "mail.google.com";
-  let permissionsBefore = permissionRequests;
-  let sentBefore = sent.length;
-  let pending = nodes.addForm.listeners.submit({ preventDefault() {} });
-  assert.equal(nodes.siteDisclosure.hidden, false);
-  nodes.siteDisclosureCancel.listeners.click();
-  await pending;
-  assert.equal(permissionRequests, permissionsBefore);
-  assert.equal(sent.slice(sentBefore).some((message) => message.cmd === "addGrantedOrigin"), false);
-  assert.equal(nodes.newHost.focusCount, 2);
+  // 2. Can't-reach status
+  liveState = optionsState({ connected: false });
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.step1Heading.textContent, "can't reach the solstone app");
+  assert.equal(nodes.step1Body.textContent, C.STEP1_CANT_REACH_BODY);
+  assert.equal(nodes.step1ActionBtn.hidden, false);
+  assert.equal(nodes.step1ActionBtn.textContent, "get the solstone app");
+  assert.equal(nodes.step1Check.hidden, true);
 
-  sentBefore = sent.length;
-  pending = nodes.addForm.listeners.submit({ preventDefault() {} });
-  assert.equal(nodes.siteDisclosure.hidden, false);
-  documentListeners.keydown({ key: "Escape" });
-  await pending;
-  assert.equal(permissionRequests, permissionsBefore);
-  assert.equal(sent.slice(sentBefore).some((message) => message.cmd === "addGrantedOrigin"), false);
-  assert.equal(nodes.newHost.focusCount, 3);
+  // 3. Live permitted host with consent unset and no sites (app-first)
+  liveState = optionsState({ hostCapture: "permitted", consentVersion: 0, chosenOrigins: [] });
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.step1Heading.textContent, "found the solstone app, paired with your journal");
+  assert.equal(nodes.step1Check.hidden, false);
+  assert.equal(nodes.agreeDisclosureBtn.hidden, false);
+  assert.equal(nodes.agreeDisclosureBtn.textContent, "agree and go on");
+  assert.equal(nodes.step2DisclosureBody.textContent, C.DISCLOSURE_BODY);
 
-  actionOrder.length = 0;
-  pending = nodes.addForm.listeners.submit({ preventDefault() {} });
-  assert.equal(nodes.siteDisclosure.hidden, false);
-  assert.equal(permissionRequests, permissionsBefore, "permission is unreachable before confirmation");
-  nodes.siteDisclosureConfirm.listeners.click();
-  await pending;
-  assert.deepEqual(actionOrder, ["permission", "addGrantedOrigin"]);
-  assert.equal(permissionRequests, permissionsBefore + 1);
-  assert.equal(nodes.newHost.focusCount, 5, "confirmation restores focus before and after refresh");
-  assert.equal(nodes.newHost.value, "", "a successful add clears the host");
+  // 4. hostCapture: "paused" with consent unset
+  liveState = optionsState({ hostCapture: "paused", consentVersion: 0, chosenOrigins: [] });
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.step1Heading.textContent, "found the solstone app, paired with your journal. it's paused right now.");
+  assert.equal(nodes.step1Check.hidden, false);
+  assert.equal(nodes.agreeDisclosureBtn.hidden, false);
 
-  nodes.actionMessage.textContent = "";
+  // 5. acknowledgeDisclosure returning failure does not reveal read it again
+  ackResponse = { ok: false, error: "storage_error" };
+  await nodes.agreeDisclosureBtn.listeners.click();
+  assert.equal(nodes.step2Completed.hidden, true);
+  assert.equal(nodes.agreeDisclosureBtn.hidden, false);
+
+  // 6. acknowledgeDisclosure returning { ok: true } reveals read it again with DISCLOSURE_BODY
+  ackResponse = { ok: true, consentVersion: 1 };
+  await nodes.agreeDisclosureBtn.listeners.click();
+  assert.equal(nodes.step2Completed.hidden, false);
+  assert.equal(nodes.step2ReReadBody.textContent, C.DISCLOSURE_BODY);
+
+  // 7. Step 1 with custody.full, hostCapture: "permitted", and lossNotice shows full-store headline and not dropped reason
   liveState = optionsState({
-    allowlist: ["mail.google.com"],
-    health: { lastError: "TypeError: Failed to fetch", lastUploadAt: 20, segmentsUploaded: 1, lastStatus: 0 },
+    custody: { full: true, stale: false },
+    hostCapture: "permitted",
+    lossNotice: { seq: 1, count: 2, reason: "dropped" },
+    consentVersion: 0,
   });
   await globalThis.SolstoneOptions.refresh();
-  assert.match(nodes.actionMessage.textContent, /can't reach your journal/);
-  const writes = nodes.actionMessage.textWrites;
+  assert.equal(nodes.step1Heading.textContent, "no room for more right now");
+  assert.equal(nodes.step1Check.hidden, true);
+
+  // 8. Site added message: "{host} added." + "what you share there now goes into your journal." only when on-now
+  liveState = optionsState({
+    consentVersion: 1,
+    chosenOrigins: [],
+    grantedOrigins: [],
+    hostCapture: "permitted",
+    capturePermitted: true,
+  });
   await globalThis.SolstoneOptions.refresh();
-  assert.equal(nodes.actionMessage.textWrites, writes, "unchanged refreshes do not repeat the live message");
+  nodes.newHost.value = "mail.google.com";
+  let pending = nodes.addForm.listeners.submit({ preventDefault() {} });
+  nodes.siteDisclosureConfirm.listeners.click();
+  await pending;
+  assert.equal(nodes.actionMessage.textContent, "mail.google.com added.");
+
+  // When on-now (extras activeSites has origin)
+  liveState = optionsState({
+    consentVersion: 1,
+    chosenOrigins: ["https://mail.google.com"],
+    grantedOrigins: ["https://mail.google.com"],
+    hostCapture: "permitted",
+    capturePermitted: true,
+  });
+  // Verify siteRow directly for on-now text format
+  const onNowRow = globalThis.SolstoneStatus.siteRow("mail.google.com", liveState, { activeSites: ["mail.google.com"] });
+  assert.equal(onNowRow.kind, "on-now");
+
+  // 9. Checkbox marker label
+  assert.match(html, /show a small solstone mark on pages you've added/);
 });

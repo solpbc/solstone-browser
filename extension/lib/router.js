@@ -118,26 +118,49 @@
           return { ok: false, error: "invalid_consent_version" };
         }
 
+        case "intendAddOrigin": {
+          const origin = normalizeOrigin(msg.origin);
+          if (!origin) return { ok: false, error: "invalid_origin" };
+          let host = "";
+          try {
+            host = new URL(origin).host;
+          } catch (_e) {
+            return { ok: false, error: "invalid_origin" };
+          }
+          const pat = H && H.matchPatternFor ? H.matchPatternFor(host) : `*://${host}/*`;
+          port.pendingIntent = {
+            origin,
+            pattern: pat,
+            expiresAt: port.now() + 120000,
+          };
+          return { ok: true };
+        }
+
+        case "clearAddIntent": {
+          port.pendingIntent = null;
+          return { ok: true };
+        }
+
+        case "dismissTruncation": {
+          const origin = normalizeOrigin(msg.origin);
+          const bound = typeof msg.bound === "string" ? msg.bound : String(msg.bound || "");
+          if (!origin || !bound) return { ok: false, error: "invalid_params" };
+          const dismissed = port.dismissTruncation ? await port.dismissTruncation(origin, bound) : false;
+          return { ok: true, dismissed };
+        }
+
         case "addGrantedOrigin": {
           const epoch = grantEpoch;
           const permissionEpoch = port.permissionEpoch || 0;
+          const origin = normalizeOrigin(msg.origin);
+          if (!origin) return { ok: false, error: "invalid_origin" };
+
           const operation = grantChain.catch(() => {}).then(async () => {
-            const canGrant = () => epoch === grantEpoch && permissionEpoch === (port.permissionEpoch || 0) &&
-              !port.paused && !port.pressure?.active && port.consentVersion === Gate.CONSENT_VERSION &&
-              port.capturePermitted === true && port.hostCapture === "permitted" && !port.custody?.full &&
-              port.lease && port.now() < port.lease.receivedAt + port.lease.freshnessMs;
-            if (!canGrant()) return { ok: false, error: "capture_unavailable" };
-            const origin = normalizeOrigin(msg.origin);
-            if (!origin) return { ok: false, error: "invalid_origin" };
-
-            if (port.consentVersion !== Gate.CONSENT_VERSION) {
-              return { ok: false, error: "missing_consent" };
-            }
-
             let host = "";
             try {
               host = new URL(origin).host;
             } catch (_e) {
+              port.pendingIntent = null;
               return { ok: false, error: "invalid_origin" };
             }
 
@@ -156,16 +179,41 @@
               hasPerm = false;
             }
 
+            const canGrant = () => {
+              const epochOk = (epoch === grantEpoch && permissionEpoch === (port.permissionEpoch || 0)) ||
+                (port.pendingIntent && port.now() < port.pendingIntent.expiresAt && port.pendingIntent.origin === origin && hasPerm);
+              return epochOk &&
+                !port.paused && !port.pressure?.active && port.consentVersion === Gate.CONSENT_VERSION &&
+                port.capturePermitted === true && port.hostCapture === "permitted" && !port.custody?.full &&
+                port.lease && port.now() < port.lease.receivedAt + port.lease.freshnessMs;
+            };
+
+            if (!canGrant()) {
+              port.pendingIntent = null;
+              return { ok: false, error: "capture_unavailable" };
+            }
+
+            if (port.consentVersion !== Gate.CONSENT_VERSION) {
+              port.pendingIntent = null;
+              return { ok: false, error: "missing_consent" };
+            }
+
             if (!hasPerm) {
+              port.pendingIntent = null;
               return { ok: false, error: "permission_not_granted" };
             }
 
-            if (!canGrant()) return { ok: false, error: "capture_unavailable" };
-            const nextOrigins = Array.from(new Set([...port.grantedOrigins, origin]));
+            if (!canGrant()) {
+              port.pendingIntent = null;
+              return { ok: false, error: "capture_unavailable" };
+            }
+
+            const prevChosen = Array.from(port.chosenOrigins || []);
+            const nextChosen = Array.from(new Set([...prevChosen, origin]));
             let saveOk = false;
             if (deps.setCfg) {
               try {
-                await deps.setCfg({ grantedOrigins: nextOrigins });
+                await deps.setCfg({ chosenOrigins: nextChosen });
                 saveOk = true;
               } catch (_e) {
                 saveOk = false;
@@ -175,24 +223,62 @@
             }
 
             if (!saveOk) {
+              port.pendingIntent = null;
               return { ok: false, error: "storage_error" };
             }
 
             if (!canGrant()) {
-              if (deps.setCfg) await deps.setCfg({ grantedOrigins: Array.from(port.grantedOrigins) });
+              if (deps.setCfg) await deps.setCfg({ chosenOrigins: prevChosen });
+              port.pendingIntent = null;
               return { ok: false, error: "capture_unavailable" };
             }
-            port.grantedOrigins.add(origin);
+
+            port.chosenOrigins.add(origin);
+            let livePerms = [];
+            try {
+              const p = typeof chrome !== "undefined" && chrome.permissions?.getAll ? await chrome.permissions.getAll() : null;
+              livePerms = p?.origins || [];
+            } catch (_e) {}
+            port.grantedOrigins = new Set();
+            for (const o of port.chosenOrigins) {
+              try {
+                const u = new URL(o);
+                const pPat = H && H.matchPatternFor ? H.matchPatternFor(u.host) : `*://${u.host}/*`;
+                if (livePerms.includes(pPat) || (livePerms.includes("*://*/*") && hasPerm)) {
+                  port.grantedOrigins.add(o);
+                }
+              } catch (_e) {}
+            }
+            if (hasPerm) port.grantedOrigins.add(origin);
+
+            let regStatus = "ready";
             if (typeof deps.registerSite === "function") {
               try {
-                await deps.registerSite(host);
+                regStatus = await deps.registerSite(host);
               } catch (_e) {
-                /* ignore */
+                regStatus = "failed";
               }
             }
+
+            if (regStatus === "failed") {
+              port.chosenOrigins.delete(origin);
+              port.grantedOrigins.delete(origin);
+              if (deps.setCfg) await deps.setCfg({ chosenOrigins: Array.from(port.chosenOrigins) });
+              port.pendingIntent = null;
+              port.notify();
+              return { ok: false, error: "registration_failed", registration: "failed" };
+            }
+
+            if (regStatus === "reload") {
+              await port.setSiteNotice(origin, "registration", "reload");
+            } else if (regStatus === "ready") {
+              await port.clearRegistrationNotice(origin);
+            }
+
+            port.pendingIntent = null;
             port.notify();
             if (!canGrant() || !port.grantedOrigins.has(origin)) return { ok: false, error: "capture_unavailable" };
-            return { ok: true, origin };
+            return { ok: true, origin, registration: regStatus };
           });
           grantChain = operation;
           return operation;
@@ -203,12 +289,13 @@
           if (!origin) return { ok: false, error: "invalid_origin" };
 
           grantEpoch++;
-          port.grantedOrigins.delete(origin);
+          port.chosenOrigins?.delete(origin);
+          port.grantedOrigins?.delete(origin);
           port.notify();
           let saved = true;
           if (deps.setCfg) {
             try {
-              await deps.setCfg({ grantedOrigins: Array.from(port.grantedOrigins) });
+              await deps.setCfg({ chosenOrigins: Array.from(port.chosenOrigins || []) });
             } catch (_e) {
               saved = false;
             }
@@ -220,7 +307,7 @@
             try {
               const u = new URL(origin);
               const matchHost = H && H.matchHostFor ? H.matchHostFor(u.host) : u.hostname;
-              const hasSibling = Array.from(port.grantedOrigins).some((o) => {
+              const hasSibling = Array.from(port.chosenOrigins || []).some((o) => {
                 try {
                   const sHost = H && H.matchHostFor ? H.matchHostFor(new URL(o).host) : new URL(o).hostname;
                   return sHost === matchHost;
@@ -315,6 +402,13 @@
             port.notify();
           }
           return { ok: true, dismissed };
+        }
+
+        case "dismissTruncation": {
+          const origin = typeof msg.origin === "string" ? msg.origin : "";
+          const bound = typeof msg.bound === "string" ? msg.bound : "";
+          const dismissed = await port.dismissTruncation(origin, bound);
+          return { ok: true, dismissed: !!dismissed };
         }
 
         default:
@@ -437,11 +531,6 @@
         const adapter = typeof meta.adapter === "string" ? meta.adapter : "generic";
         const blocksList = Array.isArray(msg.blocks) ? msg.blocks : [];
 
-        const consts = globalThis.SolstoneNativeBrowserConstants;
-        const textMax = (consts && consts.TEXT_MAX) || Blocks.MAX_TEXT || 2001;
-        const blocksTruncated = blocksList.length >= Blocks.MAX_BLOCKS;
-        const textTruncated = blocksList.some((b) => b && typeof b.text === "string" && b.text.length === textMax && b.text.endsWith("…"));
-
         const admittedEpoch = port.captureEpoch;
         const authorize = () => {
           port.syncCaptureAuthority?.();
@@ -482,6 +571,16 @@
           if (!authorize()) return { ok: false, error: "authority_mismatch" };
 
           if (result && result.enqueued) {
+            if (result.batchId && port.batchOriginMap) {
+              port.batchOriginMap.set(result.batchId, senderOrigin);
+              if (port.batchOriginMap.size > 64) {
+                const firstKey = port.batchOriginMap.keys().next().value;
+                port.batchOriginMap.delete(firstKey);
+              }
+            }
+            if (msg.omitted === true && port.setSiteNotice) {
+              await port.setSiteNotice(senderOrigin, "truncation", String(result.seq || Date.now()));
+            }
             if (result.pressure) port.pressure = result.pressure;
             port.notify();
             port.drain();
@@ -497,19 +596,18 @@
             },
           };
         } catch (err) {
-          if (err.disposition === "batch-oversize" || err.code === "batch-oversize" || err.disposition === "schema-refuse") {
-            port.siteRejection = { origin: senderOrigin, reason: err.disposition || err.code || "batch-oversize" };
-            port.notify();
-          } else if (err.disposition === "outbox-full" || err.code === "outbox-full") {
+          let noticeBound = "enqueue_failed";
+          if (err.disposition === "batch-oversize" || err.code === "batch-oversize") noticeBound = "batch-oversize";
+          else if (err.disposition === "schema-refuse" || err.code === "schema-refuse") noticeBound = "schema-refuse";
+          else if (err.disposition === "outbox-full" || err.code === "outbox-full") {
+            noticeBound = "outbox-full";
             try {
               const cap = await Outbox.getCapacityStatus();
               port.pressure = { active: true, blockedAtBytes: cap.totalBytes };
             } catch (_e) {}
-            port.siteRejection = { origin: senderOrigin, reason: "outbox-full" };
-            port.notify();
-          } else {
-            port.siteRejection = { origin: senderOrigin, reason: err.disposition || err.code || "enqueue_failed" };
-            port.notify();
+          }
+          if (port.setSiteNotice) {
+            await port.setSiteNotice(senderOrigin, "enqueue", noticeBound);
           }
           return { ok: false, error: err.code || "enqueue_failed" };
         }

@@ -90,8 +90,14 @@ test("router: extension page commands execute when sender is extension page", as
   const stateRes = await Router.route({ cmd: "getState" }, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(stateRes.ok, true);
 
-  const addRes = await Router.route({ cmd: "addGrantedOrigin", origin: "https://mail.google.com" }, sender, { runtimeId: EXT_ID, port, confirmRealm });
-  assert.deepEqual(addRes, { ok: true, origin: "https://mail.google.com" });
+  const addRes = await Router.route({ cmd: "addGrantedOrigin", origin: "https://mail.google.com" }, sender, {
+    runtimeId: EXT_ID,
+    port,
+    confirmRealm,
+    setCfg: async () => {},
+    registerSite: async () => "ready",
+  });
+  assert.deepEqual(addRes, { ok: true, origin: "https://mail.google.com", registration: "ready" });
   assert.equal(port.grantedOrigins.has("https://mail.google.com"), true);
 
   const ackRes = await Router.route({ cmd: "acknowledgeDisclosure", version: 1 }, sender, { runtimeId: EXT_ID, port, confirmRealm });
@@ -570,4 +576,63 @@ test("router: a new grant requires no local pause or pressure across permission 
     assert.equal(result.ok,false);
     assert.equal(port.grantedOrigins.size,0);
   } finally { chrome.permissions.contains=previous; }
+});
+
+test("router: pending intent flow allows addGrantedOrigin through epoch mismatch", async () => {
+  await resetDB();
+  const port = makePort();
+  const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+
+  // 1. Send intendAddOrigin
+  const intendRes = await Router.route({ cmd: "intendAddOrigin", origin: "https://mail.google.com" }, sender, {
+    runtimeId: EXT_ID,
+    port,
+  });
+  assert.deepEqual(intendRes, { ok: true });
+  assert.ok(port.pendingIntent);
+  assert.equal(port.pendingIntent.origin, "https://mail.google.com");
+
+  // 2. Epoch bump (simulating onAdded permission event)
+  const previousEpoch = 0; // Simulate initial query recorded epoch 0
+
+  // 3. addGrantedOrigin with permissionEpoch 0 should succeed because of pending intent
+  const addRes = await Router.route({ cmd: "addGrantedOrigin", origin: "https://mail.google.com", permissionEpoch: previousEpoch }, sender, {
+    runtimeId: EXT_ID,
+    port,
+    setCfg: async () => {},
+    registerSite: async () => "ready",
+  });
+  assert.deepEqual(addRes, { ok: true, origin: "https://mail.google.com", registration: "ready" });
+  assert.equal(port.pendingIntent, null); // Intent slot cleared
+});
+
+test("router: registerSite reload return sets registration notice and returns registration: reload", async () => {
+  await resetDB();
+  const port = makePort();
+  const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+
+  const addRes = await Router.route({ cmd: "addGrantedOrigin", origin: "https://mail.google.com" }, sender, {
+    runtimeId: EXT_ID,
+    port,
+    setCfg: async () => {},
+    registerSite: async () => "reload",
+  });
+  assert.deepEqual(addRes, { ok: true, origin: "https://mail.google.com", registration: "reload" });
+  assert.ok(port.siteNotices.some((n) => n.origin === "https://mail.google.com" && n.kind === "registration" && n.bound === "reload"));
+});
+
+test("router: dismissTruncation removes matching truncation notice", async () => {
+  await resetDB();
+  const port = makePort();
+  const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+
+  await port.setSiteNotice("https://example.com", "truncation", "5");
+  assert.equal(port.siteNotices.length, 1);
+
+  const res = await Router.route({ cmd: "dismissTruncation", origin: "https://example.com", bound: "5" }, sender, {
+    runtimeId: EXT_ID,
+    port,
+  });
+  assert.deepEqual(res, { ok: true, dismissed: true });
+  assert.equal(port.siteNotices.length, 0);
 });

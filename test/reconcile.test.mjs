@@ -134,3 +134,15 @@ test("actions are deterministic, grouped first, and orphan releases are deduplic
     { op: "release", origin: "https://y.test/*" },
   ]);
 });
+
+test("exemptPatterns are not released and sibling allowlist hosts are retained", () => {
+  const actions = R.reconcile({
+    granted: ["*://example.com/*", "*://sibling.test/*"],
+    manifestOrigins: [],
+    exemptOrigins: [],
+    exemptPatterns: ["*://example.com/*"],
+    allowlist: ["sibling.test:8080"],
+    pausedHosts: {},
+  });
+  assert.deepEqual(actions, []);
+});

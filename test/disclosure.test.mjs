@@ -4,54 +4,38 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+await import(new URL("../extension/lib/copy.js", import.meta.url));
 await import(new URL("../extension/lib/disclosure.js", import.meta.url));
 
 const D = globalThis.SolstoneDisclosure;
+const C = globalThis.SolstoneCopy;
 
-test("paired destination copy names the home and relay boundary exactly", () => {
-  assert.deepEqual(D.addSite("mail.example", {
-    remote: { paired: true, relayOrigin: "https://relay.example" },
-  }).destination, {
-    label: "your journal at your home",
-    detail: "sealed in this browser. https://relay.example carries bytes it can't open.",
-  });
-  assert.deepEqual(D.addSite("mail.example", {
-    remote: { paired: true },
-  }).destination, {
-    label: "your journal at your home",
-    detail: "sealed in this browser.",
-  });
+test("addSite produces structured sheet copy from SolstoneCopy", () => {
+  const sheet = D.addSite("mail.google.com", { brand: "chrome" });
+  assert.equal(sheet.title, "add mail.google.com?");
+  assert.ok(sheet.what.includes("mail.google.com"));
+  assert.ok(sheet.what.includes("never pixels"));
+  assert.equal(sheet.destination, "your journal, through the solstone app on this computer");
+  assert.equal(sheet.destinationDetail, "nothing leaves this browser except to the solstone app on this computer.");
+  assert.ok(sheet.browser.includes("chrome will ask you to allow this next"));
+  assert.equal(sheet.confirmLabel, "add this site");
+  assert.equal(sheet.cancelLabel, "cancel");
 });
 
-test("unpaired and unfinished-pair destinations use the pinned nowhere copy", () => {
-  const expected = {
-    label: "nowhere yet",
-    detail: "set up your journal first. until then, browser updates wait here.",
-  };
-  assert.deepEqual(D.addSite("mail.example", {}).destination, expected);
-  assert.deepEqual(D.addSite("mail.example", {
-    remote: { pending: true, relayOrigin: "https://relay.example" },
-  }).destination, expected);
-});
-
-test("first-run disclosure carries the pinned sealed-plaintext sentence byte for byte", () => {
-  const copy = D.firstRun({});
-  assert.equal(copy.neverReceives,
-    "browser updates can wait in this browser while your journal is unavailable. before their content crosses the relay, it is sealed for your journal. the browser sends the relay the sealed content, not the key needed to open it.");
-  assert.deepEqual(copy.destination, {
-    label: "nowhere yet",
-    detail: "set up your journal first. until then, browser updates wait here.",
-  });
-  assert.equal(copy.nothingYet, "nothing is taken in until you add your first site.");
+test("firstRun returns kinship and disclosure body", () => {
+  const firstRun = D.firstRun({});
+  assert.deepEqual(firstRun.kinship, C.WARM_CARD);
+  assert.equal(firstRun.body, C.DISCLOSURE_BODY);
 });
 
 test("disclosure helpers do not mutate caller state", () => {
   const state = Object.freeze({
-    remote: Object.freeze({ paired: true, relayOrigin: "https://relay.example" }),
+    brand: "chrome",
   });
   D.firstRun(state);
   D.addSite("mail.example", state);
   assert.deepEqual(state, {
-    remote: { paired: true, relayOrigin: "https://relay.example" },
+    brand: "chrome",
   });
 });
+

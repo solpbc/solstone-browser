@@ -78,14 +78,15 @@ test("account: stored bytes count both copies and escapes", async () => {
     adapter: "generic",
     blocks: [{ id: "1", type: "heading", depth: 0, text: textWithControlAndEmoji }],
     nowMs: 1000,
+    monotonicNow: 1000,
   });
 
   assert.equal(res.enqueued, true);
   const head = await Outbox.getHead();
   assert.ok(head);
   const exactBytes = new TextEncoder().encode(JSON.stringify(head)).byteLength;
-  assert.equal(head.bytes, exactBytes);
-  assert.equal(res.bytes, exactBytes);
+  assert.equal(head.bytes, exactBytes + 64);
+  assert.equal(res.bytes, exactBytes + 64);
   // \u0001 in JSON is escaped as \u0001 (6 chars) instead of 1 raw char
   assert.ok(exactBytes > JSON.stringify(head).length - 5);
 });
@@ -125,6 +126,7 @@ test("account: oversize diff falls back to one snapshot", async () => {
     adapter: "generic",
     blocks: nextBlocks,
     nowMs: 2000,
+    monotonicNow: 2000,
   });
 
   assert.equal(res2.enqueued, true);
@@ -151,6 +153,7 @@ test("account: oversize remove diff falls back to one snapshot", async () => {
     adapter: "generic",
     blocks: b1,
     nowMs: 1000,
+    monotonicNow: 1000,
   });
 
   // Second skim with 1 small block replacing b1
@@ -165,6 +168,7 @@ test("account: oversize remove diff falls back to one snapshot", async () => {
     adapter: "generic",
     blocks: b2,
     nowMs: 2000,
+    monotonicNow: 2000,
   });
 
   assert.equal(res.enqueued, true);
@@ -187,6 +191,7 @@ test("account: batch-oversize does not advance the cursor", async () => {
     adapter: "generic",
     blocks: initial,
     nowMs: 1000,
+    monotonicNow: 1000,
   });
 
   const cursorBefore = await DB.get("producer", "inst-oversize\nctx-oversize");
@@ -204,6 +209,7 @@ test("account: batch-oversize does not advance the cursor", async () => {
       adapter: "generic",
       blocks: [{ id: "2", type: "text", depth: 0, text: "x".repeat(34 * 1024 * 1024) }],
       nowMs: 2000,
+    monotonicNow: 2000,
     });
   } catch (err) {
     rejected = true;
@@ -229,6 +235,7 @@ test("account: outbox-full does not advance the cursor", async () => {
     adapter: "generic",
     blocks: initial,
     nowMs: 1000,
+    monotonicNow: 1000,
   });
 
   const cursorBefore = await DB.get("producer", "inst-full\nctx-full");
@@ -258,6 +265,7 @@ test("account: outbox-full does not advance the cursor", async () => {
       adapter: "generic",
       blocks: [{ id: "2", type: "heading", depth: 0, text: "Second" }],
       nowMs: 2000,
+    monotonicNow: 2000,
     });
   } catch (err) {
     rejected = true;
@@ -283,6 +291,7 @@ test("account: expired unaccepted retires with count", async () => {
     adapter: "generic",
     blocks: [{ id: "1", text: "A" }],
     nowMs: 1000,
+    monotonicNow: 1000,
   });
 
   // Descendant at t = 2000
@@ -296,6 +305,7 @@ test("account: expired unaccepted retires with count", async () => {
     adapter: "generic",
     blocks: [{ id: "1", text: "A" }, { id: "2", text: "B" }],
     nowMs: 2000,
+    monotonicNow: 2000,
   });
 
   // Other context at t = 1000
@@ -309,6 +319,7 @@ test("account: expired unaccepted retires with count", async () => {
     adapter: "generic",
     blocks: [{ id: "o1", text: "Other" }],
     nowMs: 500000,
+    monotonicNow: 500000,
   });
 
   // 1 ms before max age: does not retire
@@ -347,6 +358,7 @@ test("account: stale generation retires with count and does not rewrite survivor
     adapter: "generic",
     blocks: [{ id: "1", text: "Old Gen" }],
     nowMs: 1000,
+    monotonicNow: 1000,
   });
 
   const bNew = await Outbox.enqueueSkim({
@@ -359,6 +371,7 @@ test("account: stale generation retires with count and does not rewrite survivor
     adapter: "generic",
     blocks: [{ id: "2", text: "New Gen" }],
     nowMs: 2000,
+    monotonicNow: 2000,
   });
 
   const res = await Outbox.retireStaleGeneration("gen-new");
@@ -438,6 +451,7 @@ test("account: monotonic floor, backward wall jump, future skew, and missing age
     adapter: "generic",
     blocks: [{ id: "1", text: "A" }],
     nowMs: 100000,
+    monotonicNow: 100000,
   });
 
   // Manually update stored item to simulate a previous run that saved observedAgeMs = 300000
@@ -485,6 +499,7 @@ test("account: monotonic floor, backward wall jump, future skew, and missing age
     adapter: "generic",
     blocks: [{ id: "f1", text: "F" }],
     nowMs: 200000,
+    monotonicNow: 200000,
   });
   // Wall is 100000 (100000 < 200000 - 60000), queuedAtMs is > 60s in future
   const rFuture = await Outbox.retireExpired(1000, 100000);
@@ -504,6 +519,7 @@ test("account: monotonic floor, backward wall jump, future skew, and missing age
     adapter: "generic",
     blocks: [{ id: "ns1", text: "NS" }],
     nowMs: 100000,
+    monotonicNow: 100000,
   });
   await DB.tx("outbox", "readwrite", (store) => {
     const req = store.get(bNoSample.batchId);
@@ -514,11 +530,11 @@ test("account: monotonic floor, backward wall jump, future skew, and missing age
       store.put(item);
     };
   });
-  // Without ageSampleWallMs, floor stays storedFloor (50000) rather than computing wall - queuedAtMs
+  // Wall age remains a lower bound even without a saved wall sample.
   const rNoSample = await Outbox.retireExpired(1000, 500000);
   assert.equal(rNoSample.count, 0);
   const itemNoSample = await DB.get("outbox", bNoSample.batchId);
-  assert.equal(itemNoSample.observedAgeMs, 50000);
+  assert.equal(itemNoSample.observedAgeMs, 400000);
 });
 
 function settleRowBytes(row) {
@@ -790,6 +806,7 @@ test("account: lone-surrogate enqueue is refused with code lone_surrogate and le
       adapter: "generic",
       blocks: [{ id: "bad", type: "\ud800", text: "Invalid surrogate" }],
       nowMs: 4000,
+    monotonicNow: 4000,
     });
   } catch (err) {
     schemaErr = err;
@@ -847,12 +864,12 @@ test("account: outbox-full sets siteRejection with pressure reflecting DB status
 
   await Router.route({ kind: "hello", realmToken: "r-full" }, sender, {
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
-    port,
+    port, confirmRealm: async () => true,
   });
 
   const skimRes = await Router.route(
     {
-      kind: "skim",
+      kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration, destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token,
       realmToken: "r-full",
       blocks: [{ id: "1", type: "heading", depth: 0, text: "Will fail full" }],
     },
@@ -883,4 +900,78 @@ test("account: dismissLoss(oldSeq) does not clear newer notice", async () => {
   assert.equal(dMatching, true);
   const noticeGone = await DB.get("meta", "lossNotice");
   assert.equal(noticeGone, undefined);
+});
+
+
+function agingFixture(ctx, wall=1000000) {
+  return {inst:"fixture",ctx,destinationGeneration:"g",senderUrl:"https://example.test/page",
+    site:"example.test",title:"Fixture",adapter:"generic",blocks:[{id:"1",type:"text",depth:0,text:ctx}],
+    nowMs:wall,monotonicNow:0};
+}
+
+test("account: forward wall equality retires despite a newer monotonic sample", async () => {
+  await resetDB();
+  const item=await Outbox.enqueueSkim(agingFixture("wall"));
+  await Outbox.retireExpired(0,1000000);
+  const retired=await Outbox.retireExpired(1,1000000+Constants.OUTBOX_AGE_MS_MAX);
+  assert.equal(retired.count,1);
+  assert.equal(await DB.get("outbox",item.batchId),undefined);
+});
+
+test("account: age metadata growth fits its reserved bytes without changing replay", async () => {
+  await resetDB();
+  const item=await Outbox.enqueueSkim(agingFixture("growth"));
+  const before=await DB.get("outbox",item.batchId);
+  await Outbox.retireExpired(0,1000000);
+  await Outbox.retireExpired(12345.12345,1012345);
+  const after=await DB.get("outbox",item.batchId);
+  assert.ok(Outbox.byteLengthOf(after) <= after.bytes);
+  assert.equal(after.bytes,before.bytes);
+  assert.deepEqual(Outbox.buildWireBatch(after),Outbox.buildWireBatch(before));
+  const actual=(await DB.getAll("outbox")).reduce((n,row)=>n+Outbox.byteLengthOf(row),0)+
+    (await DB.getAll("producer")).reduce((n,row)=>n+Outbox.byteLengthOf(row),0);
+  assert.ok(actual <= (await Outbox.getCapacityStatus()).totalBytes);
+});
+
+test("account: undisclosed losses accumulate across permanent refusals", async () => {
+  await resetDB();
+  const first=await Outbox.enqueueSkim(agingFixture("first"));
+  const second=await Outbox.enqueueSkim(agingFixture("second"));
+  const receipt={reason:"oversize",class:"permanent"};
+  await Outbox.applyRejectedReceipt(first.batchId,receipt);
+  const old=await DB.get("meta","lossNotice");
+  await Outbox.applyRejectedReceipt(second.batchId,receipt);
+  const current=await DB.get("meta","lossNotice");
+  assert.equal(current.count,2);
+  assert.ok(current.seq > old.seq);
+  assert.equal(await Outbox.dismissLoss(old.seq),false);
+});
+
+test("account: pressure persists until capacity actually falls", async () => {
+  await resetDB();
+  const item=await Outbox.enqueueSkim(agingFixture("pressure"));
+  const p=new PortController({inst:"fixture",runtimeId:"fgfnkcefedeheoeamppkiiloncfekakf"});
+  const cap=await Outbox.getCapacityStatus();
+  p.pressure={active:true,blockedAtBytes:cap.totalBytes};
+  await p.refreshStorageStatus(); assert.equal(p.pressure.active,true);
+  await Outbox.removeBatch(item.batchId);
+  await p.refreshStorageStatus(); assert.equal(p.pressure.active,false);
+});
+
+
+test("account: expiry repairs a surviving delta between separate retired rows", async () => {
+  await resetDB();
+  const W=1000000;
+  const rows=[];
+  for (const [i,wall] of [W-1000,W,W-1000].entries()) {
+    const fixture=agingFixture("clock-jump",wall);
+    fixture.blocks=[{id:"1",type:"text",depth:0,text:String(i)}];
+    rows.push(await Outbox.enqueueSkim(fixture));
+  }
+  const result=await Outbox.retireExpired(599000,W+599000);
+  assert.equal(result.count,2);
+  const survivors=await Outbox.getAll();
+  assert.equal(survivors.length,1);
+  assert.equal(survivors[0].batchId,rows[1].batchId);
+  assert.equal(Outbox.buildWireBatch(survivors[0]).records[0].t,"segment_start");
 });

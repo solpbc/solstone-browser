@@ -55,7 +55,9 @@ const DEFAULT_CFG = {
 
 let port = null;
 let initPromise = null;
+let permissionEpoch = 0;
 let badgeEpoch = 0;
+let badgeChain = Promise.resolve();
 const statusPorts = new Set();
 
 async function getCfg() {
@@ -70,7 +72,7 @@ async function getCfg() {
 
 let cfgChain = Promise.resolve();
 function setCfg(patch) {
-  cfgChain = cfgChain.then(async () => {
+  cfgChain = cfgChain.catch(() => {}).then(async () => {
     const current = await getCfg();
     const next = Object.assign({}, current, patch);
     await chrome.storage.local.set({ cfg: next });
@@ -122,37 +124,36 @@ async function updateBadge(status) {
     badge = "";
   }
 
-  try {
-    await chrome.action.setIcon({ path: ICON_SET(prefix) });
-    await chrome.action.setBadgeText({ text: badge });
-    if (badge) await chrome.action.setBadgeBackgroundColor({ color: "#9F2D2D" });
-    await chrome.action.setTitle({ title: "solstone" });
-  } catch (_e) {
-    /* action API unavailable */
-  }
-
-  if (badgeEpoch !== currentBadgeEpoch) return;
-
+  // Authority publication never waits for browser action painting.
   for (const sp of statusPorts) {
-    try {
-      sp.postMessage({ type: "status", status });
-    } catch (_e) {
-      statusPorts.delete(sp);
-    }
+    try { sp.postMessage({ type: "status", status }); }
+    catch (_e) { statusPorts.delete(sp); }
   }
-
-  broadcastLeaseUpdate(status);
+  broadcastLeaseUpdate(status, currentBadgeEpoch);
+  badgeChain = badgeChain.catch(() => {}).then(async () => {
+    if (badgeEpoch !== currentBadgeEpoch) return;
+    await chrome.action.setIcon({ path: ICON_SET(prefix) });
+    if (badgeEpoch !== currentBadgeEpoch) return;
+    await chrome.action.setBadgeText({ text: badge });
+    if (badgeEpoch !== currentBadgeEpoch) return;
+    if (badge) await chrome.action.setBadgeBackgroundColor({ color: "#9F2D2D" });
+    if (badgeEpoch !== currentBadgeEpoch) return;
+    await chrome.action.setTitle({ title: "solstone" });
+  });
+  await badgeChain.catch(() => {});
 }
 
-function broadcastLeaseUpdate(status) {
+function broadcastLeaseUpdate(status, epoch = badgeEpoch) {
   if (!status) return;
   chrome.tabs.query({}, (tabs) => {
+    if (epoch !== badgeEpoch) return;
     for (const tab of tabs || []) {
       if (tab.id == null) continue;
       chrome.tabs.sendMessage(
         tab.id,
         {
           kind: "leaseUpdate",
+          captureEpoch: status.captureEpoch,
           lease: status.lease,
           paused: status.paused,
           consentVersion: status.consentVersion,
@@ -165,8 +166,8 @@ function broadcastLeaseUpdate(status) {
           pressure: status.pressure,
           capturePermitted: status.capturePermitted === true,
           destinationGeneration: status.destinationGeneration,
-          connectionGeneration: port?.connectionGeneration || 0,
-          connectionToken: port?.connectionToken || null,
+          connectionGeneration: status.connectionGeneration || 0,
+          connectionToken: status.connectionToken || null,
         },
         () => void chrome.runtime.lastError
       );
@@ -175,7 +176,9 @@ function broadcastLeaseUpdate(status) {
 }
 
 function broadcastPause(paused) {
+  const epoch = badgeEpoch;
   chrome.tabs.query({}, (tabs) => {
+    if (epoch !== badgeEpoch || port?.paused !== paused) return;
     for (const tab of tabs || []) {
       if (tab.id == null) continue;
       chrome.tabs.sendMessage(tab.id, { kind: "setPaused", paused }, () => void chrome.runtime.lastError);
@@ -344,7 +347,9 @@ async function doInit() {
   const everConnected = !!(await DB.get("meta", "everConnected"));
   const cfg = await getCfg();
 
+  const lossNotice = await DB.get("meta", "lossNotice");
   if (!port) {
+    await DB.clear("producer");
     port = new PortController({
       inst,
       manifestVersion: VERSION,
@@ -357,47 +362,43 @@ async function doInit() {
   }
 
   port.consentVersion = consentVersion;
+  port.lossNotice = lossNotice || null;
   port.everConnected = everConnected;
   port.paused = cfg.paused;
   port.showPageIndicator = cfg.showPageIndicator;
 
-  let permittedOrigins = [];
-  try {
+  port.permissionEpoch = permissionEpoch;
+  let permissionsSettled = false;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const epoch = permissionEpoch;
+    const latestCfg = await getCfg();
     const perms = await chrome.permissions.getAll();
-    permittedOrigins = perms.origins || [];
-  } catch (_e) {
-    permittedOrigins = [];
-  }
-
-  const liveGranted = new Set();
-  const missingPatterns = [];
-
-  for (const origin of cfg.grantedOrigins) {
-    try {
-      const u = new URL(origin);
-      const pattern = H.matchPatternFor(u.host);
-      if (permittedOrigins.includes(pattern)) {
-        liveGranted.add(origin);
-        await registerSite(u.host);
-      } else {
-        missingPatterns.push(pattern);
-      }
-    } catch (_e) {
-      /* ignore */
+    if (epoch !== permissionEpoch) continue;
+    const liveGranted = new Set();
+    const missingPatterns = [];
+    for (const origin of latestCfg.grantedOrigins) {
+      try {
+        const u = new URL(origin);
+        const pattern = H.matchPatternFor(u.host);
+        if (perms.origins?.includes(pattern)) {
+          liveGranted.add(origin);
+          await registerSite(u.host);
+        } else missingPatterns.push(pattern);
+      } catch (_e) {}
+      if (epoch !== permissionEpoch) break;
     }
+    if (epoch !== permissionEpoch) continue;
+    port.grantedOrigins = liveGranted;
+    port.drift = missingPatterns.length ? { patterns: missingPatterns } : null;
+    permissionsSettled = true;
+    break;
   }
+  if (!permissionsSettled) throw new Error("permissions_changed_during_init");
 
-  port.grantedOrigins = liveGranted;
-  if (missingPatterns.length > 0) {
-    port.drift = { patterns: missingPatterns };
-  } else {
-    port.drift = null;
-  }
-
-  const cap = await Outbox.getCapacityStatus().catch(() => ({ pressure: { active: false } }));
-  if (cap) port.pressure = cap.pressure;
-
-  await Outbox.retireExpired(port.now(), Date.now()).catch(() => {});
+  await Outbox.retireExpired(port.now(), Date.now());
+  port.lossNotice = (await DB.get("meta", "lossNotice")) || null;
+  const cap = await Outbox.getCapacityStatus();
+  port.pressure = cap.pressure;
   await runReconcile().catch(() => {});
   port.connect();
   updateBadge();
@@ -466,13 +467,22 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 chrome.permissions.onRemoved.addListener((details) => {
   const removedPatterns = details?.origins || [];
+  permissionEpoch++;
   if (port) {
+    port.permissionEpoch = permissionEpoch;
     const toRemove = [];
     for (const origin of port.grantedOrigins) {
       try {
         const u = new URL(origin);
         const hostPattern = H.matchPatternFor(u.host);
-        if (removedPatterns.includes(hostPattern)) {
+        if (removedPatterns.some((pattern) => {
+          if (pattern === "<all_urls>" || pattern === hostPattern) return true;
+          const match = /^(\*|https?):\/\/([^/]+)\//.exec(pattern);
+          if (!match || (match[1] !== "*" && match[1] + ":" !== u.protocol)) return false;
+          const host = match[2];
+          return host === "*" || host === u.hostname ||
+            (host.startsWith("*.") && (u.hostname === host.slice(2) || u.hostname.endsWith(host.slice(1))));
+        })) {
           toRemove.push(origin);
         }
       } catch (_e) {}
@@ -481,19 +491,15 @@ chrome.permissions.onRemoved.addListener((details) => {
       port.grantedOrigins.delete(o);
     }
     port.drift = { patterns: removedPatterns };
-    chrome.tabs.query({}, (tabs) => {
-      for (const tab of tabs || []) {
-        if (tab.id != null) {
-          chrome.tabs.sendMessage(tab.id, { kind: "permissionRemoved" }, () => void chrome.runtime.lastError);
-        }
-      }
-    });
+    port.notify();
     setCfg({ grantedOrigins: Array.from(port.grantedOrigins) }).catch(() => {});
   }
   runReconcile().catch(() => {});
 });
 
 chrome.permissions.onAdded.addListener(() => {
+  permissionEpoch++;
+  if (port) port.permissionEpoch = permissionEpoch;
   runReconcile().catch(() => {});
 });
 
@@ -511,6 +517,11 @@ chrome.runtime.onInstalled.addListener((details) => {
 });
 
 chrome.runtime.onStartup.addListener(init);
+chrome.runtime.onUpdateAvailable?.addListener(() => {
+  if (!port) return;
+  port.updateCheck = "update-available";
+  port.notify();
+});
 
 // Start initialization once after listeners are registered
 init();

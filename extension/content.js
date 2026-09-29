@@ -26,6 +26,7 @@
   let hostCapture = null;
   let capturePermitted = false;
   let pressure = { active: false };
+  let captureEpoch = null;
   let connectionGeneration = 0;
   let destinationGeneration = null;
 
@@ -36,7 +37,9 @@
   let idleCallbackId = null;
   let rootEl = null;
   let started = false;
-  let grantRequestMono = 0;
+  let grantEpoch = 0;
+  let grantSequence = 0;
+  let leaseTimer = null;
 
   function now() {
     return typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
@@ -103,6 +106,7 @@
       reason,
       meta,
       blocks,
+      captureEpoch,
       connectionGeneration,
       destinationGeneration,
       leaseToken: lease?.token || null,
@@ -135,6 +139,7 @@
 
     if (observer) observer.disconnect();
     observer = new MutationObserver((mutations) => {
+      if (!getDecision().open) { stopObserving(); return; }
       const indicatorHost = document.getElementById("solstone-observer-indicator-host");
       const filtered = mutations.filter((m) => {
         if (!indicatorHost) return true;
@@ -158,6 +163,9 @@
   }
 
   function stopObserving() {
+    grantEpoch++;
+    clearTimeout(leaseTimer);
+    leaseTimer = null;
     if (observer) {
       observer.disconnect();
       observer = null;
@@ -174,7 +182,7 @@
     }
   }
 
-  function handleSolicitedGrant(response) {
+  function handleSolicitedGrant(response, reqTime) {
     if (typeof response.paused === "boolean") paused = response.paused;
     if (typeof response.consentVersion === "number") consentVersion = response.consentVersion;
     originGranted = Array.isArray(response.grantedOrigins) && response.grantedOrigins.includes(location.origin);
@@ -182,11 +190,11 @@
     hostCapture = response.hostCapture || null;
     capturePermitted = response.capturePermitted === true;
     if (response.pressure) pressure = response.pressure;
+    captureEpoch = response.captureEpoch;
     connectionGeneration = response.connectionGeneration || 0;
     destinationGeneration = response.destinationGeneration || null;
 
     if (response.lease) {
-      const reqTime = grantRequestMono;
       const freshnessMs = Number(response.lease.freshnessMs || 0);
       if (now() >= reqTime + freshnessMs) {
         lease = null;
@@ -203,7 +211,14 @@
     }
 
     const decision = getDecision();
+    clearTimeout(leaseTimer);
     if (decision.open) {
+      const grantedLease = lease;
+      leaseTimer = setTimeout(() => {
+        if (lease !== grantedLease) return;
+        lease = null;
+        stopObserving();
+      }, Math.max(0, lease.receivedAt + lease.freshnessMs - now()));
       if (!observer && !rootEl) waitForRoot();
       else if (!observer && rootEl) startObserving();
     } else {
@@ -234,7 +249,15 @@
       return;
     }
 
-    // Unsolicited positive update: re-request hello to anchor new deadline on content clock
+    // A delivery-only update cannot renew or revoke an unchanged grant.
+    if (Number.isSafeInteger(msg.captureEpoch) && msg.captureEpoch === captureEpoch && msg.lease?.token === lease?.token &&
+        msg.destinationGeneration === lease?.generation && getDecision().open) return;
+
+    // Positive notifications carry no content-clock authority. Close before
+    // borrowing any of their destination fields for a new request.
+    lease = null;
+    stopObserving();
+    // Positive updates require a solicited, conservatively mapped deadline.
     requestGrant();
   }
 
@@ -266,11 +289,13 @@
   }
 
   function requestGrant() {
-    grantRequestMono = now();
+    const reqTime = now();
+    const epoch = grantEpoch;
+    const sequence = ++grantSequence;
     try {
       chrome.runtime.sendMessage({ kind: "hello", realmToken: REALM_TOKEN }, (response) => {
-        if (!response || !response.ok) return;
-        handleSolicitedGrant(response);
+        if (epoch !== grantEpoch || sequence !== grantSequence || !response || !response.ok) return;
+        handleSolicitedGrant(response, reqTime);
       });
     } catch (_e) {
       /* ignore */
@@ -287,7 +312,9 @@
     if (!msg || !sender) return false;
     if (sender.id !== chrome.runtime.id || sender.tab) return false;
 
-    if (msg.kind === "leaseUpdate") {
+    if (msg.kind === "confirmRealm") {
+      sendResponse({ realmToken: REALM_TOKEN });
+    } else if (msg.kind === "leaseUpdate") {
       handleLeaseUpdate(msg);
     } else if (msg.kind === "setPaused") {
       paused = !!msg.paused;
@@ -327,13 +354,15 @@
   }, { capture: true });
   window.addEventListener("pageshow", (e) => {
     if (e.persisted) {
-      doSkim("bfcache-restore");
+      requestGrant();
     }
   });
 
   window.addEventListener("pagehide", () => {
     flush("pagehide");
     send({ kind: "bye" });
+    lease = null;
+    stopObserving();
   }, { once: true });
 
   if (document.readyState === "complete" || document.readyState === "interactive") boot();

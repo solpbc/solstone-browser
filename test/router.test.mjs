@@ -23,6 +23,8 @@ const DB = globalThis.SolstoneDB;
 const Outbox = globalThis.SolstoneNativeOutbox;
 const Router = globalThis.SolstoneRouter;
 const PortController = globalThis.SolstoneNativePort;
+globalThis.chrome = { permissions: { contains: async () => true } };
+const confirmRealm = async () => true; // This suite supplies a live-frame confirmation; adversarial tests cover stale frames.
 const EXT_ID = "fgfnkcefedeheoeamppkiiloncfekakf";
 
 async function resetDB() {
@@ -59,7 +61,7 @@ function makePort() {
 test("router: rejects sender with non-matching extension id", async () => {
   await resetDB();
   const port = makePort();
-  const res = await Router.route({ cmd: "getState" }, { id: "wrong-id" }, { runtimeId: EXT_ID, port });
+  const res = await Router.route({ cmd: "getState" }, { id: "wrong-id" }, { runtimeId: EXT_ID, port, confirmRealm });
   assert.deepEqual(res, { ok: false, error: "bad_sender" });
 });
 
@@ -73,7 +75,7 @@ test("router: content script sender cannot run privileged extension page command
     origin: "https://mail.google.com",
   };
 
-  const res = await Router.route({ cmd: "setPaused", paused: true }, sender, { runtimeId: EXT_ID, port });
+  const res = await Router.route({ cmd: "setPaused", paused: true }, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(res.ok, false);
 });
 
@@ -85,19 +87,19 @@ test("router: extension page commands execute when sender is extension page", as
     url: `chrome-extension://${EXT_ID}/popup.html`,
   };
 
-  const stateRes = await Router.route({ cmd: "getState" }, sender, { runtimeId: EXT_ID, port });
+  const stateRes = await Router.route({ cmd: "getState" }, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(stateRes.ok, true);
 
-  const addRes = await Router.route({ cmd: "addGrantedOrigin", origin: "https://mail.google.com" }, sender, { runtimeId: EXT_ID, port });
+  const addRes = await Router.route({ cmd: "addGrantedOrigin", origin: "https://mail.google.com" }, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.deepEqual(addRes, { ok: true, origin: "https://mail.google.com" });
   assert.equal(port.grantedOrigins.has("https://mail.google.com"), true);
 
-  const ackRes = await Router.route({ cmd: "acknowledgeDisclosure", version: 1 }, sender, { runtimeId: EXT_ID, port });
+  const ackRes = await Router.route({ cmd: "acknowledgeDisclosure", version: 1 }, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.deepEqual(ackRes, { ok: true, consentVersion: 1 });
   const storedConsent = await DB.get("meta", "consentVersion");
   assert.equal(storedConsent, 1);
 
-  const pauseRes = await Router.route({ cmd: "setPaused", paused: true }, sender, { runtimeId: EXT_ID, port });
+  const pauseRes = await Router.route({ cmd: "setPaused", paused: true }, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.deepEqual(pauseRes, { ok: true, paused: true, saved: true });
   assert.equal(port.paused, true);
 });
@@ -113,7 +115,7 @@ test("router: content script commands rejected if origin not granted", async () 
     origin: "https://unknown.example",
   };
 
-  const res = await Router.route({ kind: "hello", realmToken: "realm-1" }, sender, { runtimeId: EXT_ID, port });
+  const res = await Router.route({ kind: "hello", realmToken: "realm-1" }, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.deepEqual(res, { ok: false, error: "origin_not_granted" });
 });
 
@@ -131,12 +133,12 @@ test("router: content script creates realm binding on hello", async () => {
     documentId: "doc-1",
   };
 
-  const res = await Router.route({ kind: "hello", realmToken: "realm-1" }, sender, { runtimeId: EXT_ID, port });
+  const res = await Router.route({ kind: "hello", realmToken: "realm-1" }, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(res.ok, true);
   assert.ok(res.ctx);
   assert.equal(res.consentVersion, 1);
 
-  const binding = Router.frameBindings.get("10:0:doc-1");
+  const binding = Router.frameBindings.get("10:0");
   assert.ok(binding);
   assert.equal(binding.realmToken, "realm-1");
   assert.equal(binding.ctx, res.ctx);
@@ -155,13 +157,13 @@ test("router: forged fields do not leak", async () => {
     origin: "https://mail.google.com",
   };
 
-  const helloRes = await Router.route({ kind: "hello", realmToken: "realm-forged" }, sender, { runtimeId: EXT_ID, port });
+  const helloRes = await Router.route({ kind: "hello", realmToken: "realm-forged" }, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(helloRes.ok, true);
 
   const FORGED_MARKER = "SECRET_FORGED_INJECTION_MARKER";
   const skimRes = await Router.route(
     {
-      kind: "skim",
+      kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration, destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token,
       realmToken: "realm-forged",
       site: FORGED_MARKER,
       ctx: FORGED_MARKER,
@@ -169,7 +171,7 @@ test("router: forged fields do not leak", async () => {
       blocks: [{ id: "1", type: "heading", depth: 0, text: "Inbox" }],
     },
     sender,
-    { runtimeId: EXT_ID, port }
+    { runtimeId: EXT_ID, port, confirmRealm }
   );
 
   assert.equal(skimRes.ok, true);
@@ -209,13 +211,13 @@ test("router: second frame cannot claim another context", async () => {
     origin: "https://mail.google.com",
   };
 
-  const res1 = await Router.route({ kind: "hello", realmToken: "realm-frame-1" }, frame1, { runtimeId: EXT_ID, port });
-  const res2 = await Router.route({ kind: "hello", realmToken: "realm-frame-2" }, frame2, { runtimeId: EXT_ID, port });
+  const res1 = await Router.route({ kind: "hello", realmToken: "realm-frame-1" }, frame1, { runtimeId: EXT_ID, port, confirmRealm });
+  const res2 = await Router.route({ kind: "hello", realmToken: "realm-frame-2" }, frame2, { runtimeId: EXT_ID, port, confirmRealm });
 
-  assert.equal(res1.ctx, null);
-  assert.equal(res2.ctx, null);
-  const skim1 = await Router.route({ kind: "skim", realmToken: "realm-frame-1", blocks: [{ id: "1", type: "text", depth: 0, text: "a" }] }, frame1, { runtimeId: EXT_ID, port });
-  const skim2 = await Router.route({ kind: "skim", realmToken: "realm-frame-2", blocks: [{ id: "1", type: "text", depth: 0, text: "b" }] }, frame2, { runtimeId: EXT_ID, port });
+  assert.ok(res1.ctx);
+  assert.ok(res2.ctx);
+  const skim1 = await Router.route({ kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration, destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token, realmToken: "realm-frame-1", blocks: [{ id: "1", type: "text", depth: 0, text: "a" }] }, frame1, { runtimeId: EXT_ID, port, confirmRealm });
+  const skim2 = await Router.route({ kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration, destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token, realmToken: "realm-frame-2", blocks: [{ id: "1", type: "text", depth: 0, text: "b" }] }, frame2, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(skim1.ok, true);
   assert.equal(skim2.ok, true);
 
@@ -249,11 +251,11 @@ test("router: document change mints a new ctx", async () => {
     origin: "https://mail.google.com",
   };
 
-  const res1 = await Router.route({ kind: "hello", realmToken: "realm-doc-1" }, sender1, { runtimeId: EXT_ID, port });
-  const res2 = await Router.route({ kind: "hello", realmToken: "realm-doc-2" }, sender2, { runtimeId: EXT_ID, port });
+  const res1 = await Router.route({ kind: "hello", realmToken: "realm-doc-1" }, sender1, { runtimeId: EXT_ID, port, confirmRealm });
+  const res2 = await Router.route({ kind: "hello", realmToken: "realm-doc-2" }, sender2, { runtimeId: EXT_ID, port, confirmRealm });
 
   assert.notEqual(res1.ctx, res2.ctx);
-  assert.equal(Router.frameBindings.get("40:0:doc-v2").documentId, "doc-v2");
+  assert.equal(Router.frameBindings.get("40:0").documentId, "doc-v2");
 });
 
 test("router: absent documentId still binds", async () => {
@@ -269,20 +271,19 @@ test("router: absent documentId still binds", async () => {
     origin: "https://mail.google.com",
   };
 
-  const res = await Router.route({ kind: "hello", realmToken: "realm-nodoc" }, sender, { runtimeId: EXT_ID, port });
+  const res = await Router.route({ kind: "hello", realmToken: "realm-nodoc" }, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(res.ok, true);
-  assert.equal(res.ctx, null);
-  assert.equal(Router.frameChallenges.get("45:0").realmToken, "realm-nodoc");
-  assert.equal(Router.frameBindings.get("45:0"), undefined);
+  assert.ok(res.ctx);
+  assert.equal(Router.frameBindings.get("45:0").realmToken, "realm-nodoc");
 
   const skimRes = await Router.route(
     {
-      kind: "skim",
+      kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration, destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token,
       realmToken: "realm-nodoc",
       blocks: [{ id: "1", type: "heading", depth: 0, text: "Title" }],
     },
     sender,
-    { runtimeId: EXT_ID, port }
+    { runtimeId: EXT_ID, port, confirmRealm }
   );
   assert.equal(skimRes.ok, true);
   const binding = Router.frameBindings.get("45:0");
@@ -305,21 +306,21 @@ test("router: realm supersession and invalid origin", async () => {
   };
 
   // hello realm A, hello realm B on the same tab/frame with no documentId
-  const helloA = await Router.route({ kind: "hello", realmToken: "realm-A" }, sender, { runtimeId: EXT_ID, port });
+  const helloA = await Router.route({ kind: "hello", realmToken: "realm-A" }, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(helloA.ok, true);
 
-  const helloB = await Router.route({ kind: "hello", realmToken: "realm-B" }, sender, { runtimeId: EXT_ID, port });
+  const helloB = await Router.route({ kind: "hello", realmToken: "realm-B" }, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(helloB.ok, true);
 
   // skim realm A returns ok: false and does not enqueue
   const skimA = await Router.route(
     {
-      kind: "skim",
+      kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration, destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token,
       realmToken: "realm-A",
       blocks: [{ id: "1", type: "heading", depth: 0, text: "A" }],
     },
     sender,
-    { runtimeId: EXT_ID, port }
+    { runtimeId: EXT_ID, port, confirmRealm }
   );
   assert.equal(skimA.ok, false);
   assert.equal(await Outbox.getHead(), null);
@@ -327,12 +328,12 @@ test("router: realm supersession and invalid origin", async () => {
   // hello realm B is already the challenge; skim realm B enqueues
   const skimB = await Router.route(
     {
-      kind: "skim",
+      kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration, destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token,
       realmToken: "realm-B",
       blocks: [{ id: "1", type: "heading", depth: 0, text: "B" }],
     },
     sender,
-    { runtimeId: EXT_ID, port }
+    { runtimeId: EXT_ID, port, confirmRealm }
   );
   assert.equal(skimB.ok, true);
   const head = await Outbox.getHead();
@@ -347,16 +348,16 @@ test("router: realm supersession and invalid origin", async () => {
     url: "https://mail.google.com/mail/u/0",
     origin: "null",
   };
-  const nullHello = await Router.route({ kind: "hello", realmToken: "r-null" }, senderNullOrigin, { runtimeId: EXT_ID, port });
+  const nullHello = await Router.route({ kind: "hello", realmToken: "r-null" }, senderNullOrigin, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(nullHello.ok, false);
   const nullSkim = await Router.route(
     {
-      kind: "skim",
+      kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration, destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token,
       realmToken: "realm-B",
       blocks: [{ id: "1", type: "heading", depth: 0, text: "B" }],
     },
     senderNullOrigin,
-    { runtimeId: EXT_ID, port }
+    { runtimeId: EXT_ID, port, confirmRealm }
   );
   assert.equal(nullSkim.ok, false);
 });
@@ -374,7 +375,7 @@ test("router: scheme and port are distinct", async () => {
     url: "http://example.test/page",
     origin: "http://example.test",
   };
-  const httpRes = await Router.route({ kind: "hello", realmToken: "r1" }, httpSender, { runtimeId: EXT_ID, port });
+  const httpRes = await Router.route({ kind: "hello", realmToken: "r1" }, httpSender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.deepEqual(httpRes, { ok: false, error: "origin_not_granted" });
 
   // Refuse different port
@@ -385,7 +386,7 @@ test("router: scheme and port are distinct", async () => {
     url: "https://example.test:8443/page",
     origin: "https://example.test:8443",
   };
-  const portRes = await Router.route({ kind: "hello", realmToken: "r2" }, portSender, { runtimeId: EXT_ID, port });
+  const portRes = await Router.route({ kind: "hello", realmToken: "r2" }, portSender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.deepEqual(portRes, { ok: false, error: "origin_not_granted" });
 
   // Stored URL drops query, credentials, fragment
@@ -396,17 +397,17 @@ test("router: scheme and port are distinct", async () => {
     url: "https://user:pass@example.test/a/b?q=1#f",
     origin: "https://example.test",
   };
-  const credHello = await Router.route({ kind: "hello", realmToken: "r3" }, credSender, { runtimeId: EXT_ID, port });
+  const credHello = await Router.route({ kind: "hello", realmToken: "r3" }, credSender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(credHello.ok, true);
 
   const skimRes = await Router.route(
     {
-      kind: "skim",
+      kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration, destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token,
       realmToken: "r3",
       blocks: [{ id: "1", type: "heading", depth: 0, text: "Page" }],
     },
     credSender,
-    { runtimeId: EXT_ID, port }
+    { runtimeId: EXT_ID, port, confirmRealm }
   );
   assert.equal(skimRes.ok, true);
   const head = await Outbox.getHead();
@@ -421,7 +422,7 @@ test("router: scheme and port are distinct", async () => {
     url: "about:blank",
     origin: "",
   };
-  const blankNoOriginRes = await Router.route({ kind: "hello", realmToken: "r4" }, blankNoOrigin, { runtimeId: EXT_ID, port });
+  const blankNoOriginRes = await Router.route({ kind: "hello", realmToken: "r4" }, blankNoOrigin, { runtimeId: EXT_ID, port, confirmRealm });
   assert.deepEqual(blankNoOriginRes, { ok: false, error: "origin_not_granted" });
 
   // about:blank with granted sender.origin is accepted
@@ -432,7 +433,7 @@ test("router: scheme and port are distinct", async () => {
     url: "about:blank",
     origin: "https://example.test",
   };
-  const blankGrantedRes = await Router.route({ kind: "hello", realmToken: "r5" }, blankGranted, { runtimeId: EXT_ID, port });
+  const blankGrantedRes = await Router.route({ kind: "hello", realmToken: "r5" }, blankGranted, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(blankGrantedRes.ok, true);
 });
 
@@ -454,22 +455,22 @@ test("router: revoked origin refuses the next skim", async () => {
     origin: "https://example.test",
   };
 
-  const helloRes = await Router.route({ kind: "hello", realmToken: "r-rev" }, pageSender, { runtimeId: EXT_ID, port });
+  const helloRes = await Router.route({ kind: "hello", realmToken: "r-rev" }, pageSender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(helloRes.ok, true);
 
   // Revoke origin
-  await Router.route({ cmd: "removeGrantedOrigin", origin: "https://example.test" }, extSender, { runtimeId: EXT_ID, port });
+  await Router.route({ cmd: "removeGrantedOrigin", origin: "https://example.test" }, extSender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(port.grantedOrigins.has("https://example.test"), false);
 
   // Next skim refused
   const skimRes = await Router.route(
     {
-      kind: "skim",
+      kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration, destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token,
       realmToken: "r-rev",
       blocks: [{ id: "1", type: "heading", depth: 0, text: "Page" }],
     },
     pageSender,
-    { runtimeId: EXT_ID, port }
+    { runtimeId: EXT_ID, port, confirmRealm }
   );
   assert.deepEqual(skimRes, { ok: false, error: "origin_not_granted" });
 });
@@ -485,10 +486,10 @@ test("router: destroyBinding removes binding on tab/frame teardown", async () =>
   };
   const port = makePort();
   port.grantedOrigins.add("https://example.test");
-  await Router.route({ kind: "hello", realmToken: "r-destroy" }, sender, { runtimeId: EXT_ID, port });
-  assert.ok(Router.frameBindings.has("70:0:doc-70"));
+  await Router.route({ kind: "hello", realmToken: "r-destroy" }, sender, { runtimeId: EXT_ID, port, confirmRealm });
+  assert.ok(Router.frameBindings.has("70:0"));
   Router.destroyBinding(70, 0);
-  assert.equal(Router.frameBindings.has("70:0:doc-70"), false);
+  assert.equal(Router.frameBindings.has("70:0"), false);
 });
 
 test("router: setPaused with failing setCfg handles unpause and pause properly", async () => {

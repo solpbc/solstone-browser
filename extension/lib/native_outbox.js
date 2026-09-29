@@ -9,6 +9,42 @@
   const Blocks = globalThis.SolstoneBlocks;
   const ageSamples = new Map(); // batchId -> { mono, floor }
 
+  const activeTransactions = new Set();
+  function checkAuthorization() {
+    for (const check of activeTransactions) check();
+  }
+  function guardTransaction(t, authorize) {
+    if (typeof authorize !== "function") return true;
+    let active = true;
+    const finish = () => { active = false; activeTransactions.delete(check); };
+    const check = () => {
+      if (!active) return true;
+      let allowed = false;
+      try { allowed = authorize() === true; } catch (_e) {}
+      if (allowed) return true;
+      const err = new Error("authorization_failed");
+      err.code = "authorization_failed";
+      t.__error = err;
+      try { t.abort(); } catch (_e) {}
+      finish();
+      return false;
+    };
+    activeTransactions.add(check);
+    t.addEventListener("complete", finish);
+    t.addEventListener("abort", finish);
+    // Check after all request listeners, while the transaction is abortable.
+    t.addEventListener("success", () => { Promise.resolve().then(check); }, true);
+    return check();
+  }
+
+  function appendLoss(meta, notice) {
+    const previous = meta.get("lossNotice");
+    previous.onsuccess = () => {
+      const old = previous.result;
+      meta.put({ ...notice, count: notice.count + (old?.count || 0) }, "lossNotice");
+    };
+  }
+
   function getConsts() {
     const C = globalThis.SolstoneNativeBrowserConstants;
     if (!C) throw new Error("missing SolstoneNativeBrowserConstants");
@@ -56,7 +92,8 @@
     return true;
   }
 
-  async function enqueueSkim({ inst, ctx, destinationGeneration, senderUrl, site, title, adapter, blocks, nowMs, authorize } = {}) {
+  async function enqueueSkim({ inst, ctx, destinationGeneration, senderUrl, site, title, adapter, blocks, nowMs, monotonicNow, authorize } = {}) {
+    const mono = monotonicNow ?? performance.now();
     const consts = getConsts();
     const clonedBlocks = structuredClone(blocks || []);
     const ts = Math.floor(Number(nowMs !== undefined ? nowMs : Date.now()));
@@ -72,9 +109,10 @@
 
     const ctxKey = contextKeyFor(inst, ctx);
 
-    return DB.tx(["outbox", "producer", "meta"], "readwrite", (stores, t) => {
+    const result = await DB.tx(["outbox", "producer", "meta"], "readwrite", (stores, t) => {
       const outboxStore = stores.outbox;
       const producerStore = stores.producer;
+      if (!guardTransaction(t, authorize)) return;
 
       if (typeof authorize === "function") {
         try {
@@ -208,10 +246,12 @@
           const recoveryBatch = buildWireBatch({ ...storedItem, sendSnapshot: true });
           validateWireBatch(recoveryBatch);
 
-          let itemBytes = byteLengthOf(storedItem);
+          // Reserve 64 bytes for bounded age metadata growth; accounting is
+          // deliberately conservative even as clock values gain digits.
+          let itemBytes = byteLengthOf(storedItem) + 64;
           storedItem.bytes = itemBytes;
           while (true) {
-            const nextBytes = byteLengthOf(storedItem);
+            const nextBytes = byteLengthOf(storedItem) + 64;
             if (nextBytes === storedItem.bytes) break;
             storedItem.bytes = nextBytes;
           }
@@ -295,6 +335,8 @@
         t.abort();
       };
     });
+    if (result?.enqueued) ageSamples.set(result.batchId, { mono, floor: 0 });
+    return result;
   }
 
   async function getHead() {
@@ -424,7 +466,7 @@
                     const currentSeq = Number(lossSeqReq.result || 0);
                     const nextLossSeq = currentSeq + 1;
                     metaStore.put(nextLossSeq, "lossSeq");
-                    metaStore.put({ seq: nextLossSeq, reason: receipt.reason, count: 1 }, "lossNotice");
+                    appendLoss(metaStore, { seq: nextLossSeq, reason: receipt.reason, count: 1 });
 
                     const allReq = outboxStore.getAll();
                     allReq.onsuccess = () => {
@@ -491,13 +533,15 @@
             const sample = ageSamples.get(item.batchId);
             let floor = storedFloor;
 
-            if (sample) {
+            if (sample && sample.floor >= storedFloor) {
               floor = Math.max(storedFloor, sample.floor + Math.max(0, mono - sample.mono));
             } else if (typeof item.ageSampleWallMs === "number") {
               floor = storedFloor + Math.max(0, wall - item.ageSampleWallMs);
             } else {
               floor = storedFloor;
             }
+
+            floor = Math.ceil(Math.max(floor, 0, wall - item.queuedAtMs));
 
             let isExpired = false;
             let reason = "expired_unaccepted";
@@ -540,7 +584,7 @@
                 const currentSeq = Number(lossSeqReq.result || 0);
                 const nextLossSeq = currentSeq + 1;
                 metaStore.put(nextLossSeq, "lossSeq");
-                metaStore.put({ seq: nextLossSeq, reason: noticeReason, count: retiredCount }, "lossNotice");
+                appendLoss(metaStore, { seq: nextLossSeq, reason: noticeReason, count: retiredCount });
 
                 for (const [ctxKey, expiredList] of expiredByContext) {
                   const cursorReq = producerStore.get(ctxKey);
@@ -558,16 +602,19 @@
                     }
                   };
 
-                  const maxExpiredSeq = Math.max(...expiredList.map((e) => e.item.seq || 0));
+                  // Wall-clock jumps can expire noncontiguous rows. Repair
+                  // every surviving run after a removed predecessor.
+                  const removed = new Set(expiredList.map(e => e.item.batchId));
                   const sample = expiredList[0].item;
-                  const remaining = allItems
-                    .filter((x) => x.inst === sample.inst && x.ctx === sample.ctx && (x.seq || 0) > maxExpiredSeq)
-                    .sort((a, b) => (a.seq || 0) - (b.seq || 0));
-
-                  if (remaining.length > 0) {
-                    const descendant = remaining[0];
-                    descendant.sendSnapshot = true;
-                    outboxStore.put(descendant);
+                  let needsSnapshot = false;
+                  for (const row of allItems.filter(x => x.inst === sample.inst && x.ctx === sample.ctx)
+                    .sort((a, b) => a.seq - b.seq)) {
+                    if (removed.has(row.batchId)) { needsSnapshot = true; continue; }
+                    if (needsSnapshot) {
+                      row.sendSnapshot = true;
+                      outboxStore.put(row);
+                      needsSnapshot = false;
+                    }
                   }
                 }
                 t.__result = { count: retiredCount, seq: nextLossSeq, reason: noticeReason, disposition: noticeReason };
@@ -587,8 +634,9 @@
     });
   }
 
-  async function retireStaleGeneration(newGeneration) {
+  async function retireStaleGeneration(newGeneration, authorize) {
     return DB.tx(["outbox", "producer", "meta"], "readwrite", (stores, t) => {
+      if (!guardTransaction(t, authorize)) return;
       const outboxStore = stores.outbox;
       const producerStore = stores.producer;
       const metaStore = stores.meta;
@@ -645,7 +693,7 @@
                 const currentSeq = Number(lossSeqReq.result || 0);
                 const nextLossSeq = currentSeq + 1;
                 metaStore.put(nextLossSeq, "lossSeq");
-                metaStore.put({ seq: nextLossSeq, reason: "stale_generation", count: retiredCount }, "lossNotice");
+                appendLoss(metaStore, { seq: nextLossSeq, reason: "stale_generation", count: retiredCount });
                 t.__result = { count: retiredCount, seq: nextLossSeq, disposition: "stale-generation" };
               } catch (err) {
                 t.__error = err;
@@ -740,6 +788,7 @@
   }
 
   globalThis.SolstoneNativeOutbox = {
+    checkAuthorization,
     enqueueSkim,
     getHead,
     getAll,

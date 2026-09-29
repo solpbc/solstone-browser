@@ -13,6 +13,9 @@
   const frameBindings = new Map(); // key -> binding
   const frameChallenges = new Map(); // tabId:frameId -> challenge
   let ctxCounter = 0;
+  let grantChain = Promise.resolve();
+  let grantEpoch = 0;
+  let pauseEpoch = 0;
 
   function mintCtx() {
     ctxCounter++;
@@ -51,6 +54,7 @@
         if (key.startsWith(`${tabId}:`)) frameChallenges.delete(key);
       }
     }
+    Outbox.checkAuthorization?.();
   }
 
   function normalizeOrigin(input) {
@@ -108,73 +112,91 @@
         }
 
         case "addGrantedOrigin": {
-          const origin = normalizeOrigin(msg.origin);
-          if (!origin) return { ok: false, error: "invalid_origin" };
+          const epoch = grantEpoch;
+          const permissionEpoch = port.permissionEpoch || 0;
+          const operation = grantChain.catch(() => {}).then(async () => {
+            const canGrant = () => epoch === grantEpoch && permissionEpoch === (port.permissionEpoch || 0) && port.consentVersion === Gate.CONSENT_VERSION &&
+              port.capturePermitted === true && port.hostCapture === "permitted" && !port.custody?.full &&
+              port.lease && port.now() < port.lease.receivedAt + port.lease.freshnessMs;
+            if (!canGrant()) return { ok: false, error: "capture_unavailable" };
+            const origin = normalizeOrigin(msg.origin);
+            if (!origin) return { ok: false, error: "invalid_origin" };
 
-          if (port.consentVersion !== Gate.CONSENT_VERSION) {
-            return { ok: false, error: "missing_consent" };
-          }
+            if (port.consentVersion !== Gate.CONSENT_VERSION) {
+              return { ok: false, error: "missing_consent" };
+            }
 
-          let host = "";
-          try {
-            host = new URL(origin).host;
-          } catch (_e) {
-            return { ok: false, error: "invalid_origin" };
-          }
+            let host = "";
+            try {
+              host = new URL(origin).host;
+            } catch (_e) {
+              return { ok: false, error: "invalid_origin" };
+            }
 
-          const pat = H && H.matchPatternFor ? H.matchPatternFor(host) : `*://${host}/*`;
-          let hasPerm = false;
-          try {
-            if (typeof chrome !== "undefined" && chrome.permissions?.contains) {
-              hasPerm = await chrome.permissions.contains({ origins: [pat] });
-            } else if (typeof chrome !== "undefined" && chrome.permissions?.getAll) {
-              const perms = await chrome.permissions.getAll();
-              hasPerm = Array.isArray(perms?.origins) && (perms.origins.includes(pat) || perms.origins.includes("*://*/*"));
+            const pat = H && H.matchPatternFor ? H.matchPatternFor(host) : `*://${host}/*`;
+            let hasPerm = false;
+            try {
+              if (typeof chrome !== "undefined" && chrome.permissions?.contains) {
+                hasPerm = await chrome.permissions.contains({ origins: [pat] });
+              } else if (typeof chrome !== "undefined" && chrome.permissions?.getAll) {
+                const perms = await chrome.permissions.getAll();
+                hasPerm = Array.isArray(perms?.origins) && (perms.origins.includes(pat) || perms.origins.includes("*://*/*"));
+              } else {
+                hasPerm = false;
+              }
+            } catch (_e) {
+              hasPerm = false;
+            }
+
+            if (!hasPerm) {
+              return { ok: false, error: "permission_not_granted" };
+            }
+
+            if (!canGrant()) return { ok: false, error: "capture_unavailable" };
+            const nextOrigins = Array.from(new Set([...port.grantedOrigins, origin]));
+            let saveOk = false;
+            if (deps.setCfg) {
+              try {
+                await deps.setCfg({ grantedOrigins: nextOrigins });
+                saveOk = true;
+              } catch (_e) {
+                saveOk = false;
+              }
             } else {
-              hasPerm = true;
-            }
-          } catch (_e) {
-            hasPerm = false;
-          }
-
-          if (!hasPerm) {
-            return { ok: false, error: "permission_not_granted" };
-          }
-
-          const nextOrigins = Array.from(new Set([...port.grantedOrigins, origin]));
-          let saveOk = false;
-          if (deps.setCfg) {
-            try {
-              await deps.setCfg({ grantedOrigins: nextOrigins });
               saveOk = true;
-            } catch (_e) {
-              saveOk = false;
             }
-          } else {
-            saveOk = true;
-          }
 
-          if (!saveOk) {
-            return { ok: false, error: "storage_error" };
-          }
-
-          port.grantedOrigins.add(origin);
-          if (typeof deps.registerSite === "function") {
-            try {
-              await deps.registerSite(host);
-            } catch (_e) {
-              /* ignore */
+            if (!saveOk) {
+              return { ok: false, error: "storage_error" };
             }
-          }
-          port.notify();
-          return { ok: true, origin };
+
+            if (!canGrant()) {
+              if (deps.setCfg) await deps.setCfg({ grantedOrigins: Array.from(port.grantedOrigins) });
+              return { ok: false, error: "capture_unavailable" };
+            }
+            port.grantedOrigins.add(origin);
+            if (typeof deps.registerSite === "function") {
+              try {
+                await deps.registerSite(host);
+              } catch (_e) {
+                /* ignore */
+              }
+            }
+            port.notify();
+            if (!canGrant() || !port.grantedOrigins.has(origin)) return { ok: false, error: "capture_unavailable" };
+            return { ok: true, origin };
+          });
+          grantChain = operation;
+          return operation;
         }
 
         case "removeGrantedOrigin": {
           const origin = normalizeOrigin(msg.origin);
           if (!origin) return { ok: false, error: "invalid_origin" };
 
+          grantEpoch++;
           port.grantedOrigins.delete(origin);
+          port.notify();
           let saved = true;
           if (deps.setCfg) {
             try {
@@ -212,6 +234,8 @@
 
         case "setPaused": {
           const desired = !!msg.paused;
+          const epoch = ++pauseEpoch;
+          if (desired) { port.paused = true; port.notify(); }
           let saveOk = false;
           if (deps.setCfg) {
             try {
@@ -232,6 +256,7 @@
             return { ok: false, saved: false, paused: port.paused };
           }
 
+          if (epoch !== pauseEpoch) return { ok: false, error: "superseded" };
           port.paused = desired;
           if (typeof deps.broadcastPause === "function") {
             deps.broadcastPause(port.paused);
@@ -326,69 +351,48 @@
       return { ok: false, error: "missing_realm_token" };
     }
 
-    const fKey = frameKeyFor(tabId, frameId, docId);
+    const fKey = frameKeyFor(tabId, frameId, null);
     let binding = frameBindings.get(fKey);
-
-    if (docId) {
-      if (binding) {
-        if (binding.realmToken !== realmToken || binding.origin !== senderOrigin) {
-          frameBindings.delete(fKey);
-          binding = null;
+    if (msg.kind === "hello") {
+      // Ask the live frame which realm is running. A delayed message from a
+      // retired document cannot appoint itself the current realm (Firefox 140
+      // does not supply documentId).
+      const challenge = {};
+      frameChallenges.set(fKey, challenge);
+      let confirmed = false;
+      try {
+        if (deps.confirmRealm) {
+          confirmed = await deps.confirmRealm(tabId, frameId, realmToken, docId);
+        } else if (typeof chrome !== "undefined" && chrome.tabs?.sendMessage) {
+          const response = await chrome.tabs.sendMessage(tabId, { kind: "confirmRealm" }, { frameId });
+          confirmed = response?.realmToken === realmToken;
         }
+      } catch (_e) {}
+      if (!confirmed || frameChallenges.get(fKey) !== challenge) {
+        return { ok: false, error: "challenge_mismatch" };
+      }
+      binding = frameBindings.get(fKey);
+      if (binding && (binding.realmToken !== realmToken || binding.documentId !== docId || binding.origin !== senderOrigin)) {
+        destroyBinding(tabId, frameId);
+        binding = null;
       }
       if (!binding) {
-        binding = {
-          tabId,
-          frameId,
-          realmToken,
-          documentId: docId,
-          origin: senderOrigin,
-          ctx: mintCtx(),
-          url: senderUrl,
-          inst: port.inst,
-        };
+        binding = { tabId, frameId, realmToken, documentId: docId,
+          origin: senderOrigin, ctx: mintCtx(), url: senderUrl, inst: port.inst };
         frameBindings.set(fKey, binding);
       }
-    } else {
-      const challengeKey = `${tabId}:${frameId}`;
-      if (msg.kind === "hello") {
-        frameChallenges.set(challengeKey, {
-          realmToken,
-          origin: senderOrigin,
-          tabId,
-          frameId,
-        });
-        if (binding) {
-          frameBindings.delete(fKey);
-          binding = null;
-        }
-      } else {
-        const challenge = frameChallenges.get(challengeKey);
-        if (!challenge || challenge.realmToken !== realmToken || challenge.origin !== senderOrigin) {
-          return { ok: false, error: "challenge_mismatch" };
-        }
-        if (!binding || binding.realmToken !== realmToken || binding.origin !== senderOrigin) {
-          binding = {
-            tabId,
-            frameId,
-            realmToken,
-            documentId: null,
-            origin: senderOrigin,
-            ctx: mintCtx(),
-            url: senderUrl,
-            inst: port.inst,
-          };
-          frameBindings.set(fKey, binding);
-        }
-      }
+    } else if (!binding || binding.realmToken !== realmToken || binding.documentId !== docId || binding.origin !== senderOrigin) {
+      return { ok: false, error: "challenge_mismatch" };
     }
 
     switch (msg.kind) {
       case "hello": {
+        port.syncCaptureAuthority?.();
         return {
+          captureEpoch: port.captureEpoch,
           ok: true,
           ctx: binding ? binding.ctx : null,
-          lease: port.lease ? { ...port.lease } : null,
+          lease: port.lease ? { ...port.lease, freshnessMs: Math.max(0, Math.floor(port.lease.receivedAt + port.lease.freshnessMs - port.now())) } : null,
           consentVersion: port.consentVersion,
           paused: port.paused,
           showPageIndicator: port.showPageIndicator,
@@ -412,9 +416,10 @@
         const codec = globalThis.SolstoneNativeBrowser;
 
         if (
-          (msg.connectionGeneration !== undefined && msg.connectionGeneration !== port.connectionGeneration) ||
-          (msg.destinationGeneration !== undefined && msg.destinationGeneration !== port.destinationGeneration) ||
-          (msg.leaseToken && (!port.lease || msg.leaseToken !== port.lease.token))
+          (!Number.isSafeInteger(msg.captureEpoch) || msg.captureEpoch < 0 || msg.captureEpoch !== port.captureEpoch) ||
+          (msg.connectionGeneration !== port.connectionGeneration) ||
+          (msg.destinationGeneration !== port.destinationGeneration) ||
+          (!msg.leaseToken || !port.lease || msg.leaseToken !== port.lease.token)
         ) {
           return { ok: false, error: "authority_mismatch" };
         }
@@ -429,7 +434,10 @@
         const blocksTruncated = blocksList.length >= Blocks.MAX_BLOCKS;
         const textTruncated = blocksList.some((b) => b && typeof b.text === "string" && b.text.length === textMax && b.text.endsWith("…"));
 
+        const admittedEpoch = port.captureEpoch;
         const authorize = () => {
+          port.syncCaptureAuthority?.();
+          if (port.captureEpoch !== admittedEpoch || msg.captureEpoch !== admittedEpoch) return false;
           const currentNow = port.now();
           const decision = Gate.computeDecision({
             lease: port.lease,
@@ -441,10 +449,10 @@
             capturePermitted: port.capturePermitted === true,
             now: currentNow,
           });
-          if (!decision.open) return false;
-          if (msg.connectionGeneration !== undefined && port.connectionGeneration !== msg.connectionGeneration) return false;
-          if (msg.destinationGeneration !== undefined && port.destinationGeneration !== msg.destinationGeneration) return false;
-          if (msg.leaseToken && (!port.lease || port.lease.token !== msg.leaseToken)) return false;
+          if (!decision.open || frameBindings.get(fKey) !== binding) return false;
+          if (port.connectionGeneration !== msg.connectionGeneration) return false;
+          if (port.destinationGeneration !== msg.destinationGeneration) return false;
+          if (!msg.leaseToken || !port.lease || port.lease.token !== msg.leaseToken) return false;
           return true;
         };
 
@@ -459,18 +467,15 @@
             adapter,
             blocks: blocksList,
             nowMs: Date.now(),
+            monotonicNow: port.now(),
             authorize,
           });
 
-          if (
-            (msg.connectionGeneration !== undefined && port.connectionGeneration !== msg.connectionGeneration) ||
-            (msg.destinationGeneration !== undefined && port.destinationGeneration !== msg.destinationGeneration) ||
-            (msg.leaseToken && (!port.lease || port.lease.token !== msg.leaseToken))
-          ) {
-            return { ok: false, error: "authority_mismatch" };
-          }
+          if (!authorize()) return { ok: false, error: "authority_mismatch" };
 
           if (result && result.enqueued) {
+            if (result.pressure) port.pressure = result.pressure;
+            port.notify();
             port.drain();
           }
 
@@ -490,7 +495,7 @@
           } else if (err.disposition === "outbox-full" || err.code === "outbox-full") {
             try {
               const cap = await Outbox.getCapacityStatus();
-              port.pressure = cap.pressure;
+              port.pressure = { active: true, blockedAtBytes: cap.totalBytes };
             } catch (_e) {}
             port.siteRejection = { origin: senderOrigin, reason: "outbox-full" };
             port.notify();

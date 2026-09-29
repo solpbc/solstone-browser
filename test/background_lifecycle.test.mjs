@@ -262,7 +262,7 @@ test("lifecycle: permissions.onRemoved drops exact origin, sets drift, and messa
   assert.equal(BG.port.grantedOrigins.size, 0);
   assert.deepEqual(BG.port.drift?.patterns, ["*://example.com/*"]);
 
-  const permMsgs = mock.sentTabMessages.filter((m) => m.msg?.kind === "permissionRemoved");
+  const permMsgs = mock.sentTabMessages.filter((m) => m.msg?.kind === "leaseUpdate" && m.msg.grantedOrigins.length === 0);
   assert.ok(permMsgs.length > 0);
 });
 
@@ -284,6 +284,9 @@ test("lifecycle: removeGrantedOrigin keeps cs- host registration if sibling exac
   mock.grantedPermissions.add("*://example.com/*");
   await Router.route({ cmd: "acknowledgeDisclosure", version: 1 }, extSender, { runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", port: BG.port, setCfg: BG.setCfg });
   // Add two sibling origins
+  BG.port.hostCapture = "permitted";
+  BG.port.capturePermitted = true;
+  BG.port.lease = { token: "fixture", generation: "g", receivedAt: BG.port.now(), freshnessMs: 10000 };
   const r1 = await Router.route({ cmd: "addGrantedOrigin", origin: "https://example.com" }, extSender, {
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     port: BG.port,
@@ -387,4 +390,115 @@ test("lifecycle: init does not connect if inst DB.put fails", async () => {
   }, /disk full/);
 
   assert.equal(connectNativeCalled, false);
+});
+
+
+async function startWorker() {
+  const mock = createMockChrome();
+  const sandbox = createSandbox(mock);
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  const bg = sandbox.SolstoneBackground;
+  await bg.ensureInit();
+  await new Promise(resolve => setImmediate(resolve));
+  return {mock, sandbox, bg};
+}
+function deferred() {
+  let resolve;
+  const promise = new Promise(r => { resolve = r; });
+  return {promise, resolve};
+}
+function states(bg) {
+  const permitted = {...bg.port.getStatus(), connected:true, hostCapture:"permitted",
+    capturePermitted:true, consentVersion:1, grantedOrigins:["https://example.com"],
+    gate:{open:true}, lease:{token:"t",generation:"g",receivedAt:100,freshnessMs:15000}};
+  return {permitted, closed:{...permitted, connected:false, hostCapture:null,
+    capturePermitted:false, lease:null, gate:{open:false}}};
+}
+
+test("lifecycle: a failed save does not poison the next config operation", async () => {
+  const {mock,bg} = await startWorker();
+  let writes = 0;
+  mock.chrome.storage.local.set = async value => {
+    if (++writes === 1) throw Error("fixture storage failure");
+    Object.assign(mock.storageData,value);
+  };
+  await assert.rejects(bg.setCfg({paused:true}), /fixture storage failure/);
+  await bg.setCfg({showPageIndicator:true});
+  assert.equal(writes,2);
+  assert.equal((await bg.getCfg()).showPageIndicator,true);
+});
+
+test("lifecycle: a delayed tab query cannot publish superseded authority", async () => {
+  const {mock,bg} = await startWorker();
+  const callbacks=[];
+  mock.chrome.tabs.query=(_query,cb)=>{callbacks.push(cb);};
+  mock.sentTabMessages.length=0;
+  const {permitted,closed}=states(bg);
+  await bg.updateBadge(permitted); await bg.updateBadge(closed);
+  callbacks[1](mock.tabsList); callbacks[0](mock.tabsList);
+  assert.equal(mock.sentTabMessages.length,1);
+  assert.equal(mock.sentTabMessages[0].msg.capturePermitted,false);
+});
+
+test("lifecycle: authority closes while action painting is stalled, final icon is current", async () => {
+  const {mock,bg}=await startWorker(), stalled=deferred(), entered=deferred();
+  let calls=0, icon;
+  mock.chrome.action.setIcon=async value=>{
+    if (++calls===1) {entered.resolve(); await stalled.promise;}
+    icon=value.path[16];
+  };
+  const {permitted,closed}=states(bg);
+  const old=bg.updateBadge(permitted);
+  await entered.promise;
+  const current=bg.updateBadge(closed);
+  assert.equal(mock.sentTabMessages.at(-1).msg.capturePermitted,false);
+  stalled.resolve(); await Promise.all([old,current]);
+  assert.equal(icon,"icons/icon-offline-16.png");
+});
+
+test("lifecycle: concurrent grants both survive the next worker's configuration", async () => {
+  const {bg,sandbox,mock}=await startWorker(), p=bg.port;
+  mock.grantedPermissions.add("*://a.example/*");
+  mock.grantedPermissions.add("*://b.example/*");
+  p.consentVersion=1; p.capturePermitted=true; p.hostCapture="permitted";
+  p.lease={token:"t",generation:"g",receivedAt:p.now(),freshnessMs:10000};
+  const id="fgfnkcefedeheoeamppkiiloncfekakf";
+  const sender={id,url:`chrome-extension://${id}/popup.html`};
+  const deps={runtimeId:id,port:p,setCfg:bg.setCfg};
+  const origins=["https://a.example","https://b.example"];
+  const results=await Promise.all(origins.map(origin=>sandbox.SolstoneRouter.route({cmd:"addGrantedOrigin",origin},sender,deps)));
+  assert.ok(results.every(result=>result.ok), JSON.stringify(results));
+  assert.deepEqual(Array.from((await bg.getCfg()).grantedOrigins).sort(),origins);
+});
+
+test("lifecycle: restart loads loss notice and prunes orphan producer text", async () => {
+  const first=await startWorker(), db=first.sandbox.SolstoneDB;
+  await db.put("meta",{seq:7,reason:"oversize",count:3},"lossNotice");
+  await db.put("producer",{contextKey:"orphan",blocks:[{text:"fixture"}]});
+  const second=await startWorker();
+  assert.equal(second.bg.port.getStatus().lossNotice.seq,7);
+  assert.equal(second.bg.port.getStatus().lossNotice.count,3);
+  assert.equal((await second.sandbox.SolstoneDB.getAll("producer")).length,0);
+});
+
+
+test("lifecycle: permission withdrawal during initialization cannot restore an old grant", async () => {
+  const mock=createMockChrome(), stalled=deferred(), entered=deferred();
+  mock.storageData.cfg={paused:false,showPageIndicator:false,grantedOrigins:["https://example.com"]};
+  mock.grantedPermissions.add("*://example.com/*");
+  const original=mock.chrome.permissions.getAll;
+  let calls=0;
+  mock.chrome.permissions.getAll=async()=>{
+    const value=await original();
+    if (++calls===1) {entered.resolve();await stalled.promise;}
+    return value;
+  };
+  const sandbox=createSandbox(mock);
+  vm.runInNewContext(readExtFile("background.js"),sandbox);
+  await entered.promise;
+  mock.grantedPermissions.delete("*://example.com/*");
+  for(const listener of mock.listeners.onRemovedPerm) listener({origins:["*://example.com/*"]});
+  stalled.resolve();
+  const port=await sandbox.SolstoneBackground.ensureInit();
+  assert.equal(port.grantedOrigins.has("https://example.com"),false);
 });

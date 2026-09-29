@@ -71,6 +71,10 @@
       this.retryDelayMs = options.retryDelayMs || 5000;
       this.inflightAckMs = options.inflightAckMs || 5000;
 
+      this.captureEpoch = 0;
+      this.captureSignature = null;
+      this.hostStateDeadline = null;
+      this.stateRevision = 0;
       this.opEpoch = 0;
       this.connectionGeneration = 0;
       this.connectionToken = null;
@@ -106,16 +110,32 @@
       this.hostName = resolveHostName(this.runtimeId);
     }
 
+    syncCaptureAuthority() {
+      const signature = JSON.stringify([this.connectionToken, this.stateRevision, this.paused,
+        this.consentVersion, [...this.grantedOrigins].sort(), this.pressure.active,
+        this.capturePermitted, this.hostCapture, this.lease]);
+      if (signature !== this.captureSignature) {
+        this.captureSignature = signature;
+        this.captureEpoch++;
+        Outbox.checkAuthorization?.();
+      }
+    }
+
     notify() {
+      this.syncCaptureAuthority();
+      Outbox.checkAuthorization?.();
       if (typeof this.onStatusChange === "function") {
         this.onStatusChange(this.getStatus());
       }
     }
 
     getStatus() {
+      this.syncCaptureAuthority();
       const nowMs = this.now();
       const originGranted = this.grantedOrigins.size > 0;
-      const capturePermitted = this.capturePermitted === true;
+      const fresh = (this.hostStateDeadline == null || nowMs < this.hostStateDeadline) &&
+        (!this.lease || nowMs < this.lease.receivedAt + this.lease.freshnessMs);
+      const capturePermitted = fresh && this.capturePermitted === true;
 
       const gate = Gate.computeDecision({
         lease: this.lease,
@@ -123,23 +143,26 @@
         consentVersion: this.consentVersion,
         originGranted,
         pressure: this.pressure,
-        hostCapture: this.hostCapture,
+        hostCapture: fresh ? this.hostCapture : null,
         capturePermitted,
         now: nowMs,
       });
 
       return {
         inst: this.inst,
+        captureEpoch: this.captureEpoch,
         everConnected: !!this.everConnected,
         connected: this.livePort != null,
         handshake: this.handshake,
         brand: this.brand,
-        hostCapture: this.hostCapture,
-        hostDelivery: this.hostDelivery,
-        hostFailure: this.hostFailure,
-        custody: this.custody ? { ...this.custody } : null,
+        hostCapture: fresh ? this.hostCapture : null,
+        hostDelivery: fresh ? this.hostDelivery : null,
+        hostFailure: fresh ? this.hostFailure : null,
+        custody: fresh && this.custody ? { ...this.custody } : null,
         destinationGeneration: this.destinationGeneration,
-        lease: this.lease ? { ...this.lease } : null,
+        lease: fresh && this.lease ? { ...this.lease } : null,
+        connectionGeneration: this.connectionGeneration,
+        connectionToken: this.connectionToken,
         behind: this.behind,
         pressure: { ...this.pressure },
         siteRejection: this.siteRejection ? { ...this.siteRejection } : null,
@@ -157,6 +180,8 @@
 
     connect() {
       this.opEpoch++;
+      this.stateRevision++;
+      this.hostStateDeadline = null;
       this.connectionGeneration++;
       const currentEpoch = this.opEpoch;
       const currentGen = this.connectionGeneration;
@@ -212,6 +237,12 @@
       this.livePort = portObj;
       this.handshake = "pending";
       this.handshakeStartedAt = this.now();
+      this.schedule(() => {
+        if (this.opEpoch === currentEpoch && this.handshake === "pending") {
+          this.handlePortDisconnect(currentEpoch, currentGen, currentToken);
+          try { portObj.disconnect(); } catch (_e) {}
+        }
+      }, getConsts().HANDSHAKE_MS_BUDGET);
 
       const consts = getConsts();
       const helloMsg = {
@@ -247,6 +278,10 @@
       const decoded = codec.decode(rawJson, "host_to_extension");
 
       if (decoded.status !== "accept") {
+        this.hostCapture = null;
+        this.hostDelivery = null;
+        this.hostFailure = null;
+        this.custody = null;
         this.opEpoch++;
         this.handshake = "closed";
         this.lease = null;
@@ -255,8 +290,8 @@
           try { this.livePort.disconnect(); } catch (_e) {}
           this.livePort = null;
         }
-        await Outbox.markAllSnapshotRequired();
         this.notify();
+        await Outbox.markAllSnapshotRequired().catch(() => {});
         return;
       }
 
@@ -265,66 +300,81 @@
 
       if (val.type === "hello_ack" || val.type === "state") {
         if (val.type === "hello_ack") {
+          if (this.handshake !== "pending" || codec.handshakeExpired(this.handshakeStartedAt, nowMs, getConsts().HANDSHAKE_MS_BUDGET)) return;
           this.handshake = "ready";
+        } else if (this.handshake !== "ready") return;
+        const deliveryContinues = this.destinationGeneration === val.destination_generation &&
+          ["permitted", "paused", "intake_off"].includes(val.capture);
+        const revision = ++this.stateRevision;
+        const current = () => this.opEpoch === epoch && this.connectionGeneration === gen &&
+          this.connectionToken === token && this.stateRevision === revision && this.handshake === "ready";
+        // Withdraw old authority before any durable transition. A newer state
+        // aborts this transition's still-active transaction through notify().
+        this.lease = null;
+        this.capturePermitted = false;
+        this.hostCapture = null;
+        this.hostDelivery = null;
+        this.hostFailure = null;
+        this.custody = null;
+        if (!deliveryContinues) {
+          this.destinationGeneration = null;
+          this.drainOwner = false;
+          this.inflightBatch = null;
         }
-        if (this.handshake !== "ready") {
-          return;
-        }
-
+        this.notify();
+        try {
+          if (val.destination_generation) {
+            const retired = await Outbox.retireStaleGeneration(val.destination_generation, current);
+            if (!current()) return;
+            if (retired?.count) {
+              await this.refreshStorageStatus();
+              if (!current()) return;
+            }
+          }
+          if (!current()) return;
+          if (val.type === "hello_ack" && val.capture !== "unavailable" && !this.everConnected) {
+            await DB.put("meta", true, "everConnected");
+            if (!current()) return;
+            this.everConnected = true;
+          }
+        } catch (_e) { return; }
+        if (!current()) return;
         this.hostCapture = val.capture;
         this.hostDelivery = val.delivery || null;
         this.hostFailure = val.failure || null;
-        this.custody = val.custody ? { full: !!val.custody.full, stale: !!val.custody.stale } : null;
+        this.custody = val.custody ? { ...val.custody } : null;
+        this.destinationGeneration = val.destination_generation || null;
         this.behind = null;
         this.capturePermitted = codec.captureIsPermitted(val);
-
-        if (val.type === "hello_ack" && val.capture !== "unavailable" && !this.everConnected) {
-          const fence = { epoch: this.opEpoch, gen, token, port: this.livePort };
-          let putOk = false;
-          try {
-            await DB.put("meta", true, "everConnected");
-            putOk = true;
-          } catch (_e) {
-            // Keep everConnected false if put throws
-          }
-          if (this.opEpoch !== fence.epoch || this.connectionGeneration !== fence.gen || this.connectionToken !== fence.token || this.livePort !== fence.port) {
-            return;
-          }
-          if (putOk) {
-            this.everConnected = true;
-          }
-        }
-
-        if (typeof val.destination_generation === "string" && val.destination_generation && val.destination_generation !== this.destinationGeneration) {
-          const newGen = val.destination_generation;
-          const fence = { epoch: this.opEpoch, gen, token, port: this.livePort };
-          const retireRes = await Outbox.retireStaleGeneration(newGen);
-          if (this.opEpoch !== fence.epoch || this.connectionGeneration !== fence.gen || this.connectionToken !== fence.token || this.livePort !== fence.port) {
-            return;
-          }
-          this.destinationGeneration = newGen;
-          if (retireRes?.count > 0) {
-            this.lossNotice = { seq: retireRes.seq ?? 0, reason: "stale_generation", count: retireRes.count };
-          }
-        }
-
-        if (this.capturePermitted) {
-          this.lease = {
-            token: this.connectionToken,
-            generation: val.destination_generation,
-            freshnessMs: val.freshness_ms,
-            receivedAt: nowMs,
-          };
-        } else {
+        this.hostStateDeadline = val.freshness_ms > 0 ? nowMs + val.freshness_ms : null;
+        const expire = () => {
+          if (!current()) return;
           this.lease = null;
+          this.capturePermitted = false;
+          this.hostCapture = null;
+          this.hostDelivery = null;
+          this.hostFailure = null;
+          this.custody = null;
+          this.notify();
+        };
+        if (this.hostStateDeadline != null && this.now() >= this.hostStateDeadline) {
+          expire();
+        } else {
+          if (this.capturePermitted) {
+            this.lease = { token, generation: val.destination_generation, receivedAt: nowMs, freshnessMs: val.freshness_ms };
+          }
+          if (this.hostStateDeadline != null) this.schedule(expire, this.hostStateDeadline - this.now());
         }
-
         this.notify();
         await this.drain();
         return;
       }
 
       if (val.type === "unsupported") {
+        this.hostCapture = null;
+        this.hostDelivery = null;
+        this.hostFailure = null;
+        this.custody = null;
         this.behind = val.behind || "extension";
         this.opEpoch++;
         this.handshake = "closed";
@@ -335,6 +385,7 @@
           this.livePort = null;
         }
 
+        this.notify();
         if (val.behind === "extension") {
           if (typeof this.requestUpdateCheck === "function") {
             this.updateCheck = "pending";
@@ -374,39 +425,58 @@
 
       if (val.type === "accepted") {
         if (this.handshake !== "ready") return;
-        if (this.inflightBatch && this.inflightBatch.batchId === val.batch_id) {
+        if (this.inflightBatch && !this.inflightBatch.receipting && this.inflightBatch.batchId === val.batch_id &&
+            val.destination_generation === this.inflightBatch.destinationGeneration && val.inst === this.inst) {
           const batchId = val.batch_id;
+          const operation = this.inflightBatch;
+          operation.receipting = true;
           const fence = { epoch: this.opEpoch, gen, token, port: this.livePort, destGen: this.destinationGeneration };
 
-          if (val.result === "accepted" || val.result === "duplicate") {
-            await Outbox.removeBatch(batchId);
-            if (this.opEpoch !== fence.epoch || this.livePort !== fence.port) return;
-            if (this.inflightBatch?.batchId === batchId) {
-              this.inflightBatch = null;
-              this.drainOwner = false;
-            }
-            this.notify();
-            await this.drain();
-            return;
-          } else if (val.result === "rejected") {
-            const rejectRes = await Outbox.applyRejectedReceipt(batchId, val);
-            if (this.opEpoch !== fence.epoch || this.livePort !== fence.port) return;
-            if (this.inflightBatch?.batchId === batchId) {
-              this.inflightBatch = null;
-              this.drainOwner = false;
-            }
-            if (rejectRes?.seq) {
-              this.lossNotice = { seq: rejectRes.seq, reason: val.reason, count: rejectRes.removed || 1 };
-            }
-            if (val.reason === "queue_full" || val.reason === "resource_exhausted") {
-              this.retryNotBefore = this.now() + this.retryDelayMs;
-              this.schedule(() => this.drain(), this.retryDelayMs);
-            } else {
+          try {
+            if (val.result === "accepted" || val.result === "duplicate") {
+              await Outbox.removeBatch(batchId);
+              if (this.opEpoch !== fence.epoch || this.livePort !== fence.port) return;
+              await this.refreshStorageStatus();
+              if (this.opEpoch !== fence.epoch || this.livePort !== fence.port) return;
+              if (this.inflightBatch === operation) {
+                this.inflightBatch = null;
+                this.drainOwner = false;
+              }
+              this.notify();
               await this.drain();
+              return;
+            } else if (val.result === "rejected") {
+              const rejectRes = await Outbox.applyRejectedReceipt(batchId, val);
+              if (this.opEpoch !== fence.epoch || this.livePort !== fence.port) return;
+              await this.refreshStorageStatus();
+              if (this.opEpoch !== fence.epoch || this.livePort !== fence.port) return;
+              if (this.inflightBatch === operation) {
+                this.inflightBatch = null;
+                this.drainOwner = false;
+              }
+              if (rejectRes?.seq) {
+                this.lossNotice = await DB.get("meta", "lossNotice");
+              }
+              if (val.class === "retryable") {
+                this.retryNotBefore = this.now() + this.retryDelayMs;
+                this.schedule(() => this.drain(), this.retryDelayMs);
+              } else {
+                await this.drain();
+              }
+              this.notify();
+              return;
             }
+          } catch (_err) {
+            if (this.inflightBatch !== operation) return;
+            this.inflightBatch = null;
+            this.drainOwner = false;
+            this.retryNotBefore = this.now() + this.retryDelayMs;
+            this.schedule(() => {
+              if (this.opEpoch === fence.epoch && this.livePort === fence.port) this.drain();
+            }, this.retryDelayMs);
             this.notify();
-            return;
           }
+
         }
         return;
       }
@@ -438,8 +508,8 @@
           try { this.livePort.disconnect(); } catch (_e) {}
           this.livePort = null;
         }
-        await Outbox.markAllSnapshotRequired();
         this.notify();
+        await Outbox.markAllSnapshotRequired().catch(() => {});
       }
     }
 
@@ -466,7 +536,7 @@
       const monoNow = Number(now !== undefined ? now : this.now());
       const wallNow = Date.now();
 
-      if (this.livePort && this.handshake === "pending" && this.handshakeStartedAt > 0) {
+      if (this.livePort && this.handshake === "pending") {
         if (codec.handshakeExpired(this.handshakeStartedAt, monoNow, consts.HANDSHAKE_MS_BUDGET)) {
           this.opEpoch++;
           if (this.livePort) {
@@ -479,8 +549,9 @@
         }
       }
 
-      if (this.lease) {
-        if (!codec.freshnessAuthorizesSkim(this.lease.receivedAt, this.lease.freshnessMs, monoNow)) {
+      if (this.lease || this.hostStateDeadline != null) {
+        if ((this.hostStateDeadline != null && monoNow >= this.hostStateDeadline) ||
+            (this.lease && !codec.freshnessAuthorizesSkim(this.lease.receivedAt, this.lease.freshnessMs, monoNow))) {
           this.lease = null;
           this.hostCapture = null;
           this.hostDelivery = null;
@@ -502,11 +573,20 @@
         return;
       }
 
+      await this.refreshStorageStatus();
+      this.notify();
       if (!this.livePort) {
         this.connect();
       } else {
         await this.drain();
       }
+    }
+
+    async refreshStorageStatus() {
+      const cap = await Outbox.getCapacityStatus();
+      const held = this.pressure.active && this.pressure.blockedAtBytes != null && cap.totalBytes >= this.pressure.blockedAtBytes;
+      this.pressure = held ? this.pressure : cap.pressure;
+      this.lossNotice = (await DB.get("meta", "lossNotice")) || null;
     }
 
     async dismissLoss(seq) {
@@ -523,7 +603,8 @@
       if (!["permitted", "paused", "intake_off"].includes(this.hostCapture)) return;
       if (this.retryNotBefore && this.now() < this.retryNotBefore) return;
 
-      this.drainOwner = true;
+      const owner = {};
+      this.drainOwner = owner;
       const fence = {
         epoch: this.opEpoch,
         gen: this.connectionGeneration,
@@ -539,9 +620,11 @@
           this.connectionGeneration !== fence.gen ||
           this.connectionToken !== fence.token ||
           this.livePort !== fence.port ||
-          this.destinationGeneration !== fence.destGen
+          this.destinationGeneration !== fence.destGen ||
+          this.drainOwner !== owner || this.handshake !== "ready" ||
+          !["permitted", "paused", "intake_off"].includes(this.hostCapture)
         ) {
-          this.drainOwner = false;
+          if (this.drainOwner === owner) this.drainOwner = false;
           return;
         }
 
@@ -561,18 +644,21 @@
           postedAt: this.now(),
         };
 
+        const operation = this.inflightBatch;
         this.livePort.postMessage(wireBatch);
 
         this.schedule(() => {
-          if (this.inflightBatch?.batchId === head.batchId) {
+          if (this.inflightBatch === operation && this.drainOwner === owner && !operation.receipting) {
             this.inflightBatch = null;
             this.drainOwner = false;
             this.drain();
           }
         }, this.inflightAckMs);
       } catch (_err) {
-        this.drainOwner = false;
-        this.inflightBatch = null;
+        if (this.drainOwner === owner) {
+          this.drainOwner = false;
+          this.inflightBatch = null;
+        }
       }
     }
   }

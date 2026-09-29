@@ -319,11 +319,11 @@ test("port: capture and delivery stay distinct and accept is not delivered", asy
   assert.equal(controller.hostDelivery, "idle");
 
   // Inflight batch accepted receipt should not alter hostDelivery to "delivered"
-  controller.inflightBatch = { batchId: "b-123" };
+  controller.inflightBatch = { batchId: "b".repeat(32), destinationGeneration: "gen-1" };
   await mockPort.receive({
     type: "accepted",
     result: "accepted",
-    batch_id: "b-123",
+    batch_id: "b".repeat(32),
     destination_generation: "gen-1",
     inst: controller.inst,
     period_id: "p-1",
@@ -660,11 +660,14 @@ test("port: snapshot_required replaces deltas with saved snapshot", async () => 
     nowMs: 2000,
   });
 
+  let mono = 0;
   const mockPort = new MockPort();
   const controller = new PortController({
     inst: "00000000-0000-0000-0000-000000000001",
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     connectNative: () => mockPort,
+    now: () => mono,
+    schedule: () => 0,
   });
 
   controller.connect();
@@ -704,6 +707,10 @@ test("port: snapshot_required replaces deltas with saved snapshot", async () => 
     destination_generation: "gen-1",
     inst: controller.inst,
   });
+
+  assert.equal(mockPort.sent.length, 3);
+  mono += controller.retryDelayMs;
+  await controller.drain();
 
   // The next post uses the same batch_id and queued_at_ms, and records are the saved snapshot (t: "segment_start")
   assert.equal(mockPort.sent.length, 4);
@@ -823,13 +830,14 @@ test("router: caller mutation after route does not affect stored records", async
     period_id: "p-1",
   });
 
+  globalThis.chrome = { permissions: { contains: async () => true } };
   const extSender = {
     id: "fgfnkcefedeheoeamppkiiloncfekakf",
     url: "chrome-extension://fgfnkcefedeheoeamppkiiloncfekakf/popup.html",
   };
 
-  await Router.route({ cmd: "acknowledgeDisclosure", version: 1 }, extSender, { runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", port });
-  await Router.route({ cmd: "addGrantedOrigin", origin: "https://mail.google.com" }, extSender, { runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", port });
+  await Router.route({ cmd: "acknowledgeDisclosure", version: 1 }, extSender, { runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", port, confirmRealm: async () => true });
+  await Router.route({ cmd: "addGrantedOrigin", origin: "https://mail.google.com" }, extSender, { runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", port, confirmRealm: async () => true });
 
   const contentSender = {
     id: "fgfnkcefedeheoeamppkiiloncfekakf",
@@ -839,19 +847,19 @@ test("router: caller mutation after route does not affect stored records", async
     origin: "https://mail.google.com",
   };
 
-  const helloRes = await Router.route({ kind: "hello", realmToken: "realm-mut" }, contentSender, { runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", port });
+  const helloRes = await Router.route({ kind: "hello", realmToken: "realm-mut" }, contentSender, { runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", port, confirmRealm: async () => true });
   assert.equal(helloRes.ok, true);
 
   const blockObj = { id: "b1", type: "heading", depth: 0, text: "Original Text" };
   const skimRes = await Router.route(
     {
-      kind: "skim",
+      kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration, destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token,
       realmToken: "realm-mut",
       meta: { title: "Inbox", adapter: "gmail" },
       blocks: [blockObj],
     },
     contentSender,
-    { runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", port }
+    { runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", port, confirmRealm: async () => true }
   );
   assert.equal(skimRes.ok, true);
 
@@ -1113,6 +1121,7 @@ test("port: poll awaits retirement before connect or drain and records lossNotic
   Outbox.retireExpired = async (_mono, _wall) => {
     events.push("retire-start");
     await new Promise((r) => setTimeout(r, 10));
+    await DB.put("meta", { seq: 4, reason: "expired_unaccepted", count: 3 }, "lossNotice");
     events.push("retire-done");
     return { count: 3, seq: 4, disposition: "expired_unaccepted", reason: "expired_unaccepted" };
   };

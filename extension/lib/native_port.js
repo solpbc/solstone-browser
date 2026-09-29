@@ -104,9 +104,14 @@
       this.paused = false;
       this.chosenOrigins = new Set();
       this.grantedOrigins = new Set();
-      this.pendingIntent = null;
-      this.siteNotices = [];
-      this.batchOriginMap = new Map();
+      this.permissionEpoch = 0;
+      this.ownerSites = { grantEpoch: 0, reservation: null, registration: {}, enqueue: {} };
+      this.registration = {};
+      this.enqueue = {};
+      this.truncationByOrigin = {};
+      this.truncationChain = Promise.resolve();
+      this.siteErrors = { registration: {}, enqueue: {} };
+      this.openTabs = { known: false, openOrigins: null, anyGrantedTabOpen: null };
       this.consentVersion = 0;
       this.showPageIndicator = false;
       this.capturePermitted = false;
@@ -134,46 +139,123 @@
       }
     }
 
-    async setSiteNotice(origin, kind, bound) {
-      this.siteNotices = (this.siteNotices || []).filter((n) => !(n.origin === origin && n.kind === kind));
-      this.siteNotices.push({ origin, kind, bound });
-      if (this.siteNotices.length > 48) this.siteNotices.shift();
+    async persistSiteMaps() {
+      const next = {
+        registration: { ...(this.registration || {}) },
+        enqueue: { ...(this.enqueue || {}) },
+      };
       try {
-        await DB.put("meta", { seq: Date.now(), items: this.siteNotices }, "siteNotices");
-      } catch (_e) {}
+        await DB.put("meta", next, "siteErrors");
+        this.siteErrors = next;
+        return true;
+      } catch (_e) {
+        return false;
+      }
+    }
+
+    async setRegistration(origin, status) {
+      const previous = { ...this.registration };
+      if (status === "ready") delete this.registration[origin];
+      else this.registration[origin] = status;
+      const saved = await this.persistSiteMaps();
+      if (!saved) this.registration = previous;
+      else if (this.ownerSites) this.ownerSites.registration = this.registration;
+      return saved;
+    }
+
+    async setEnqueueError(origin, code) {
+      const previous = { ...this.enqueue };
+      this.enqueue[origin] = code;
+      const saved = await this.persistSiteMaps();
+      if (!saved) this.enqueue = previous;
+      else if (this.ownerSites) this.ownerSites.enqueue = this.enqueue;
+      return saved;
+    }
+
+    async clearSiteError(kind, origin) {
+      const target = kind === "registration" ? this.registration : this.enqueue;
+      if (!Object.prototype.hasOwnProperty.call(target || {}, origin)) return true;
+      const previous = { ...target };
+      delete target[origin];
+      const saved = await this.persistSiteMaps();
+      if (!saved) {
+        if (kind === "registration") this.registration = previous;
+        else this.enqueue = previous;
+      } else {
+        if (this.ownerSites) this.ownerSites[kind] = target;
+        this.notify();
+      }
+      return saved;
+    }
+
+    serializeTruncation(work) {
+      const operation = this.truncationChain.catch(() => {}).then(work);
+      this.truncationChain = operation;
+      return operation;
+    }
+
+    recordTruncation(origin, id) {
+      return this.serializeTruncation(() => this.recordTruncationNow(origin, id));
+    }
+
+    async recordTruncationNow(origin, id) {
+      const previous = this.truncationByOrigin;
+      const next = { ...(previous || {}) };
+      const entry = { ...(next[origin] || { count: 0, newestId: "", dismissThroughId: "", pending: [], dismissed: [] }) };
+      entry.pending = Array.isArray(entry.pending) ? entry.pending.slice() : [];
+      entry.dismissed = Array.isArray(entry.dismissed) ? entry.dismissed.slice() : [];
+      if (entry.pending.includes(id) || entry.dismissed.includes(id) || entry.dismissThroughId === id) return { ok: true, recorded: false };
+      entry.pending.push(id);
+      if (entry.pending.length > 16) entry.pending.shift();
+      entry.newestId = id;
+      entry.count = entry.pending.length;
+      next[origin] = entry;
+      this.truncationByOrigin = next;
+      try {
+        await DB.put("meta", next, "truncationByOrigin");
+      } catch (_e) {
+        this.truncationByOrigin = previous;
+        return { ok: false, error: "storage_error" };
+      }
       this.notify();
+      return { ok: true, recorded: true };
     }
 
-    async clearRegistrationNotice(origin) {
-      const prevLen = (this.siteNotices || []).length;
-      this.siteNotices = (this.siteNotices || []).filter((n) => !(n.origin === origin && n.kind === "registration"));
-      if (this.siteNotices.length !== prevLen) {
-        try {
-          await DB.put("meta", { seq: Date.now(), items: this.siteNotices }, "siteNotices");
-        } catch (_e) {}
-        this.notify();
-      }
+    dismissTruncation(origin, id) {
+      return this.serializeTruncation(() => this.dismissTruncationNow(origin, id));
     }
 
-    async dismissTruncation(origin, bound) {
-      const prevLen = (this.siteNotices || []).length;
-      this.siteNotices = (this.siteNotices || []).filter((n) => !(n.origin === origin && n.kind === "truncation" && n.bound === bound));
-      const dismissed = this.siteNotices.length !== prevLen;
-      if (dismissed) {
-        try {
-          await DB.put("meta", { seq: Date.now(), items: this.siteNotices }, "siteNotices");
-        } catch (_e) {}
-        this.notify();
+    async dismissTruncationNow(origin, id) {
+      const previous = this.truncationByOrigin;
+      const current = previous?.[origin];
+      const pending = Array.isArray(current?.pending) ? current.pending : [];
+      const through = pending.indexOf(id);
+      if (!current || through < 0) return { ok: true, dismissed: false };
+      const dismissed = Array.isArray(current.dismissed) ? current.dismissed.slice() : [];
+      dismissed.push(...pending.slice(0, through + 1));
+      if (dismissed.length > 16) dismissed.splice(0, dismissed.length - 16);
+      const next = { ...(previous || {}), [origin]: {
+        ...current,
+        dismissed,
+        dismissThroughId: id,
+        pending: pending.slice(through + 1),
+        count: pending.length - through - 1,
+      } };
+      this.truncationByOrigin = next;
+      try {
+        await DB.put("meta", next, "truncationByOrigin");
+      } catch (_e) {
+        this.truncationByOrigin = previous;
+        return { ok: false, error: "storage_error" };
       }
-      return dismissed;
+      this.notify();
+      return { ok: true, dismissed: true };
     }
 
     getStatus() {
       this.syncCaptureAuthority();
       const nowMs = this.now();
-      if (this.pendingIntent && nowMs >= this.pendingIntent.expiresAt) {
-        this.pendingIntent = null;
-      }
+      if (this.ownerSites?.reservation && nowMs >= this.ownerSites.reservation.expiresAt) this.ownerSites.reservation = null;
       const chosenList = Array.from(this.chosenOrigins).sort();
       const grantedList = Array.from(this.grantedOrigins).sort();
       const inactiveOrigins = chosenList.filter((o) => !this.grantedOrigins.has(o)).sort();
@@ -223,7 +305,13 @@
         connectionToken: this.connectionToken,
         behind: this.behind,
         pressure: { ...this.pressure },
-        siteNotices: this.siteNotices ? this.siteNotices.slice() : [],
+        truncationByOrigin: this.truncationByOrigin || {},
+        siteErrors: {
+          registration: { ...(this.registration || {}) },
+          enqueue: { ...(this.enqueue || {}) },
+        },
+        registration: { ...(this.registration || {}) },
+        enqueue: { ...(this.enqueue || {}) },
         siteRejection: null,
         lossNotice: this.lossNotice ? { ...this.lossNotice } : null,
         drift: this.drift ? { ...this.drift } : null,
@@ -232,6 +320,7 @@
         chosenOrigins: chosenList,
         grantedOrigins: grantedList,
         inactiveOrigins,
+        openTabs: this.openTabs ? { ...this.openTabs, openOrigins: Array.isArray(this.openTabs.openOrigins) ? this.openTabs.openOrigins.slice() : null } : { known: false, openOrigins: null, anyGrantedTabOpen: null },
         showPageIndicator: !!this.showPageIndicator,
         updateCheck: this.updateCheck,
         capturePermitted,
@@ -497,11 +586,6 @@
           try {
             if (val.result === "accepted" || val.result === "duplicate") {
               await Outbox.removeBatch(batchId);
-              if (this.batchOriginMap && this.batchOriginMap.has(batchId)) {
-                const bOrigin = this.batchOriginMap.get(batchId);
-                this.batchOriginMap.delete(batchId);
-                await this.clearRegistrationNotice(bOrigin);
-              }
               if (this.opEpoch !== fence.epoch || this.livePort !== fence.port) return;
               await this.refreshStorageStatus();
               if (this.opEpoch !== fence.epoch || this.livePort !== fence.port) return;

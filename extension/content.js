@@ -15,6 +15,9 @@
   const realmTokenBytes = new Uint8Array(16);
   crypto.getRandomValues(realmTokenBytes);
   const REALM_TOKEN = [...realmTokenBytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const documentKeyBytes = new Uint8Array(16);
+  crypto.getRandomValues(documentKeyBytes);
+  const DOCUMENT_KEY = [...documentKeyBytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 
   const DEBOUNCE_MS = 500;
 
@@ -80,7 +83,7 @@
 
   function send(msg) {
     try {
-      chrome.runtime.sendMessage(Object.assign({ realmToken: REALM_TOKEN }, msg), () => void chrome.runtime.lastError);
+      chrome.runtime.sendMessage(Object.assign({ realmToken: REALM_TOKEN, documentKey: DOCUMENT_KEY }, msg), () => void chrome.runtime.lastError);
     } catch (_e) {
       /* worker asleep / context invalidated */
     }
@@ -99,6 +102,7 @@
     const skimRes = Skim.skim(targetRoot, adapter);
     const blocks = Array.isArray(skimRes) ? skimRes : (skimRes && skimRes.blocks) || [];
     const omitted = !Array.isArray(skimRes) && skimRes && skimRes.omitted ? true : undefined;
+    const clips = !Array.isArray(skimRes) && Array.isArray(skimRes?.clips) ? skimRes.clips : [];
 
     const decisionAfter = getDecision();
     if (!decisionAfter.open) return;
@@ -114,6 +118,7 @@
       leaseToken: lease?.token || null,
     };
     if (omitted) msg.omitted = true;
+    if (clips.length) msg.clips = clips;
     send(msg);
   }
 
@@ -297,7 +302,7 @@
     const epoch = grantEpoch;
     const sequence = ++grantSequence;
     try {
-      chrome.runtime.sendMessage({ kind: "hello", realmToken: REALM_TOKEN }, (response) => {
+      chrome.runtime.sendMessage({ kind: "hello", realmToken: REALM_TOKEN, documentKey: DOCUMENT_KEY }, (response) => {
         if (epoch !== grantEpoch || sequence !== grantSequence || !response || !response.ok) return;
         handleSolicitedGrant(response, reqTime);
       });

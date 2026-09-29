@@ -17,7 +17,10 @@
     const C = globalThis.SolstoneCopy;
     extras = extras || {};
 
-    if (!status || typeof status !== "object" || status.ok === false) {
+    let statusFailed = false;
+    try { statusFailed = status?.ok === false; }
+    catch (_err) { statusFailed = true; }
+    if (!status || typeof status !== "object" || statusFailed) {
       return {
         kind: "unavailable",
         mark: "error",
@@ -38,7 +41,9 @@
       const chosenOrigins = Array.isArray(status.chosenOrigins) ? status.chosenOrigins : [];
       const grantedOrigins = Array.isArray(status.grantedOrigins) ? status.grantedOrigins : [];
       const inactiveOrigins = Array.isArray(status.inactiveOrigins) ? status.inactiveOrigins : [];
-      const siteNotices = Array.isArray(status.siteNotices) ? status.siteNotices : [];
+      const siteErrors = status.siteErrors || {};
+      const registrations = status.registration || siteErrors.registration || {};
+      const enqueueErrors = status.enqueue || siteErrors.enqueue || {};
       const hostCapture = status.hostCapture;
       const hostDelivery = status.hostDelivery;
       const hostFailure = status.hostFailure;
@@ -55,9 +60,8 @@
       const everConnected = !!status.everConnected;
       const lossNotice = status.lossNotice;
 
-      const anyGrantedTabOpen = typeof extras.anyGrantedTabOpen === "boolean" ? extras.anyGrantedTabOpen : (
-        Array.isArray(extras.activeSites) ? extras.activeSites.length > 0 : true
-      );
+      const anyGrantedTabOpen = typeof extras.anyGrantedTabOpen === "boolean" ? extras.anyGrantedTabOpen :
+        (typeof status.openTabs?.anyGrantedTabOpen === "boolean" ? status.openTabs.anyGrantedTabOpen : null);
 
       const items = [];
 
@@ -101,7 +105,8 @@
 
       // Layer 2: Transport & Host Reachability
       const isHandshakeConnecting = (connected && handshake === "pending") ||
-        (hostCapture === "permitted" && !capturePermitted && custody?.full !== true && (!lease || lease.freshnessMs === 0));
+        (hostCapture === "permitted" && !capturePermitted && custody?.full !== true &&
+          (!lease || lease.freshnessMs === 0));
 
       if (isHandshakeConnecting) {
         items.push({
@@ -359,9 +364,11 @@
         });
       }
 
-      const hasSiteErrors = siteNotices.some((sn) => sn.kind === "enqueue" || sn.kind === "registration");
+      const registrationFailures = Object.entries(registrations).filter(([, value]) => value === "failed");
+      const enqueueFailureEntries = Object.entries(enqueueErrors);
+      const hasSiteErrors = registrationFailures.length > 0 || enqueueFailureEntries.length > 0;
       if (hasSiteErrors) {
-        const siteErrorCount = new Set(siteNotices.filter((sn) => sn.kind === "enqueue" || sn.kind === "registration").map((sn) => sn.origin)).size;
+        const siteErrorCount = new Set([...registrationFailures, ...enqueueFailureEntries].map(([origin]) => origin)).size;
         const headline = siteErrorCount === 1 ? "1 site needs attention" : `${siteErrorCount} sites need attention`;
         items.push({
           layer: 5,
@@ -420,7 +427,7 @@
             deliverySub = "nothing waiting to go into your journal";
           }
 
-          if (!anyGrantedTabOpen) {
+          if (anyGrantedTabOpen === false) {
             items.push({
               layer: 7,
               kind: "idle",
@@ -474,6 +481,7 @@
         action: winner.action,
         also,
         connecting: winner.connecting,
+        items,
       };
     } catch (_err) {
       return {
@@ -486,6 +494,7 @@
         action: { id: "open-settings", label: "open settings" },
         also: [],
         connecting: null,
+        items: [],
       };
     }
   }
@@ -510,12 +519,23 @@
     const bName = C ? C.browserName(status.brand) : "your browser";
     const inactiveOrigins = Array.isArray(status.inactiveOrigins) ? status.inactiveOrigins : [];
     const grantedOrigins = Array.isArray(status.grantedOrigins) ? status.grantedOrigins : [];
-    const siteNotices = Array.isArray(status.siteNotices) ? status.siteNotices : [];
-    const openTabOrigins = Array.isArray(extras.openTabOrigins) ? extras.openTabOrigins : (
-      extras.activeSites ? extras.activeSites : []
-    );
+    const registrations = status.registration || status.siteErrors?.registration || {};
+    const enqueueErrors = status.enqueue || status.siteErrors?.enqueue || {};
+    const registration = registrations[entry];
+    const enqueueError = enqueueErrors[entry];
+    const tabs = status.openTabs || {};
+    const openTabOrigins = Array.isArray(extras.openTabOrigins) ? extras.openTabOrigins :
+      (Array.isArray(tabs.openOrigins) ? tabs.openOrigins : []);
+    const tabsKnown = typeof extras.tabsKnown === "boolean" ? extras.tabsKnown : tabs.known === true;
+    const isInactive = inactiveOrigins.includes(entry);
+    const isGranted = grantedOrigins.includes(entry);
+    const isTabOpen = openTabOrigins.includes(entry);
 
-    const isInactive = inactiveOrigins.some((o) => o === entry || (o.startsWith("http") && new URL(o).host === entry));
+    if (registration === "failed" || enqueueError) {
+      const stored = registration === "failed" ? registration : enqueueError;
+      return { kind: "error", label: C ? C.classifyFailure(stored, status.brand) : String(stored), action: null };
+    }
+
     if (isInactive) {
       return {
         kind: "paused-by-browser",
@@ -532,57 +552,18 @@
       };
     }
 
-    const isGranted = grantedOrigins.some((o) => o === entry || (o.startsWith("http") && new URL(o).host === entry));
-    const isTabOpen = openTabOrigins.some((o) => o === entry || (o.startsWith("http") && new URL(o).host === entry));
+    const leaseOpen = !!status.lease && Number(status.lease.freshnessMs) > 0;
+    const gateOpen = isGranted && status.capturePermitted === true && leaseOpen && status.consentVersion === 1 &&
+      !status.paused && !status.pressure?.active && status.hostCapture === "permitted" && status.custody?.full !== true;
+    if (!gateOpen) return { kind: "not-taken-in", label: "not taken in right now", action: null };
 
-    if (status.pressure?.active && isGranted && isTabOpen) {
-      return {
-        kind: "pressure-here",
-        label: "no room for more right now",
-        action: null,
-      };
+    if (registration === "reload" && tabsKnown && isTabOpen) {
+      return { kind: "reload-tab", label: "reload this tab to begin", action: null };
     }
-
-    const truncNotice = siteNotices.find((n) => n.kind === "truncation" && (n.origin === entry || (n.origin.startsWith("http") && new URL(n.origin).host === entry)));
-    if (truncNotice) {
-      return {
-        kind: "truncated",
-        label: "part of this page was too long to keep",
-        action: { id: "dismiss-truncation", label: "dismiss", bound: truncNotice.bound },
-      };
+    if (tabsKnown && !isTabOpen) {
+      return { kind: "added-idle", label: "added. open or reload a tab", action: null };
     }
-
-    const regNotice = siteNotices.find((n) => n.kind === "registration" && (n.origin === entry || (n.origin.startsWith("http") && new URL(n.origin).host === entry)));
-    if (regNotice && regNotice.bound === "reload" && isTabOpen) {
-      return {
-        kind: "reload-tab",
-        label: "reload this tab to begin",
-        action: null,
-      };
-    }
-
-    if (isGranted && !isTabOpen && (!regNotice || regNotice.bound !== "failed")) {
-      return {
-        kind: "added-idle",
-        label: "added. open or reload a tab",
-        action: null,
-      };
-    }
-
-    const capturePermitted = status.capturePermitted === true;
-    const isCapturable = isGranted && status.consentVersion === 1 && !status.paused && !status.pressure?.active &&
-      status.hostCapture === "permitted" && capturePermitted && status.custody?.full !== true &&
-      (!regNotice || regNotice.bound !== "failed");
-
-    if (!isCapturable) {
-      return {
-        kind: "not-taken-in",
-        label: "not taken in right now",
-        action: null,
-      };
-    }
-
-    if (isTabOpen) {
+    if (tabsKnown && isTabOpen) {
       return {
         kind: "on-now",
         label: "on now",
@@ -591,15 +572,39 @@
     }
 
     return {
-      kind: "added-idle",
-      label: "added. open or reload a tab",
+      kind: "added",
+      label: "added",
       action: null,
     };
+  }
+
+  function projectOpenTabs(tabs, options = {}) {
+    if (!Array.isArray(tabs)) return { known: false, openOrigins: null, anyGrantedTabOpen: null };
+    const origins = new Set();
+    for (const tab of tabs) {
+      try {
+        const url = new URL(tab?.url || "");
+        if (url.protocol === "http:" || url.protocol === "https:") origins.add(url.origin);
+      } catch (_e) {}
+    }
+    const openOrigins = Array.from(origins).sort();
+    const grants = new Set(Array.isArray(options.grantedOrigins) ? options.grantedOrigins : []);
+    return { known: true, openOrigins, anyGrantedTabOpen: openOrigins.some((origin) => grants.has(origin)) };
+  }
+
+  function welcomeHold(status) {
+    const derived = derive(status);
+    const item = (derived.items || []).find((candidate) => candidate.layer === 1 || candidate.layer === 2 || candidate.layer === 4 ||
+      candidate.kind === "not-paired" || candidate.kind === "intake-off");
+    if (item) return { met: false, heading: item.headline, body: item.reason || "", action: item.action || null };
+    return { met: true, heading: "found the solstone app, paired with your journal", body: "", action: null };
   }
 
   globalThis.SolstoneStatus = {
     derive,
     iconState,
     siteRow,
+    projectOpenTabs,
+    welcomeHold,
   };
 })();

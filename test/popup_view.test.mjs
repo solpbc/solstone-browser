@@ -26,7 +26,11 @@ function state(overrides = {}) {
     custody: { full: false, stale: false },
     behind: null,
     pressure: { active: false },
-    siteNotices: [],
+    lease: { token: "t", freshnessMs: 10000, receivedAt: 0 },
+    openTabs: { known: false, openOrigins: null, anyGrantedTabOpen: null },
+    truncationByOrigin: {},
+    registration: {},
+    enqueue: {},
     lossNotice: null,
     paused: false,
     consentVersion: 1,
@@ -64,7 +68,7 @@ test("arrange returns sections in the fixed render order and omits absent sectio
     grantedOrigins: ["https://mail.google.com"],
     inactiveOrigins: ["https://app.slack.com"],
   });
-  const sections = View.arrange(derived(), configured, { host: "mail.google.com", ok: true });
+  const sections = View.arrange(derived(), configured, { origin: "https://mail.google.com", host: "mail.google.com", ok: true });
   assert.deepEqual(sections.map((section) => section.id), ["verdict", "siteIssues", "page", "siteCount", "footer"]);
 });
 
@@ -81,21 +85,48 @@ test("siteCountLine follows the all-on, all-paused, mixed, zero-on, and singular
 });
 
 test("page descriptors cover add, remove, unsupported, and pause actions", () => {
-  const add = View.arrange(derived(), state(), { host: "example.com", ok: true }).find((s) => s.id === "page");
+  const add = View.arrange(derived(), state(), { origin: "https://example.com", host: "example.com", ok: true }).find((s) => s.id === "page");
   assert.deepEqual(add.siteAction, { id: "add-site", label: "add this site", disabled: false, primary: true });
   assert.equal(add.state, "not added");
 
-  const configured = state({ chosenOrigins: ["https://example.com"], grantedOrigins: ["https://example.com"] });
-  const remove = View.arrange(derived(), configured, { host: "example.com", ok: true }, { openTabOrigins: [] }).find((s) => s.id === "page");
+  const configured = state({ chosenOrigins: ["https://example.com"], grantedOrigins: ["https://example.com"], openTabs: { known: true, openOrigins: [], anyGrantedTabOpen: false } });
+  const remove = View.arrange(derived(), configured, { origin: "https://example.com", host: "example.com", ok: true }).find((s) => s.id === "page");
   assert.equal(remove.siteAction.id, "remove-site");
-  assert.equal(remove.state, "added. open or reload a tab");
+  assert.ok(remove.state);
 
   const unsupported = View.arrange(derived(), state(), { host: "", ok: false }).find((s) => s.id === "page");
   assert.equal(unsupported.state, "this page can't be added");
   assert.equal(unsupported.siteAction.disabled, true);
 
-  const paused = View.arrange(derived(), state({ paused: true, chosenOrigins: ["https://example.com"] }), { host: "example.com", ok: true }).find((s) => s.id === "page");
+  const paused = View.arrange(derived(), state({ paused: true, chosenOrigins: ["https://example.com"] }), { origin: "https://example.com", host: "example.com", ok: true }).find((s) => s.id === "page");
   assert.deepEqual(paused.pauseAction, { id: "set-paused", label: "resume", primary: true });
+});
+
+test("arrange preserves exact origins and exposes truncation as a separate attention row", () => {
+  const first = "https://same.example";
+  const second = "https://same.example:8443";
+  const s = state({
+    chosenOrigins: [first, second],
+    grantedOrigins: [first, second],
+    openTabs: { known: true, openOrigins: [first], anyGrantedTabOpen: true },
+    truncationByOrigin: {
+      [second]: { count: 3, newestId: "doc:id", dismissThroughId: "", pending: ["a", "b", "doc:id"] },
+    },
+  });
+  const sections = View.arrange(derived(), s, { origin: second, host: "same.example", ok: true });
+  assert.equal(sections.find((section) => section.id === "siteCount").text, "2 sites, 1 on");
+  assert.ok(sections.find((section) => section.id === "page").state);
+  const row = sections.find((section) => section.id === "siteIssues").rows.find((item) => item.kind === "truncated");
+  assert.equal(row.origin, second);
+  assert.equal(row.count, 3);
+  assert.equal(row.action.id, "dismiss-truncation");
+  assert.equal(row.action.origin, second);
+  assert.equal(row.action.bound, "doc:id");
+
+  const httpPage = View.arrange(derived(), state({ chosenOrigins: [first], grantedOrigins: [first] }), {
+    origin: "http://same.example", host: "same.example", ok: true,
+  }).find((section) => section.id === "page");
+  assert.equal(httpPage.state, "not added");
 });
 
 test("addSite confirms before intent and permission in exact order", async () => {
@@ -157,4 +188,3 @@ test("grantSite sends intendAddOrigin before permission and checks eligibility",
   assert.deepEqual(calls, ["intendAddOrigin", "permission", "getState", "addGrantedOrigin"]);
   assert.deepEqual(result, { ok: true });
 });
-

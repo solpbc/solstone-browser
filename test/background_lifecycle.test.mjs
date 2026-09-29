@@ -55,6 +55,8 @@ function createMockChrome() {
     onConnect: [],
     onMessage: [],
     onRemovedTab: [],
+    onCreatedTab: [],
+    onUpdatedTab: [],
     onAlarm: [],
     onRemovedPerm: [],
     onAddedPerm: [],
@@ -104,6 +106,8 @@ function createMockChrome() {
           if (cb) cb();
         },
         onRemoved: { addListener: (fn) => listeners.onRemovedTab.push(fn) },
+        onCreated: { addListener: (fn) => listeners.onCreatedTab.push(fn) },
+        onUpdated: { addListener: (fn) => listeners.onUpdatedTab.push(fn) },
       },
       action: {
         setIcon: async () => {},
@@ -221,6 +225,25 @@ test("lifecycle: status onConnect rejects content sender and serves trusted exte
   assert.ok(trustedReceived);
   assert.equal(trustedReceived.type, "status");
   assert.ok(trustedReceived.status);
+});
+
+test("lifecycle: stale tab query cannot replace a newer unknown projection", async () => {
+  const {mock, bg} = await startWorker();
+  const pending = [];
+  mock.chrome.tabs.query = (_query, callback) => { pending.push(callback); };
+  mock.listeners.onUpdatedTab[0]();
+  mock.listeners.onUpdatedTab[0]();
+  const [older, newer] = pending;
+  mock.chrome.runtime.lastError = {message:"fixture query failure"};
+  newer(undefined);
+  delete mock.chrome.runtime.lastError;
+  const unknown = bg.port.getStatus().openTabs;
+  assert.equal(unknown.known, false);
+  assert.equal(unknown.anyGrantedTabOpen, null);
+  older([{id:7, url:"https://example.com/"}]);
+  const afterStale = bg.port.getStatus().openTabs;
+  assert.equal(afterStale.generation, unknown.generation);
+  assert.equal(afterStale.known, false);
 });
 
 test("lifecycle: setCfg serialized promise chain", async () => {
@@ -409,9 +432,9 @@ async function startWorker() {
   return {mock, sandbox, bg};
 }
 function deferred() {
-  let resolve;
-  const promise = new Promise(r => { resolve = r; });
-  return {promise, resolve};
+  let resolve, reject;
+  const promise = new Promise((r, j) => { resolve = r; reject = j; });
+  return {promise, resolve, reject};
 }
 function states(bg) {
   const permitted = {...bg.port.getStatus(), everConnected:true, connected:true, hostCapture:"permitted",
@@ -488,6 +511,34 @@ test("lifecycle: restart loads loss notice and prunes orphan producer text", asy
   assert.equal((await second.sandbox.SolstoneDB.getAll("producer")).length,0);
 });
 
+test("lifecycle: worker restart reloads truncation occurrences and exact-origin errors", async () => {
+  const first = await startWorker();
+  const origin = "https://example.com";
+  const olderId = "document-a:hash:true:label";
+  const newerId = "document-b:hash:true:label";
+  await first.bg.port.recordTruncation(origin, olderId);
+  await first.bg.port.recordTruncation(origin, newerId);
+  const dismissed = await first.bg.port.dismissTruncation(origin, newerId);
+  assert.equal(dismissed.ok, true);
+  assert.equal(dismissed.dismissed, true);
+  await first.bg.port.setRegistration(origin, "failed");
+  await first.bg.port.setEnqueueError(origin, "outbox-full");
+
+  const second = await startWorker();
+  const status = second.bg.port.getStatus();
+  assert.equal(status.truncationByOrigin[origin].count, 0);
+  assert.equal(status.truncationByOrigin[origin].newestId, newerId);
+  assert.deepEqual(status.truncationByOrigin[origin].dismissed, [olderId, newerId]);
+  assert.equal(status.registration[origin], "failed");
+  assert.equal(status.enqueue[origin], "outbox-full");
+  assert.equal((await second.bg.port.recordTruncation(origin, olderId)).recorded, false);
+  assert.equal((await second.bg.port.recordTruncation(origin, newerId)).recorded, false);
+  assert.equal(second.bg.port.truncationByOrigin[origin].count, 0);
+  assert.equal((await second.bg.port.recordTruncation(origin, "document-c:hash:true:label")).recorded, true);
+  assert.equal(second.bg.port.truncationByOrigin[origin].count, 1);
+  assert.equal(second.bg.port.truncationByOrigin[origin].newestId, "document-c:hash:true:label");
+});
+
 test("lifecycle: permission withdrawal during initialization cannot restore an old grant", async () => {
   const mock=createMockChrome(), stalled=deferred(), entered=deferred();
   mock.grantedPermissions.clear();
@@ -508,4 +559,313 @@ test("lifecycle: permission withdrawal during initialization cannot restore an o
   stalled.resolve();
   const port=await sandbox.SolstoneBackground.ensureInit();
   assert.equal(port.grantedOrigins.has("https://example.com"),false);
+});
+
+test("lifecycle: remove during add persistence closes authority and keeps a chosen sibling", async () => {
+  const {mock, sandbox, bg} = await startWorker();
+  const port = bg.port;
+  const id = mock.chrome.runtime.id;
+  const sender = {id, url: `chrome-extension://${id}/popup.html`};
+  const sibling = "https://example.com:8443";
+  const origin = "https://example.com";
+  const pattern = "*://example.com/*";
+  mock.grantedPermissions.delete("*://*/*");
+  mock.grantedPermissions.add(pattern);
+  port.chosenOrigins = new Set([sibling]);
+  port.grantedOrigins = new Set([sibling]);
+  port.hostCapture = "permitted";
+  port.capturePermitted = true;
+  port.consentVersion = 1;
+  port.lease = {token:"t", generation:"g", receivedAt:port.now(), freshnessMs:10000};
+  await bg.setCfg({chosenOrigins: [sibling]});
+
+  const entered = deferred(), storage = deferred();
+  const originalSet = mock.chrome.storage.local.set;
+  let hold = true;
+  mock.chrome.storage.local.set = async value => {
+    if (hold) {
+      hold = false;
+      entered.resolve();
+      await storage.promise;
+    }
+    return originalSet(value);
+  };
+  const deps = {runtimeId: id, port, setCfg: bg.setCfg, registerSite: bg.registerSite};
+  const adding = sandbox.SolstoneRouter.route({cmd: "addGrantedOrigin", origin}, sender, deps);
+  await entered.promise;
+  const removing = sandbox.SolstoneRouter.route({cmd: "removeGrantedOrigin", origin}, sender, {
+    ...deps, removeSiteOrigin: async () => {},
+  });
+  assert.equal(port.chosenOrigins.has(origin), false);
+  assert.equal(port.grantedOrigins.has(origin), false);
+  storage.resolve();
+  const [addResult] = await Promise.all([adding, removing]);
+
+  assert.equal(addResult.ok, false);
+  assert.equal(addResult.error, "capture_unavailable");
+  const durable = await bg.getCfg();
+  assert.equal(durable.chosenOrigins.length, 1);
+  assert.equal(durable.chosenOrigins[0], sibling);
+  assert.equal(Array.from(port.chosenOrigins)[0], sibling);
+  assert.equal(Array.from(port.grantedOrigins)[0], sibling);
+  assert.equal(mock.grantedPermissions.has(pattern), true);
+  assert.equal(sandbox.SolstoneCaptureGate.computeDecision({
+    lease:port.lease, paused:port.paused, consentVersion:port.consentVersion,
+    originGranted:port.grantedOrigins.has(origin), pressure:port.pressure,
+    hostCapture:port.hostCapture, capturePermitted:port.capturePermitted, now:port.now(),
+  }).open, false);
+});
+
+test("lifecycle: pending, expired, denied, stale, and failed add paths keep a sibling pattern", async () => {
+  const {mock, sandbox, bg} = await startWorker();
+  const port = bg.port;
+  const id = mock.chrome.runtime.id;
+  const sender = {id, url:"chrome-extension://" + id + "/popup.html"};
+  const sibling = "https://example.com:8443";
+  const origin = "https://example.com";
+  const pattern = "*://example.com/*";
+  mock.grantedPermissions.delete("*://*/*");
+  mock.grantedPermissions.add(pattern);
+  port.chosenOrigins = new Set([sibling]);
+  port.grantedOrigins = new Set([sibling]);
+  port.hostCapture = "permitted";
+  port.capturePermitted = true;
+  port.consentVersion = 1;
+  port.paused = false;
+  port.lease = {token:"t", generation:"g", receivedAt:port.now(), freshnessMs:10000};
+  await bg.setCfg({chosenOrigins:[sibling]});
+  const deps = {runtimeId:id, port, setCfg:bg.setCfg, registerSite:bg.registerSite};
+
+  await sandbox.SolstoneRouter.route({cmd:"intendAddOrigin", origin}, sender, deps);
+  port.now = () => port.ownerSites.reservation.expiresAt + 1;
+  await bg.runReconcile();
+  assert.equal(port.ownerSites.reservation, null);
+  assert.equal(mock.grantedPermissions.has(pattern), true, "the chosen sibling still claims its shared pattern");
+  assert.equal(port.chosenOrigins.has(sibling), true);
+  assert.equal(port.grantedOrigins.has(sibling), true);
+  port.now = () => Date.now();
+
+  await sandbox.SolstoneRouter.route({cmd:"intendAddOrigin", origin}, sender, deps);
+  await sandbox.SolstoneRouter.route({cmd:"clearAddIntent"}, sender, deps);
+  assert.equal(port.ownerSites.reservation, null);
+  assert.equal(port.chosenOrigins.has(origin), false);
+  assert.equal(port.grantedOrigins.has(origin), false);
+
+  vm.runInNewContext(readExtFile("lib/popup_view.js"), sandbox);
+  const commands = [];
+  const denied = await sandbox.SolstonePopupView.grantSite(origin, {
+    status: port.getStatus(),
+    cmd: (message) => {
+      const pending = sandbox.SolstoneRouter.route(message, sender, deps);
+      commands.push(pending);
+      return pending;
+    },
+    requestPermission: async () => false,
+  });
+  await Promise.all(commands);
+  assert.equal(denied.denied, true);
+  assert.equal(port.ownerSites.reservation, null);
+
+  const staleCommands = [];
+  const stale = await sandbox.SolstonePopupView.grantSite(origin, {
+    status: port.getStatus(),
+    cmd: (message) => {
+      const pending = sandbox.SolstoneRouter.route(message, sender, deps);
+      staleCommands.push(pending);
+      return pending;
+    },
+    requestPermission: async () => {
+      port.paused = true;
+      await mock.listeners.onAddedPerm[0]({origins:[pattern]});
+      return true;
+    },
+  });
+  await Promise.all(staleCommands);
+  assert.equal(stale.denied, true);
+  assert.equal(port.ownerSites.reservation, null);
+  assert.equal(port.chosenOrigins.has(origin), false);
+  assert.equal(port.grantedOrigins.has(origin), false);
+  port.paused = false;
+
+  await sandbox.SolstoneRouter.route({cmd:"intendAddOrigin", origin}, sender, deps);
+  const failedWrite = await sandbox.SolstoneRouter.route({cmd:"addGrantedOrigin", origin}, sender, {
+    ...deps, setCfg: async () => { throw new Error("fixture storage failure"); },
+  });
+  assert.equal(failedWrite.error, "storage_error");
+  assert.equal(port.ownerSites.reservation, null);
+  assert.equal(port.chosenOrigins.has(origin), false);
+  assert.equal(port.grantedOrigins.has(origin), false);
+  assert.equal(mock.grantedPermissions.has(pattern), true);
+  assert.equal(port.chosenOrigins.has(sibling), true);
+  assert.equal(port.grantedOrigins.has(sibling), true);
+});
+
+test("lifecycle: onRemoved during add getAll rejects a stale permission snapshot", async () => {
+  const {mock, sandbox, bg} = await startWorker();
+  const port = bg.port;
+  const id = mock.chrome.runtime.id;
+  const sender = {id, url:"chrome-extension://" + id + "/popup.html"};
+  const origin = "https://example.com";
+  const pattern = "*://example.com/*";
+  mock.grantedPermissions.delete("*://*/*");
+  mock.grantedPermissions.add(pattern);
+  port.hostCapture = "permitted";
+  port.capturePermitted = true;
+  port.consentVersion = 1;
+  port.lease = {token:"t", generation:"g", receivedAt:port.now(), freshnessMs:10000};
+  const deps = {runtimeId:id, port, setCfg:bg.setCfg, registerSite:bg.registerSite};
+  await sandbox.SolstoneRouter.route({cmd:"intendAddOrigin", origin}, sender, deps);
+
+  const stale = deferred(), entered = deferred();
+  let snapshots = 0;
+  mock.chrome.permissions.getAll = () => {
+    snapshots++;
+    if (snapshots === 1) {
+      entered.resolve();
+      return stale.promise;
+    }
+    return Promise.resolve({origins:[]});
+  };
+  const adding = sandbox.SolstoneRouter.route({cmd:"addGrantedOrigin", origin}, sender, deps);
+  await entered.promise;
+  mock.grantedPermissions.delete(pattern);
+  await mock.listeners.onRemovedPerm[0]({origins:[pattern]});
+  stale.resolve({origins:[pattern]});
+  const result = await adding;
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "capture_unavailable");
+  assert.equal(port.chosenOrigins.has(origin), true, "the owner choice remains without a withdrawal");
+  assert.equal(port.grantedOrigins.has(origin), false);
+  assert.equal(port.getStatus().inactiveOrigins.length, 1);
+  assert.equal(port.getStatus().gate.open, false);
+});
+
+test("lifecycle: real registration results retain reload and failed origin choices", async () => {
+  const {mock, sandbox, bg} = await startWorker();
+  const port = bg.port;
+  const id = mock.chrome.runtime.id;
+  const sender = {id, url:"chrome-extension://" + id + "/popup.html"};
+  port.hostCapture = "permitted";
+  port.capturePermitted = true;
+  port.consentVersion = 1;
+  port.lease = {token:"t", generation:"g", receivedAt:port.now(), freshnessMs:10000};
+  mock.grantedPermissions.add("*://example.com/*");
+  await port.clearSiteError("enqueue", "https://example.com");
+  mock.chrome.scripting.executeScript = async () => { throw new Error("fixture tab reload required"); };
+  const deps = {runtimeId:id, port, setCfg:bg.setCfg, registerSite:bg.registerSite};
+  const reloadOrigin = "https://example.com";
+  await sandbox.SolstoneRouter.route({cmd:"intendAddOrigin", origin:reloadOrigin}, sender, deps);
+  const reload = await sandbox.SolstoneRouter.route({cmd:"addGrantedOrigin", origin:reloadOrigin}, sender, deps);
+  assert.equal(reload.ok, true, JSON.stringify(reload));
+  assert.equal(reload.registration, "reload");
+  assert.equal(port.chosenOrigins.has(reloadOrigin), true);
+  assert.equal(port.registration[reloadOrigin], "reload");
+  port.openTabs = {known:true, openOrigins:[reloadOrigin], anyGrantedTabOpen:true};
+  assert.equal(sandbox.SolstoneStatus.siteRow(reloadOrigin, port.getStatus()).kind, "reload-tab");
+
+  mock.chrome.scripting.registerContentScripts = async () => { throw new Error("fixture registration failure"); };
+  const failedOrigin = "https://other.example";
+  mock.grantedPermissions.add("*://other.example/*");
+  await sandbox.SolstoneRouter.route({cmd:"intendAddOrigin", origin:failedOrigin}, sender, deps);
+  const failed = await sandbox.SolstoneRouter.route({cmd:"addGrantedOrigin", origin:failedOrigin}, sender, deps);
+  assert.equal(failed.ok, false);
+  assert.equal(failed.error, "registration_failed");
+  assert.equal(failed.registration, "failed");
+  assert.equal(port.chosenOrigins.has(failedOrigin), true);
+  assert.equal(port.grantedOrigins.has(failedOrigin), true);
+  assert.equal(port.registration[failedOrigin], "failed");
+  assert.equal(sandbox.SolstoneStatus.siteRow(failedOrigin, port.getStatus()).kind, "error");
+});
+
+test("lifecycle: onRemoved publishes a closed lease before its permission snapshot settles", async () => {
+  const {mock, bg} = await startWorker();
+  const origin = "https://example.com";
+  const pattern = "*://example.com/*";
+  mock.grantedPermissions.delete("*://*/*");
+  mock.grantedPermissions.add(pattern);
+  bg.port.chosenOrigins = new Set([origin]);
+  bg.port.grantedOrigins = new Set([origin]);
+  bg.port.hostCapture = "permitted";
+  bg.port.capturePermitted = true;
+  bg.port.consentVersion = 1;
+  bg.port.lease = {token:"t", generation:"g", receivedAt:bg.port.now(), freshnessMs:10000};
+
+  const snapshot = deferred(), entered = deferred();
+  mock.sentTabMessages.length = 0;
+  mock.chrome.tabs.query = () => {};
+  let notifications = 0;
+  const notify = bg.port.notify.bind(bg.port);
+  bg.port.notify = () => { notifications++; return notify(); };
+  mock.chrome.permissions.getAll = () => {
+    entered.resolve();
+    return snapshot.promise;
+  };
+  const removing = mock.listeners.onRemovedPerm[0]({origins:[pattern]});
+  await entered.promise;
+  assert.equal(notifications, 1, "withdrawal must notify before getAll resolves");
+  assert.equal(bg.port.getStatus().gate.open, false, "the synchronous notification must publish a closed gate");
+  snapshot.reject(new Error("permission snapshot unavailable"));
+  await removing;
+  assert.equal(bg.port.grantedOrigins.has(origin), false);
+  assert.equal(bg.port.getStatus().gate.open, false);
+});
+
+test("lifecycle: stale onAdded snapshot cannot restore a grant after a later withdrawal", async () => {
+  const {mock, bg} = await startWorker();
+  const origin = "https://example.com";
+  const pattern = "*://example.com/*";
+  mock.grantedPermissions.delete("*://*/*");
+  mock.grantedPermissions.add(pattern);
+  bg.port.chosenOrigins = new Set([origin]);
+  bg.port.grantedOrigins = new Set();
+
+  const addSnapshot = deferred(), addEntered = deferred();
+  mock.chrome.permissions.getAll = () => {
+    addEntered.resolve();
+    return addSnapshot.promise;
+  };
+  const added = mock.listeners.onAddedPerm[0]({origins:[pattern]});
+  await addEntered.promise;
+  mock.grantedPermissions.delete(pattern);
+  const removed = mock.listeners.onRemovedPerm[0]({origins:[pattern]});
+  addSnapshot.resolve({origins:[pattern]});
+  await Promise.all([added, removed]);
+  assert.equal(bg.port.grantedOrigins.has(origin), false);
+  assert.equal(bg.port.getStatus().inactiveOrigins.length, 1);
+  assert.equal(bg.port.getStatus().inactiveOrigins[0], origin);
+});
+
+test("lifecycle: permission prompt onAdded followed by add completes with matching epochs", async () => {
+  const {mock, sandbox, bg} = await startWorker();
+  mock.grantedPermissions.delete("*://*/*");
+  const port = bg.port;
+  port.hostCapture = "permitted";
+  port.capturePermitted = true;
+  port.consentVersion = 1;
+  port.lease = {token:"t", generation:"g", receivedAt:port.now(), freshnessMs:10000};
+  const id = mock.chrome.runtime.id;
+  const sender = {id, url:`chrome-extension://${id}/popup.html`};
+  const origin = "https://first.example";
+  const pattern = "*://first.example/*";
+  const deps = {runtimeId:id, port, setCfg:bg.setCfg, registerSite:bg.registerSite};
+  vm.runInNewContext(readExtFile("lib/popup_view.js"), sandbox);
+  const commands = [];
+  const added = await sandbox.SolstonePopupView.grantSite(origin, {
+    status:port.getStatus(),
+    cmd: (message) => {
+      const pending = sandbox.SolstoneRouter.route(message, sender, deps);
+      commands.push(pending);
+      return pending;
+    },
+    requestPermission: async (request) => {
+      assert.deepEqual(Array.from(request.origins), [pattern]);
+      mock.grantedPermissions.add(pattern);
+      await mock.listeners.onAddedPerm[0]({origins:[pattern]});
+      return true;
+    },
+  });
+  await Promise.all(commands);
+  assert.equal(added.ok, true, JSON.stringify(added));
+  assert.equal(port.grantedOrigins.has(origin), true);
+  assert.equal(port.ownerSites.reservation, null);
 });

@@ -32,10 +32,10 @@
     const siteRows = chosenOrigins.map((entry) => {
       let host = entry;
       try {
-        if (entry.startsWith("http")) host = new URL(entry).host;
+        if (entry.startsWith("http")) host = new URL(entry).hostname;
       } catch (_e) {}
       const row = globalThis.SolstoneStatus
-        ? globalThis.SolstoneStatus.siteRow(host, state, extras)
+        ? globalThis.SolstoneStatus.siteRow(entry, state, extras)
         : { kind: "added-idle", label: "added", action: null };
       return { host, entry, origin: entry, kind: row.kind, label: row.label, action: row.action };
     });
@@ -52,8 +52,22 @@
         });
       }
     }
+    const truncations = state.truncationByOrigin && typeof state.truncationByOrigin === "object"
+      ? state.truncationByOrigin : {};
+    const Copy = globalThis.SolstoneCopy;
+    for (const [origin, notice] of Object.entries(truncations)) {
+      if (!notice || !(notice.count > 0)) continue;
+      let host = origin;
+      try { host = new URL(origin).hostname; } catch (_e) {}
+      attentionRows.push({
+        host, entry: origin, origin, kind: "truncated",
+        label: Copy?.TRUNCATION_ATTENTION || "part of what you shared on this site was too long to keep",
+        count: notice.count,
+        action: { id: "dismiss-truncation", label: "dismiss", origin, bound: notice.newestId },
+      });
+    }
     for (const row of siteRows) {
-      if (row.action != null || row.kind === "reload-tab" || row.kind === "pressure-here") {
+      if (row.action != null || row.kind === "reload-tab" || row.kind === "error") {
         attentionRows.push({
           host: row.host,
           entry: row.entry,
@@ -65,14 +79,7 @@
       }
     }
 
-    const isPageChosen = chosenOrigins.some((entry) => {
-      try {
-        const h = entry.startsWith("http") ? new URL(entry).host : entry;
-        return h === page.host;
-      } catch (_e) {
-        return false;
-      }
-    });
+    const isPageChosen = chosenOrigins.includes(page.origin);
 
     let pageState;
     let siteAction;
@@ -85,8 +92,8 @@
       const canAdd = state.addSiteEligible === true && state.consentVersion === 1;
       siteAction = { id: "add-site", label: "add this site", disabled: !canAdd, primary: true };
     } else {
-      const pageRow = siteRows.find((r) => r.host === page.host) || (globalThis.SolstoneStatus
-        ? globalThis.SolstoneStatus.siteRow(page.host, state, extras)
+      const pageRow = siteRows.find((r) => r.origin === page.origin) || (globalThis.SolstoneStatus
+        ? globalThis.SolstoneStatus.siteRow(page.origin, state, extras)
         : { label: "" });
       pageState = pageRow.label;
       siteAction = { id: "remove-site", label: "remove this site", disabled: false, primary: false };

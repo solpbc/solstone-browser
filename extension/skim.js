@@ -25,10 +25,15 @@
   }
 
   function directTextResult(el) {
-    let s = "";
-    for (const node of el.childNodes) {
-      if (node.nodeType === 3) s += node.nodeValue;
+    if (B.createTextResultBuilder) {
+      const builder = B.createTextResultBuilder(B.MAX_TEXT);
+      for (const node of el.childNodes || []) {
+        if (node.nodeType === 3 && !builder.append(node.nodeValue)) break;
+      }
+      return builder.result();
     }
+    let s = "";
+    for (const node of el.childNodes || []) if (node.nodeType === 3) s += node.nodeValue;
     return B.normalizeTextResult ? B.normalizeTextResult(s) : { text: B.normalizeText(s), truncated: false };
   }
 
@@ -46,6 +51,7 @@
   }
 
   function walk(el, adapter, out, depth, boundaryId, maxBlocks, state) {
+    if (state.stopped) return;
     if (!isVisible(el)) return;
     if (matchesAny(el, adapter.skip)) return;
 
@@ -57,11 +63,13 @@
     if (matchesAny(el, adapter.boundary)) {
       const A = globalThis.SolstoneAdapters;
       const sid = A.stableIdFor(el, adapter);
-      const attrs = B.readAttrs(el);
+      const attrs = B.readAttrs(el, state);
       const label = attrs.label || "";
       if (sid || label) {
         if (out.length >= maxBlocks) {
           state.omitted = true;
+          state.clips.add("blocks");
+          state.stopped = true;
           return;
         }
         const role = el.getAttribute && el.getAttribute("role");
@@ -77,17 +85,22 @@
 
     const textRes = directTextResult(el);
     const text = textRes.text;
-    if (textRes.truncated) state.omitted = true;
+    if (textRes.truncated) {
+      state.omitted = true;
+      state.clips.add("text");
+    }
 
     if (text && B.visibleLen(text) > 1) {
       if (out.length >= maxBlocks) {
         state.omitted = true;
+        state.clips.add("blocks");
+        state.stopped = true;
         return;
       }
       const role = el.getAttribute && el.getAttribute("role");
       const hasLevel = !!(el.getAttribute && el.getAttribute("aria-level"));
       const type = B.typeFromRoleTag(role, tag, hasLevel);
-      const attrs = B.readAttrs(el);
+      const attrs = B.readAttrs(el, state);
       const keyed = boundaryId ? boundaryId + ":" + B.hashStr(text) : null;
       const id = B.blockId(keyed, type, depth, text);
       const block = { id, type, depth, text };
@@ -107,11 +120,11 @@
 
   function skim(root, adapter) {
     const out = [];
-    const state = { omitted: false };
-    if (!root) return { blocks: out, omitted: false };
+    const state = { omitted: false, clips: new Set(), stopped: false };
+    if (!root) return { blocks: out, omitted: false, clips: [] };
     const maxBlocks = getMaxBlocks();
     walk(root, adapter, out, 0, null, maxBlocks, state);
-    return { blocks: out, omitted: !!state.omitted };
+    return { blocks: out, omitted: !!state.omitted, clips: Array.from(state.clips).sort() };
   }
 
   globalThis.SolstoneSkim = { skim, isVisible, directText, directTextResult };

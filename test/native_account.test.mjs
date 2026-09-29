@@ -17,6 +17,7 @@ await import(new URL("../extension/lib/hosts.js", import.meta.url));
 await import(new URL("../extension/lib/gate.js", import.meta.url));
 await import(new URL("../extension/lib/native_outbox.js", import.meta.url));
 await import(new URL("../extension/lib/native_port.js", import.meta.url));
+await import(new URL("../extension/lib/owner_sites.js", import.meta.url));
 await import(new URL("../extension/lib/router.js", import.meta.url));
 await import(new URL("../extension/adapters.js", import.meta.url));
 await import(new URL("../extension/skim.js", import.meta.url));
@@ -417,6 +418,35 @@ test("skim: caps total blocks at BLOCKS_MAX (1500)", () => {
   const res = Skim.skim(mockRoot, Adapters.GENERIC);
   assert.equal(res.blocks.length, Constants.BLOCKS_MAX); // 1500
   assert.equal(res.omitted, true);
+  assert.deepEqual(res.clips, ["blocks"]);
+});
+
+test("skim: exact block and text limits are not clips, and longer labels report label", () => {
+  const exactBlocks = Array.from({ length: 1500 }, (_, i) => makeMockElement(`exact-${i}`, `Text ${i}`));
+  const exactRoot = { nodeType:1, tagName:"DIV", children:exactBlocks, childNodes:[], getAttribute:() => null, checkVisibility:() => true };
+  const exact = Skim.skim(exactRoot, Adapters.GENERIC);
+  assert.equal(exact.blocks.length, 1500);
+  assert.equal(exact.omitted, false);
+  assert.deepEqual(exact.clips, []);
+
+  const textResult = (text) => Skim.skim({
+    nodeType:1, tagName:"DIV", children:[], childNodes:[{nodeType:3,nodeValue:text}],
+    getAttribute:() => null, checkVisibility:() => true,
+  }, Adapters.GENERIC);
+  assert.equal(textResult("x".repeat(2000)).omitted, false);
+  const longText = textResult("x".repeat(2001));
+  assert.equal(longText.omitted, true);
+  assert.deepEqual(longText.clips, ["text"]);
+
+  const longLabel = {
+    nodeType:1, tagName:"DIV", children:[], childNodes:[{nodeType:3,nodeValue:"content"}],
+    getAttribute: (name) => name === "aria-label" ? "label".repeat(61) : null,
+    checkVisibility:() => true,
+  };
+  const labelRoot = { nodeType:1, tagName:"DIV", children:[longLabel], childNodes:[], getAttribute:() => null, checkVisibility:() => true };
+  const labelResult = Skim.skim(labelRoot, Adapters.GENERIC);
+  assert.equal(labelResult.omitted, true);
+  assert.deepEqual(labelResult.clips, ["label"]);
 });
 
 test("skim: boundary block counting respects 1499 edge", () => {
@@ -822,7 +852,7 @@ test("account: lone-surrogate enqueue is refused with code lone_surrogate and le
   assert.equal(producerRecord, undefined);
 });
 
-test("account: outbox-full sets siteRejection with pressure reflecting DB status", async () => {
+test("account: outbox-full records a per-site error and a matching successful skim clears only it", async () => {
   await resetDB();
   const port = new PortController({
     inst: "00000000-0000-0000-0000-000000000001",
@@ -864,25 +894,34 @@ test("account: outbox-full sets siteRejection with pressure reflecting DB status
     origin: "https://example.test",
   };
 
-  await Router.route({ kind: "hello", realmToken: "r-full" }, sender, {
+  await Router.route({ kind: "hello", realmToken: "r-full", documentKey: "fedcba0987654321fedcba0987654321" }, sender, {
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     port, confirmRealm: async () => true,
   });
 
-  const skimRes = await Router.route(
-    {
-      kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration, destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token,
-      realmToken: "r-full",
-      blocks: [{ id: "1", type: "heading", depth: 0, text: "Will fail full" }],
-    },
-    sender,
-    { runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", port }
-  );
+  const skimMessage = {
+    kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration, destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token,
+    realmToken: "r-full",
+    documentKey: "fedcba0987654321fedcba0987654321",
+    blocks: [{ id: "1", type: "heading", depth: 0, text: "Will fail full" }],
+  };
+  const skimRes = await Router.route(skimMessage, sender, { runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", port });
 
   assert.equal(skimRes.ok, false);
   assert.equal(skimRes.error, "outbox-full");
-  assert.equal(port.siteNotices.some((n) => n.origin === "https://example.test" && n.kind === "enqueue" && n.bound === "outbox-full"), true);
+  assert.equal(port.enqueue["https://example.test"], "outbox-full");
   assert.equal(port.pressure.active, true);
+
+  await port.setEnqueueError("https://other.test", "schema-refuse");
+  await DB.del("outbox", "huge-batch");
+  port.pressure = { active: false };
+  port.syncCaptureAuthority();
+  skimMessage.captureEpoch = port.captureEpoch;
+  skimMessage.blocks[0].text = "The available space is back";
+  const retry = await Router.route(skimMessage, sender, { runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", port });
+  assert.equal(retry.ok, true);
+  assert.equal(Object.hasOwn(port.enqueue, "https://example.test"), false);
+  assert.equal(port.enqueue["https://other.test"], "schema-refuse");
 });
 
 test("account: dismissLoss(oldSeq) does not clear newer notice", async () => {

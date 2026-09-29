@@ -20,7 +20,7 @@ test("options HTML fixes the region, heading, and layout contract", () => {
 });
 
 test("options consumes shared derivations and removes every retired selector", () => {
-  assert.match(optionsSource, /Status\.derive\(state,/);
+  assert.match(optionsSource, /Status\.derive\(state\)/);
   assert.match(optionsSource, /Status\.siteRow\(/);
   assert.match(optionsSource, /View\.addSite\(/);
   assert.match(optionsSource, /View\.grantSite\(/);
@@ -126,10 +126,11 @@ function optionsState(overrides = {}) {
     hostCapture: "permitted",
     hostDelivery: "delivered",
     hostFailure: null,
+    lease: { token: "test", freshnessMs: 10000 },
     custody: { full: false, stale: false },
     behind: null,
     pressure: { active: false },
-    siteNotices: [],
+    siteErrors: { registration: {}, enqueue: {} },
     siteRejection: null,
     lossNotice: null,
     paused: false,
@@ -153,6 +154,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
     "step2PendingText", "step2Actions", "agreeDisclosureBtn", "step2Completed", "step2ReReadDetails", "step2ReadAgain", "step2ReReadBody",
     "step3Section", "step3HeadingRow", "step3Check", "step3Heading", "step3Content", "step3Body", "welcomeShowPageIndicator", "welcomeSiteList",
     "statusCard", "statusLead", "statusStateChip", "statusReason", "sitesCard",
+    "statusAlso", "statusActions",
     "sitesMain", "addForm", "newHost", "addBtn", "siteList", "siteDisclosure",
     "siteDisclosureTitle", "siteDisclosureWhat", "siteDisclosureUnsent", "siteDisclosureDestination",
     "siteDisclosureDestinationDetail", "siteDisclosureChrome", "siteDisclosureConfirm",
@@ -172,10 +174,24 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
 
   let liveState = null;
   let ackResponse = { ok: true, consentVersion: 1 };
+  let statusListener = null;
+  let disconnectListener = null;
+  let heldStateCallback = null;
+  let holdNextState = false;
+  let reloadCount = 0;
+  let dismissResponse = {ok:true};
+  const sentMessages = [];
+  const appTabs = [];
   globalThis.chrome = {
     runtime: {
       sendMessage(message, callback) {
-        if (message.cmd === "getState") callback(liveState);
+        sentMessages.push(message);
+        if (message.cmd === "getState") {
+          if (holdNextState) {
+            holdNextState = false;
+            heldStateCallback = callback;
+          } else callback(liveState);
+        }
         else if (message.cmd === "setConfig") {
           liveState = optionsState(Object.assign({}, liveState, {
             showPageIndicator: message.showPageIndicator,
@@ -202,15 +218,20 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
             grantedOrigins: [],
           }));
           callback({ ok: true });
+        } else if (message.cmd === "dismissTruncation") {
+          callback(dismissResponse);
         } else callback({ ok: true });
       },
       connect() {
         return {
-          onMessage: { addListener() {} },
-          onDisconnect: { addListener() {} },
+          onMessage: { addListener(fn) { statusListener = fn; } },
+          onDisconnect: { addListener(fn) { disconnectListener = fn; } },
         };
       },
+      openOptionsPage() {},
+      reload() { reloadCount++; },
     },
+    tabs: { create: (info) => appTabs.push(info) },
     permissions: {
       request: async () => true,
     },
@@ -222,6 +243,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   await import(new URL("../extension/lib/failures.js", import.meta.url));
   await import(new URL("../extension/lib/disclosure.js", import.meta.url));
   await import(new URL("../extension/lib/popup_view.js", import.meta.url));
+  await import(new URL("../extension/lib/actions.js", import.meta.url));
   await import(new URL("../extension/options.js", import.meta.url));
   await new Promise((resolve) => setImmediate(resolve));
 
@@ -233,11 +255,20 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   assert.equal(nodes.step1Heading.textContent, "looking for the solstone app on this computer…");
   assert.equal(nodes.step1Check.hidden, true);
 
+  liveState = optionsState({ connected: false, everConnected: false });
+  statusListener({ type: "status", status: liveState });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(nodes.step1Heading.textContent, "can't reach the solstone app");
+  nodes.step1ActionBtn.listeners.click();
+  assert.equal(appTabs.length, 1);
+  assert.equal(appTabs[0].url, "https://solstone.app");
+  assert.equal(new URL(appTabs[0].url).search, "");
+
   // 2. Can't-reach status
-  liveState = optionsState({ connected: false });
+  liveState = optionsState({ connected: false, everConnected: false });
   await globalThis.SolstoneOptions.refresh();
   assert.equal(nodes.step1Heading.textContent, "can't reach the solstone app");
-  assert.equal(nodes.step1Body.textContent, C.STEP1_CANT_REACH_BODY);
+  assert.equal(nodes.step1Body.textContent, globalThis.SolstoneStatus.welcomeHold(liveState).body);
   assert.equal(nodes.step1ActionBtn.hidden, false);
   assert.equal(nodes.step1ActionBtn.textContent, "get the solstone app");
   assert.equal(nodes.step1Check.hidden, true);
@@ -254,7 +285,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   // 4. hostCapture: "paused" with consent unset
   liveState = optionsState({ hostCapture: "paused", consentVersion: 0, chosenOrigins: [] });
   await globalThis.SolstoneOptions.refresh();
-  assert.equal(nodes.step1Heading.textContent, "found the solstone app, paired with your journal. it's paused right now.");
+  assert.equal(nodes.step1Heading.textContent, "found the solstone app, paired with your journal");
   assert.equal(nodes.step1Check.hidden, false);
   assert.equal(nodes.agreeDisclosureBtn.hidden, false);
 
@@ -305,8 +336,126 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
     capturePermitted: true,
   });
   // Verify siteRow directly for on-now text format
-  const onNowRow = globalThis.SolstoneStatus.siteRow("mail.google.com", liveState, { activeSites: ["mail.google.com"] });
+  liveState.openTabs = {
+    known: true,
+    openOrigins: ["https://mail.google.com"],
+    anyGrantedTabOpen: true,
+  };
+  const onNowRow = globalThis.SolstoneStatus.siteRow("https://mail.google.com", liveState);
   assert.equal(onNowRow.kind, "on-now");
+
+  // Exact-origin rows keep same-host ports separate, and remove sends the row origin.
+  const firstOrigin = "https://same.example";
+  const secondOrigin = "https://same.example:8443";
+  liveState = optionsState({
+    consentVersion: 1,
+    chosenOrigins: [firstOrigin, secondOrigin],
+    grantedOrigins: [firstOrigin, secondOrigin],
+    openTabs: {known:true, openOrigins:[firstOrigin], anyGrantedTabOpen:true},
+  });
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.siteList.children.length, 2);
+  assert.equal(nodes.siteList.children[0].children[0].children[0].textContent, "same.example");
+  assert.equal(nodes.siteList.children[1].children[0].children[0].textContent, "same.example");
+  await nodes.siteList.children[1].children[1].children.at(-1).listeners.click();
+  assert.equal(sentMessages.findLast((message) => message.cmd === "removeGrantedOrigin").origin, secondOrigin);
+
+  const httpOrigin = "http://same.example";
+  liveState = optionsState({
+    consentVersion:1,
+    chosenOrigins:[httpOrigin],
+    grantedOrigins:[],
+    inactiveOrigins:[httpOrigin],
+    truncationByOrigin:{
+      [httpOrigin]:{count:2, newestId:"doc:2", dismissThroughId:"", pending:["doc:1","doc:2"]},
+      "https://removed.example":{count:1, newestId:"old:1", dismissThroughId:"", pending:["old:1"]},
+    },
+  });
+  await globalThis.SolstoneOptions.refresh();
+  await nodes.siteList.children[0].children[1].children[0].listeners.click();
+  assert.equal(sentMessages.findLast((message) => message.cmd === "intendAddOrigin").origin, httpOrigin);
+  assert.equal(sentMessages.findLast((message) => message.cmd === "addGrantedOrigin").origin, httpOrigin);
+  liveState = optionsState({
+    consentVersion:1,
+    chosenOrigins:[httpOrigin],
+    grantedOrigins:[],
+    inactiveOrigins:[httpOrigin],
+    truncationByOrigin:{
+      [httpOrigin]:{count:2, newestId:"doc:2", dismissThroughId:"", pending:["doc:1","doc:2"]},
+      "https://removed.example":{count:1, newestId:"old:1", dismissThroughId:"", pending:["old:1"]},
+    },
+  });
+  await globalThis.SolstoneOptions.refresh();
+  const dismissRow = nodes.siteList.children.find((node) => node.className === "site-issue");
+  dismissResponse = {ok:false, error:"storage_error"};
+  await dismissRow.children.at(-1).listeners.click();
+  const dismissal = sentMessages.findLast((message) => message.cmd === "dismissTruncation");
+  assert.equal(dismissal.origin, httpOrigin);
+  assert.equal(dismissal.bound, "doc:2");
+  assert.ok(nodes.actionMessage.textContent);
+  assert.ok(nodes.siteList.children.includes(dismissRow), "failed dismissal keeps the visible notice");
+  const removedNotice = nodes.siteList.children.filter((node) => node.className === "site-issue").at(-1);
+  dismissResponse = {ok:true};
+  await removedNotice.children.at(-1).listeners.click();
+  assert.equal(sentMessages.findLast((message) => message.cmd === "dismissTruncation").origin, "https://removed.example");
+  assert.equal(sentMessages.findLast((message) => message.cmd === "dismissTruncation").bound, "old:1");
+
+  // Status messages use the posted envelope; same epoch tab updates apply, older capture state does not.
+  const openState = optionsState({
+    captureEpoch: 20, consentVersion: 1, chosenOrigins: [firstOrigin], grantedOrigins: [firstOrigin],
+    openTabs: {known:false, openOrigins:null, anyGrantedTabOpen:null},
+  });
+  statusListener({type:"status", status:openState});
+  assert.equal(nodes.statusReason.textContent, "");
+  statusListener({type:"status", status:Object.assign({}, openState, {
+    openTabs:{known:true, openOrigins:[], anyGrantedTabOpen:false},
+  })});
+  assert.notEqual(nodes.statusReason.textContent, "");
+  statusListener({type:"status", status:Object.assign({}, openState, {
+    openTabs:{known:true, openOrigins:[firstOrigin], anyGrantedTabOpen:true},
+  })});
+  assert.equal(nodes.statusReason.textContent, "");
+
+  const paused = optionsState({captureEpoch:21, consentVersion:1, paused:true, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin]});
+  statusListener({type:"status", status:paused});
+  await new Promise((resolve) => setImmediate(resolve));
+  statusListener({type:"status", status:optionsState({captureEpoch:20, consentVersion:1, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin]})});
+  assert.equal(nodes.statusStateChip.textContent, "paused in this browser");
+  statusListener({type:"status", status:optionsState({captureEpoch:22, consentVersion:1, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin]})});
+  assert.equal(nodes.statusStateChip.textContent, "on");
+
+  holdNextState = true;
+  const staleRefresh = globalThis.SolstoneOptions.refresh();
+  statusListener({type:"status", status:optionsState({captureEpoch:24, consentVersion:1, paused:true, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin]})});
+  heldStateCallback(optionsState({captureEpoch:22, consentVersion:1, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin]}));
+  await staleRefresh;
+  assert.equal(nodes.statusStateChip.textContent, "paused in this browser");
+
+  liveState = optionsState({captureEpoch:24, consentVersion:1, paused:true, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin]});
+  holdNextState = true;
+  const beforeDisconnect = globalThis.SolstoneOptions.refresh();
+  disconnectListener();
+  await new Promise((resolve) => setImmediate(resolve));
+  heldStateCallback(optionsState({captureEpoch:22, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin]}));
+  await beforeDisconnect;
+  assert.equal(nodes.statusStateChip.textContent, "paused in this browser");
+  liveState = optionsState({captureEpoch:25, consentVersion:1, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin]});
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.statusStateChip.textContent, "on");
+
+  // Settings renders secondary headlines and dispatches the primary action.
+  liveState = optionsState({
+    captureEpoch: 26, consentVersion: 1, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin],
+    behind:"extension", updateCheck:"update-available", custody:{full:false, stale:true},
+  });
+  await globalThis.SolstoneOptions.refresh();
+  assert.ok(nodes.statusAlso.children.length > 0);
+  assert.equal(nodes.statusActions.children.length, 1);
+  await nodes.statusActions.children[0].listeners.click();
+  assert.equal(reloadCount, 1);
+  liveState.updateCheck = "no-update";
+  await nodes.statusActions.children[0].listeners.click();
+  assert.equal(reloadCount, 1);
 
   // 9. Checkbox marker label
   assert.match(html, /show a small solstone mark on pages you've added/);

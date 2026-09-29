@@ -17,13 +17,21 @@ await import(new URL("../extension/lib/db.js", import.meta.url));
 await import(new URL("../extension/lib/gate.js", import.meta.url));
 await import(new URL("../extension/lib/native_outbox.js", import.meta.url));
 await import(new URL("../extension/lib/native_port.js", import.meta.url));
+await import(new URL("../extension/lib/owner_sites.js", import.meta.url));
 await import(new URL("../extension/lib/router.js", import.meta.url));
 
 const DB = globalThis.SolstoneDB;
 const Outbox = globalThis.SolstoneNativeOutbox;
 const Router = globalThis.SolstoneRouter;
 const PortController = globalThis.SolstoneNativePort;
-globalThis.chrome = { permissions: { contains: async () => true } };
+globalThis.chrome = { permissions: { contains: async () => true, getAll: async () => ({ origins: ["*://*/*"] }) } };
+const DOCUMENT_KEY = "0123456789abcdef0123456789abcdef";
+const routeWithContentIdentity = Router.route;
+Router.route = (msg, sender, deps) => routeWithContentIdentity(
+  sender?.tab && msg?.kind && !msg.documentKey && !sender.documentId ? { ...msg, documentKey: DOCUMENT_KEY } : msg,
+  sender,
+  deps,
+);
 const confirmRealm = async () => true; // This suite supplies a live-frame confirmation; adversarial tests cover stale frames.
 const EXT_ID = "fgfnkcefedeheoeamppkiiloncfekakf";
 
@@ -144,7 +152,7 @@ test("router: content script creates realm binding on hello", async () => {
   assert.ok(res.ctx);
   assert.equal(res.consentVersion, 1);
 
-  const binding = Router.frameBindings.get("10:0");
+  const binding = Router.frameBindings.get("10:0:doc-1");
   assert.ok(binding);
   assert.equal(binding.realmToken, "realm-1");
   assert.equal(binding.ctx, res.ctx);
@@ -181,7 +189,7 @@ test("router: forged fields do not leak", async () => {
   );
 
   assert.equal(skimRes.ok, true);
-  const bindingCtx = Router.frameBindings.get("20:0").ctx;
+  const bindingCtx = Router.frameBindings.get(`20:0:${DOCUMENT_KEY}`).ctx;
   assert.ok(bindingCtx);
   const skimJson = JSON.stringify(skimRes);
   assert.equal(skimJson.includes(FORGED_MARKER), false);
@@ -227,8 +235,8 @@ test("router: second frame cannot claim another context", async () => {
   assert.equal(skim1.ok, true);
   assert.equal(skim2.ok, true);
 
-  const b1 = Router.frameBindings.get("30:0");
-  const b2 = Router.frameBindings.get("30:1");
+  const b1 = Router.frameBindings.get(`30:0:${DOCUMENT_KEY}`);
+  const b2 = Router.frameBindings.get(`30:1:${DOCUMENT_KEY}`);
   assert.ok(b1);
   assert.ok(b2);
   assert.notEqual(b1.ctx, b2.ctx);
@@ -261,7 +269,7 @@ test("router: document change mints a new ctx", async () => {
   const res2 = await Router.route({ kind: "hello", realmToken: "realm-doc-2" }, sender2, { runtimeId: EXT_ID, port, confirmRealm });
 
   assert.notEqual(res1.ctx, res2.ctx);
-  assert.equal(Router.frameBindings.get("40:0").documentId, "doc-v2");
+  assert.equal(Router.frameBindings.get("40:0:doc-v2").documentIdentity, "doc-v2");
 });
 
 test("router: absent documentId still binds", async () => {
@@ -280,7 +288,7 @@ test("router: absent documentId still binds", async () => {
   const res = await Router.route({ kind: "hello", realmToken: "realm-nodoc" }, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(res.ok, true);
   assert.ok(res.ctx);
-  assert.equal(Router.frameBindings.get("45:0").realmToken, "realm-nodoc");
+  assert.equal(Router.frameBindings.get(`45:0:${DOCUMENT_KEY}`).realmToken, "realm-nodoc");
 
   const skimRes = await Router.route(
     {
@@ -292,9 +300,9 @@ test("router: absent documentId still binds", async () => {
     { runtimeId: EXT_ID, port, confirmRealm }
   );
   assert.equal(skimRes.ok, true);
-  const binding = Router.frameBindings.get("45:0");
+  const binding = Router.frameBindings.get(`45:0:${DOCUMENT_KEY}`);
   assert.ok(binding);
-  assert.equal(binding.documentId, null);
+  assert.equal(binding.documentKey, DOCUMENT_KEY);
   assert.ok(binding.ctx);
 });
 
@@ -493,9 +501,9 @@ test("router: destroyBinding removes binding on tab/frame teardown", async () =>
   const port = makePort();
   port.grantedOrigins.add("https://example.test");
   await Router.route({ kind: "hello", realmToken: "r-destroy" }, sender, { runtimeId: EXT_ID, port, confirmRealm });
-  assert.ok(Router.frameBindings.has("70:0"));
+  assert.ok(Router.frameBindings.has("70:0:doc-70"));
   Router.destroyBinding(70, 0);
-  assert.equal(Router.frameBindings.has("70:0"), false);
+  assert.equal(Router.frameBindings.has("70:0:doc-70"), false);
 });
 
 test("router: setPaused with failing setCfg handles unpause and pause properly", async () => {
@@ -578,7 +586,7 @@ test("router: a new grant requires no local pause or pressure across permission 
   } finally { chrome.permissions.contains=previous; }
 });
 
-test("router: pending intent flow allows addGrantedOrigin through epoch mismatch", async () => {
+test("router: reservation cannot bypass a captured permission epoch mismatch", async () => {
   await resetDB();
   const port = makePort();
   const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
@@ -589,50 +597,54 @@ test("router: pending intent flow allows addGrantedOrigin through epoch mismatch
     port,
   });
   assert.deepEqual(intendRes, { ok: true });
-  assert.ok(port.pendingIntent);
-  assert.equal(port.pendingIntent.origin, "https://mail.google.com");
+  assert.ok(port.ownerSites.reservation);
+  assert.equal(port.ownerSites.reservation.origin, "https://mail.google.com");
 
-  // 2. Epoch bump (simulating onAdded permission event)
-  const previousEpoch = 0; // Simulate initial query recorded epoch 0
-
-  // 3. addGrantedOrigin with permissionEpoch 0 should succeed because of pending intent
-  const addRes = await Router.route({ cmd: "addGrantedOrigin", origin: "https://mail.google.com", permissionEpoch: previousEpoch }, sender, {
-    runtimeId: EXT_ID,
-    port,
-    setCfg: async () => {},
-    registerSite: async () => "ready",
-  });
-  assert.deepEqual(addRes, { ok: true, origin: "https://mail.google.com", registration: "ready" });
-  assert.equal(port.pendingIntent, null); // Intent slot cleared
+  const previousContains = chrome.permissions.contains;
+  let enteredResolve, allowResolve;
+  const entered = new Promise((resolve) => { enteredResolve = resolve; });
+  const allowed = new Promise((resolve) => { allowResolve = resolve; });
+  chrome.permissions.contains = () => { enteredResolve(); return allowed; };
+  let writes = 0;
+  try {
+    const adding = Router.route({ cmd: "addGrantedOrigin", origin: "https://mail.google.com" }, sender, {
+      runtimeId: EXT_ID,
+      port,
+      setCfg: async () => { writes++; },
+      registerSite: async () => "ready",
+    });
+    await entered;
+    port.permissionEpoch = 1;
+    allowResolve(true);
+    const addRes = await adding;
+    assert.deepEqual(addRes, { ok: false, error: "capture_unavailable" });
+    assert.equal(port.grantedOrigins.has("https://mail.google.com"), false);
+    assert.equal(writes, 0, "epoch mismatch must reject before durable choice write");
+    assert.equal(port.ownerSites.reservation, null);
+  } finally {
+    chrome.permissions.contains = previousContains;
+  }
 });
 
-test("router: registerSite reload return sets registration notice and returns registration: reload", async () => {
+test("router: failed truncation dismissal reports storage_error and keeps the row", async () => {
   await resetDB();
   const port = makePort();
   const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
 
-  const addRes = await Router.route({ cmd: "addGrantedOrigin", origin: "https://mail.google.com" }, sender, {
-    runtimeId: EXT_ID,
-    port,
-    setCfg: async () => {},
-    registerSite: async () => "reload",
-  });
-  assert.deepEqual(addRes, { ok: true, origin: "https://mail.google.com", registration: "reload" });
-  assert.ok(port.siteNotices.some((n) => n.origin === "https://mail.google.com" && n.kind === "registration" && n.bound === "reload"));
-});
+  port.truncationByOrigin = { "https://example.com": {
+    count: 1, newestId: "5", dismissThroughId: "", pending: ["5"],
+  } };
 
-test("router: dismissTruncation removes matching truncation notice", async () => {
-  await resetDB();
-  const port = makePort();
-  const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
-
-  await port.setSiteNotice("https://example.com", "truncation", "5");
-  assert.equal(port.siteNotices.length, 1);
-
-  const res = await Router.route({ cmd: "dismissTruncation", origin: "https://example.com", bound: "5" }, sender, {
-    runtimeId: EXT_ID,
-    port,
-  });
-  assert.deepEqual(res, { ok: true, dismissed: true });
-  assert.equal(port.siteNotices.length, 0);
+  const originalPut = DB.put;
+  DB.put = async () => { throw new Error("fixture storage failure"); };
+  try {
+    const res = await Router.route({ cmd: "dismissTruncation", origin: "https://example.com", bound: "5" }, sender, {
+      runtimeId: EXT_ID,
+      port,
+    });
+    assert.deepEqual(res, { ok: false, error: "storage_error" });
+    assert.deepEqual(port.truncationByOrigin["https://example.com"].pending, ["5"]);
+  } finally {
+    DB.put = originalPut;
+  }
 });

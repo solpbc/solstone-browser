@@ -48,6 +48,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
   const STEP1_CANT_REACH_BODY = "the solstone extension works with the solstone app on this computer, and nothing is taken in without it. if the solstone app isn't on this computer yet, get it at solstone.app. this page moves on by itself once the solstone app answers.";
   const STEP1_NOT_PAIRED_BODY = "pair the solstone app on this computer with your journal. this page moves on by itself once it is.";
   const STEP1_INTAKE_OFF_BODY = "turn them on under sources in the solstone app's settings. this page moves on by itself.";
+  const TRUNCATION_ATTENTION = "part of what you shared on this site was too long to keep";
 
   function step3Body(brand) {
     return `open a site you want to share, click solstone in the toolbar, and choose add this site. ${browserName(brand)} will ask you to allow it.`;
@@ -105,6 +106,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     STEP1_CANT_REACH_BODY,
     STEP1_NOT_PAIRED_BODY,
     STEP1_INTAKE_OFF_BODY,
+    TRUNCATION_ATTENTION,
     step3Body,
     linuxUpdateAppReason,
     linuxCantReachAppReason,

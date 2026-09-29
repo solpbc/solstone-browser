@@ -361,6 +361,70 @@ test("gate: deferred callbacks stay closed", async () => {
   assert.equal(skimCount, 0);
 });
 
+test("gate: withdrawal closes a scheduled hello while getAll is pending", async () => {
+  for (const rejectSnapshot of [false, true]) {
+    let reads = 0;
+    const helloCallbacks = [];
+    const messageListeners = [];
+    let settlePermissions;
+    const permissionSnapshot = new Promise((resolve, reject) => {
+      settlePermissions = {resolve, reject};
+    });
+    const fakeChrome = {
+      runtime: {
+        id: "fake-runtime-id",
+        sendMessage: (msg, cb) => { if (msg.kind === "hello") helloCallbacks.push(cb); },
+        onMessage: { addListener: (fn) => messageListeners.push(fn) },
+      },
+    };
+    const sandbox = {
+      globalThis: null,
+      console,
+      crypto,
+      performance: {now: () => 1000},
+      location: {origin:"https://mail.google.com", host:"mail.google.com"},
+      document: {readyState:"complete", title:"Inbox", addEventListener(){}, visibilityState:"visible"},
+      window: {addEventListener(){}},
+      chrome: fakeChrome,
+      setTimeout: () => 1,
+      clearTimeout() {},
+      setInterval: () => 1,
+      clearInterval() {},
+      MutationObserver: class {observe(){} disconnect(){}},
+      SolstoneAdapters: {adapterForHost:() => ({name:"gmail"}), pickRoot:() => {reads++; return {tagName:"DIV",children:[{}]};}},
+      SolstoneSkim: {skim:() => [{id:"1",type:"text",depth:0,text:"Inbox"}]},
+      SolstoneIndicator: {show(){}, remove(){}},
+      SolstoneCaptureGate: Gate,
+    };
+    sandbox.globalThis = sandbox;
+    const contentCode = fs.readFileSync(new URL("../extension/content.js", import.meta.url), "utf-8");
+    vm.runInNewContext(contentCode, sandbox);
+    assert.equal(helloCallbacks.length, 1);
+
+    // Model the background listener's synchronous lease publication before
+    // its permission snapshot resolves or rejects.
+    const removal = (async () => {
+      for (const listener of messageListeners) listener({
+        kind:"leaseUpdate", lease:null, paused:false, consentVersion:1,
+        grantedOrigins:[], showIndicator:false, hostCapture:"permitted", capturePermitted:false,
+        captureEpoch:2,
+      }, {id:"fake-runtime-id"}, () => {});
+      await permissionSnapshot;
+    })();
+    helloCallbacks[0]({
+      ok:true, lease:{token:"old",generation:"g",freshnessMs:10000}, paused:false,
+      consentVersion:1, grantedOrigins:["https://mail.google.com"], hostCapture:"permitted",
+      capturePermitted:true, captureEpoch:1, connectionGeneration:1, destinationGeneration:"g",
+    });
+    assert.equal(reads, 0);
+
+    if (rejectSnapshot) settlePermissions.reject(new Error("permission snapshot unavailable"));
+    else settlePermissions.resolve({origins:[]});
+    await removal.catch(() => {});
+    assert.equal(reads, 0);
+  }
+});
+
 test("gate: reopen after pause snapshots", async () => {
   await resetDB();
 
@@ -584,4 +648,3 @@ test("gate: resnapshot message makes 0 discover/skim calls when closed, 1 when o
   assert.equal(discoverCount, 1);
   assert.equal(skimCount, 1);
 });
-

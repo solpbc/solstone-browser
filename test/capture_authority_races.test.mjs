@@ -20,8 +20,9 @@ for (const f of [
   "lib/db.js",
   "lib/gate.js",
   "lib/native_outbox.js",
-  "lib/router.js",
   "lib/native_port.js",
+  "lib/owner_sites.js",
+  "lib/router.js",
 ])
   await import(root + "/extension/" + f);
 const grant = {
@@ -191,9 +192,11 @@ const sender = {
   url: "https://example.test/page",
   origin: "https://example.test",
 };
-const hello = (realmToken) => ({ kind: "hello", realmToken });
+const DOCUMENT_KEY = "abcdefabcdefabcdefabcdefabcdefab";
+const hello = (realmToken) => ({ kind: "hello", realmToken, documentKey: DOCUMENT_KEY });
 const skim = (realmToken) => ({
   kind: "skim",
+  documentKey: DOCUMENT_KEY,
   captureEpoch: 0,
   realmToken,
   connectionGeneration: 1,
@@ -219,15 +222,15 @@ test("router: remaining lease and live realm confirmation bound every skim", asy
   const a = await R.route(hello("A"), sender, deps);
   assert.equal(a.lease.freshnessMs, 1000);
   assert.equal((await R.route(skim("A"), sender, deps)).ok, true);
-  const ctx = R.frameBindings.get("101:0").ctx;
+  const ctx = R.frameBindings.get(`101:0:${DOCUMENT_KEY}`).ctx;
   await R.route(hello("A"), sender, deps);
-  assert.equal(R.frameBindings.get("101:0").ctx, ctx);
+  assert.equal(R.frameBindings.get(`101:0:${DOCUMENT_KEY}`).ctx, ctx);
   current = "B";
   await R.route(hello("B"), sender, deps);
   assert.equal((await R.route(hello("A"), sender, deps)).ok, false);
   assert.equal((await R.route(skim("A"), sender, deps)).ok, false);
   assert.equal(
-    (await R.route({ kind: "bye", realmToken: "A" }, sender, deps)).ok,
+    (await R.route({ kind: "bye", realmToken: "A", documentKey: DOCUMENT_KEY }, sender, deps)).ok,
     false,
   );
   assert.equal((await R.route(skim("B"), sender, deps)).ok, true);
@@ -243,7 +246,75 @@ test("router: documentId does not let a skim replace the current realm", async (
   const deps = { runtimeId: "ext", port: p, confirmRealm: async () => true };
   await R.route(hello("current"), s, deps);
   assert.equal((await R.route(skim("stale"), s, deps)).ok, false);
-  assert.equal(R.frameBindings.get("101:0").realmToken, "current");
+  assert.equal(R.frameBindings.get("101:0:doc").realmToken, "current");
+});
+
+test("router: omitted unchanged skims record occurrences by retained content and document", async () => {
+  await reset();
+  const notifications = [];
+  const p = new globalThis.SolstoneNativePort({inst, runtimeId:"ext", now:() => 9000});
+  p.grantedOrigins.add("https://example.test");
+  p.hostCapture = "permitted";
+  p.capturePermitted = true;
+  p.consentVersion = 1;
+  p.lease = {token:"tok", generation:"gen", freshnessMs:10000, receivedAt:0};
+  p.connectionGeneration = 1;
+  p.destinationGeneration = "gen";
+  p.onStatusChange = (status) => notifications.push(status);
+  const deps = {runtimeId:"ext", port:p, confirmRealm:async () => true};
+  const docKey = "abcdefabcdefabcdefabcdefabcdefab";
+  const firstHello = await R.route({...hello("A"), documentKey:docKey}, sender, deps);
+  const message = (overrides = {}) => ({
+    ...skim("A"),
+    documentKey:docKey,
+    captureEpoch:firstHello.captureEpoch,
+    ...overrides,
+  });
+
+  const initial = await R.route(message(), sender, deps);
+  assert.equal(initial.ok, true);
+  assert.equal(initial.result.enqueued, true);
+  const notificationsAfterInitial = notifications.length;
+  const firstOmitted = await R.route(message({omitted:true, clips:["label"]}), sender, deps);
+  assert.equal(firstOmitted.ok, true);
+  assert.equal(firstOmitted.result.enqueued, false);
+  assert.equal(firstOmitted.result.disposition, "empty");
+  assert.equal(p.truncationByOrigin["https://example.test"].count, 1);
+  assert.equal(notifications.length, notificationsAfterInitial + 1, "empty enqueue still publishes a new omitted occurrence");
+  const firstId = p.truncationByOrigin["https://example.test"].newestId;
+  assert.match(firstId, new RegExp("^" + docKey + ":"));
+
+  await R.route(message({omitted:true, clips:["label"]}), sender, deps);
+  assert.equal(p.truncationByOrigin["https://example.test"].count, 1, "identical reread is deduplicated");
+  await R.route(message({omitted:true, clips:["blocks", "label"]}), sender, deps);
+  assert.equal(p.truncationByOrigin["https://example.test"].count, 2, "a changed clip set is a new observation");
+
+  const otherDocKey = "fedcbafedcbafedcbafedcbafedcbafe";
+  const otherSender = {...sender, frameId:1};
+  const otherHello = await R.route({...hello("B"), documentKey:otherDocKey}, otherSender, deps);
+  const otherMessage = {
+    ...skim("B"),
+    documentKey:otherDocKey,
+    captureEpoch:otherHello.captureEpoch,
+    omitted:true,
+    clips:["label"],
+  };
+  const other = await R.route(otherMessage, otherSender, deps);
+  assert.equal(other.ok, true);
+  assert.equal(p.truncationByOrigin["https://example.test"].count, 3, "a second document has a separate occurrence");
+
+  const origin = "https://example.test";
+  const newestId = p.truncationByOrigin[origin].newestId;
+  assert.deepEqual(await p.dismissTruncation(origin, newestId), {ok:true, dismissed:true});
+  assert.equal(p.truncationByOrigin[origin].count, 0);
+
+  await R.route(message({omitted:true, clips:["label"]}), sender, deps);
+  await R.route(otherMessage, otherSender, deps);
+  assert.equal(p.truncationByOrigin[origin].count, 0, "dismiss-through suppresses earlier occurrences from both documents");
+
+  const changed = await R.route({...otherMessage, clips:["text", "label"]}, otherSender, deps);
+  assert.equal(changed.ok, true);
+  assert.equal(p.truncationByOrigin[origin].count, 1, "a changed observation after dismissal is recorded");
 });
 
 test("capture transaction aborts when authorization closes after write success", async () => {
@@ -277,7 +348,7 @@ test("grant completion rechecks app state and consent after permission await", a
   await reset();
   const p = port(),
     ext = { id: "ext", url: "chrome-extension://ext/popup.html" };
-  globalThis.chrome = { permissions: { contains: async () => true } };
+  globalThis.chrome = { permissions: { contains: async () => true, getAll: async () => ({ origins: ["*://*/*"] }) } };
   const deps = { runtimeId: "ext", port: p, setCfg: async () => {} };
   p.hostCapture = "not_paired";
   assert.equal(

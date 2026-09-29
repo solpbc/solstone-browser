@@ -104,7 +104,7 @@
   // DOM (soft-hyphen, CGJ, Mongolian vowel separator, ZWSP/ZWNJ/ZWJ, word-joiner,
   // BOM). Stripping them makes identical content hash identically (kills
   // preheader-junk churn) and collapses pure-invisible runs to empty.
-  const INVISIBLE = /[­͏᠎​-‍⁠﻿]/g;
+  const INVISIBLE = /[­͏᠎​-‍⁠﻿]/;
 
   // Pure: count of non-whitespace characters — used to drop junk (single-char,
   // separator-only, or invisible-only) blocks.
@@ -133,29 +133,81 @@
     return str.slice(0, index);
   }
 
-  function countCodePoints(s) {
-    if (s == null) return 0;
-    let count = 0;
-    for (let i = 0; i < s.length; i++) {
-      const code = s.charCodeAt(i);
-      if (code >= 0xd800 && code <= 0xdbff && i + 1 < s.length) {
-        const next = s.charCodeAt(i + 1);
-        if (next >= 0xdc00 && next <= 0xdfff) {
-          i++;
+  function createTextResultBuilder(maxPoints = MAX_TEXT) {
+    let out = "";
+    let points = 0;
+    let pendingWhitespace = "";
+    let pendingOverflow = false;
+    let truncated = false;
+
+    function appendPoint(point) {
+      if (!point || truncated) return;
+      if (points === maxPoints) {
+        truncated = true;
+        return;
+      }
+      out += point;
+      points++;
+    }
+
+    function flushWhitespace() {
+      if (!out) {
+        pendingWhitespace = "";
+        pendingOverflow = false;
+        return;
+      }
+      if (pendingOverflow) truncated = true;
+      else {
+        for (const point of pendingWhitespace) {
+          appendPoint(point);
+          if (truncated) break;
         }
       }
-      count++;
+      pendingWhitespace = "";
+      pendingOverflow = false;
     }
-    return count;
+
+    function queueWhitespace(point) {
+      if (pendingWhitespace.length > maxPoints) pendingOverflow = true;
+      else pendingWhitespace += point;
+    }
+
+    function append(value) {
+      if (value == null || truncated) return !truncated;
+      for (const point of String(value)) {
+        if (INVISIBLE.test(point)) continue;
+        if (point === "\n") {
+          pendingWhitespace = "\n";
+          pendingOverflow = false;
+          continue;
+        }
+        if (/[ \t ]/.test(point)) {
+          if (pendingWhitespace !== "\n" && !pendingWhitespace.endsWith(" ")) queueWhitespace(" ");
+          continue;
+        }
+        if (/\s/.test(point)) {
+          if (pendingWhitespace !== "\n") queueWhitespace(point);
+          continue;
+        }
+        flushWhitespace();
+        appendPoint(point);
+        if (truncated) break;
+      }
+      return !truncated;
+    }
+
+    function result() {
+      return { text: out + (truncated ? "…" : ""), truncated };
+    }
+
+    return { append, result, get truncated() { return truncated; } };
   }
 
   // Pure: strip invisibles, collapse whitespace, trim, cap length, record truncation.
-  function normalizeTextResult(s) {
-    if (s == null) return { text: "", truncated: false };
-    let out = String(s).replace(/[ \t ]+/g, " ").replace(/\s*\n\s*/g, "\n").replace(INVISIBLE, "").trim();
-    const truncated = countCodePoints(out) > MAX_TEXT;
-    if (truncated) out = sliceCodePoints(out, MAX_TEXT) + "…";
-    return { text: out, truncated };
+  function normalizeTextResult(s, maxPoints = MAX_TEXT) {
+    const builder = createTextResultBuilder(maxPoints);
+    builder.append(s);
+    return builder.result();
   }
 
   function normalizeText(s) {
@@ -186,10 +238,19 @@
   }
 
   // DOM helper (browser-only): read the few semantic attrs worth keeping.
-  function readAttrs(el) {
+  function readAttrs(el, report) {
     const attrs = {};
     const label = el.getAttribute && (el.getAttribute("aria-label") || el.getAttribute("title"));
-    if (label) attrs.label = sliceCodePoints(normalizeText(label), 300);
+    if (label) {
+      const normalized = normalizeTextResult(label, 300);
+      if (normalized.truncated) {
+        if (report) {
+          report.omitted = true;
+          if (report.clips instanceof Set) report.clips.add("label");
+        }
+      }
+      attrs.label = sliceCodePoints(normalized.text, 300);
+    }
     const level = el.getAttribute && el.getAttribute("aria-level");
     if (level) attrs.level = level;
     if (el.tagName === "A" && el.getAttribute("href")) {
@@ -213,6 +274,7 @@
     hashStr,
     normalizeText,
     normalizeTextResult,
+    createTextResultBuilder,
     visibleLen,
     blockId,
     originPath,

@@ -17,6 +17,7 @@ await import(new URL("../extension/lib/segment.js", import.meta.url));
 await import(new URL("../extension/lib/gate.js", import.meta.url));
 await import(new URL("../extension/lib/native_outbox.js", import.meta.url));
 await import(new URL("../extension/lib/native_port.js", import.meta.url));
+await import(new URL("../extension/lib/owner_sites.js", import.meta.url));
 await import(new URL("../extension/lib/router.js", import.meta.url));
 
 const Constants = globalThis.SolstoneNativeBrowserConstants;
@@ -171,6 +172,8 @@ test("port: behind app does not request an extension update", async () => {
   await new Promise((r) => queueMicrotask(r));
   assert.equal(checkCalled, false);
   assert.equal(controller.updateCheck, "pending");
+  assert.equal(controller.behind, "app");
+  assert.equal(controller.getStatus().behind, "app", "released unsupported port keeps its version skew state");
 });
 
 test("port: update check settles to no-update", async () => {
@@ -830,7 +833,7 @@ test("router: caller mutation after route does not affect stored records", async
     period_id: "p-1",
   });
 
-  globalThis.chrome = { permissions: { contains: async () => true } };
+  globalThis.chrome = { permissions: { contains: async () => true, getAll: async () => ({ origins: ["*://*/*"] }) } };
   const extSender = {
     id: "fgfnkcefedeheoeamppkiiloncfekakf",
     url: "chrome-extension://fgfnkcefedeheoeamppkiiloncfekakf/popup.html",
@@ -847,7 +850,7 @@ test("router: caller mutation after route does not affect stored records", async
     origin: "https://mail.google.com",
   };
 
-  const helloRes = await Router.route({ kind: "hello", realmToken: "realm-mut" }, contentSender, { runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", port, confirmRealm: async () => true });
+  const helloRes = await Router.route({ kind: "hello", realmToken: "realm-mut", documentKey: "1234567890abcdef1234567890abcdef" }, contentSender, { runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", port, confirmRealm: async () => true });
   assert.equal(helloRes.ok, true);
 
   const blockObj = { id: "b1", type: "heading", depth: 0, text: "Original Text" };
@@ -855,6 +858,7 @@ test("router: caller mutation after route does not affect stored records", async
     {
       kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration, destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token,
       realmToken: "realm-mut",
+      documentKey: "1234567890abcdef1234567890abcdef",
       meta: { title: "Inbox", adapter: "gmail" },
       blocks: [blockObj],
     },
@@ -1150,7 +1154,7 @@ test("port: poll awaits retirement before connect or drain and records lossNotic
   }
 });
 
-test("port: accepted message clears registration notice for matching batch origin only", async () => {
+test("port: accepted receipt does not clear registration or truncation state", async () => {
   await resetDB();
   const mockPort = new MockPort();
   const controller = new PortController({
@@ -1159,16 +1163,11 @@ test("port: accepted message clears registration notice for matching batch origi
     connectNative: () => mockPort,
   });
 
-  // Set notices
-  await controller.setSiteNotice("https://example.com", "registration", "reload");
-  await controller.setSiteNotice("https://other.com", "registration", "reload");
-  await controller.setSiteNotice("https://example.com", "truncation", "1");
+  await controller.setRegistration("https://example.com", "reload");
+  await controller.setRegistration("https://other.com", "reload");
+  await controller.recordTruncation("https://example.com", "occurrence-1");
 
-  assert.equal(controller.siteNotices.length, 3);
-
-  // Map batch to https://example.com
   const batchId = "a".repeat(32);
-  controller.batchOriginMap.set(batchId, "https://example.com");
 
   controller.connect();
   await mockPort.receive({
@@ -1197,34 +1196,116 @@ test("port: accepted message clears registration notice for matching batch origi
     period_id: "p-1",
   });
 
-  // Registration notice for https://example.com should be cleared
-  // Truncation notice for https://example.com and registration for https://other.com remain!
-  assert.equal(controller.siteNotices.length, 2);
-  assert.equal(controller.siteNotices.some((n) => n.origin === "https://example.com" && n.kind === "registration"), false);
-  assert.equal(controller.siteNotices.some((n) => n.origin === "https://example.com" && n.kind === "truncation"), true);
-  assert.equal(controller.siteNotices.some((n) => n.origin === "https://other.com" && n.kind === "registration"), true);
+  assert.equal(controller.registration["https://example.com"], "reload");
+  assert.equal(controller.registration["https://other.com"], "reload");
+  assert.deepEqual(controller.truncationByOrigin["https://example.com"].pending, ["occurrence-1"]);
 });
 
-test("port: dismissTruncation removes only matching origin and bound", async () => {
+test("port: dismissTruncation dismisses through the named occurrence for one origin", async () => {
   await resetDB();
   const controller = new PortController({
     inst: "00000000-0000-0000-0000-000000000001",
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
   });
 
-  await controller.setSiteNotice("https://example.com", "truncation", "1");
-  await controller.setSiteNotice("https://example.com", "truncation", "2");
+  await controller.recordTruncation("https://example.com", "1");
+  await controller.recordTruncation("https://example.com", "2");
+  await controller.recordTruncation("https://other.com", "x");
 
-  assert.equal(controller.siteNotices.length, 1); // replaces in place by (origin, kind)
-  assert.equal(controller.siteNotices[0].bound, "2");
-
+  assert.equal(controller.truncationByOrigin["https://example.com"].count, 2);
   const res1 = await controller.dismissTruncation("https://example.com", "1");
-  assert.equal(res1, false);
-  assert.equal(controller.siteNotices.length, 1);
+  assert.deepEqual(res1, { ok: true, dismissed: true });
+  assert.deepEqual(controller.truncationByOrigin["https://example.com"].pending, ["2"]);
+  assert.deepEqual(controller.truncationByOrigin["https://other.com"].pending, ["x"]);
 
   const res2 = await controller.dismissTruncation("https://example.com", "2");
-  assert.equal(res2, true);
-  assert.equal(controller.siteNotices.length, 0);
+  assert.deepEqual(res2, { ok: true, dismissed: true });
+  assert.equal(controller.truncationByOrigin["https://example.com"].count, 0);
+});
+
+test("port: dismissed earlier occurrences stay suppressed without affecting another origin", async () => {
+  await resetDB();
+  const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+  });
+  let notifications = 0;
+  controller.onStatusChange = () => { notifications++; };
+
+  const origin = "https://example.com";
+  const otherOrigin = "https://other.com";
+  await controller.recordTruncation(origin, "doc-a");
+  await controller.recordTruncation(origin, "doc-b");
+  await controller.recordTruncation(otherOrigin, "other-doc");
+  const otherBeforeDismiss = structuredClone(controller.truncationByOrigin[otherOrigin]);
+
+  assert.deepEqual(await controller.dismissTruncation(origin, "doc-b"), {ok:true, dismissed:true});
+  assert.equal(controller.truncationByOrigin[origin].count, 0);
+  assert.deepEqual(controller.truncationByOrigin[origin].dismissed, ["doc-a", "doc-b"]);
+  assert.deepEqual(controller.truncationByOrigin[otherOrigin], otherBeforeDismiss);
+
+  const beforeRepeats = notifications;
+  assert.deepEqual(await controller.recordTruncation(origin, "doc-a"), {ok:true, recorded:false});
+  assert.deepEqual(await controller.recordTruncation(origin, "doc-b"), {ok:true, recorded:false});
+  assert.equal(controller.truncationByOrigin[origin].count, 0);
+  assert.equal(notifications, beforeRepeats);
+
+  assert.deepEqual(await controller.recordTruncation(origin, "doc-c"), {ok:true, recorded:true});
+  assert.equal(controller.truncationByOrigin[origin].count, 1);
+  assert.equal(controller.truncationByOrigin[origin].newestId, "doc-c");
+  assert.deepEqual(controller.truncationByOrigin[otherOrigin], otherBeforeDismiss);
+});
+
+test("port: truncation records deduplicate, cap at sixteen, and roll back failed writes", async () => {
+  await resetDB();
+  let notifications = 0;
+  const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+    onStatusChange: () => { notifications++; },
+  });
+  const origin = "https://example.com";
+  assert.equal((await controller.recordTruncation(origin, "1")).recorded, true);
+  assert.equal((await controller.recordTruncation(origin, "1")).recorded, false);
+  assert.equal(controller.truncationByOrigin[origin].count, 1);
+  assert.equal(notifications, 1);
+  for (let id = 2; id <= 17; id++) await controller.recordTruncation(origin, String(id));
+  assert.equal(controller.truncationByOrigin[origin].count, 16);
+  assert.equal(controller.truncationByOrigin[origin].pending[0], "2");
+  assert.equal(controller.truncationByOrigin[origin].pending.at(-1), "17");
+
+  const previousPut = DB.put;
+  DB.put = async () => { throw new Error("fixture storage failure"); };
+  const beforeFailure = notifications;
+  try {
+    const record = await controller.recordTruncation(origin, "18");
+    assert.deepEqual(record, {ok:false, error:"storage_error"});
+    assert.equal(controller.truncationByOrigin[origin].count, 16);
+    const dismiss = await controller.dismissTruncation(origin, "2");
+    assert.deepEqual(dismiss, {ok:false, error:"storage_error"});
+    assert.equal(controller.truncationByOrigin[origin].pending[0], "2");
+    assert.equal(notifications, beforeFailure);
+  } finally {
+    DB.put = previousPut;
+  }
+});
+
+test("port: truncation records do not evict origins at the former 48-row cap", async () => {
+  await resetDB();
+  const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+  });
+  await Promise.all([
+    controller.recordTruncation("https://site0.example", "document-0"),
+    controller.recordTruncation("https://site1.example", "document-1"),
+  ]);
+  for (let i = 2; i < 49; i++) {
+    await controller.recordTruncation("https://site" + i + ".example", "document-" + i);
+  }
+  assert.equal(Object.keys(controller.truncationByOrigin).length, 49);
+  assert.equal(controller.truncationByOrigin["https://site0.example"].count, 1);
+  assert.equal(controller.truncationByOrigin["https://site48.example"].count, 1);
 });
 
 test("port: getStatus().addSiteEligible evaluates eligibility independently of grantedOrigins count", async () => {
@@ -1241,12 +1322,20 @@ test("port: getStatus().addSiteEligible evaluates eligibility independently of g
   controller.capturePermitted = true;
   controller.lease = { token: "tok-1", generation: "gen-1", freshnessMs: 10000, receivedAt: controller.now() };
   controller.grantedOrigins.clear();
+  controller.ownerSites.reservation = {
+    origin: "https://pending.example",
+    pattern: "*://pending.example/*",
+    expiresAt: controller.now() + 10000,
+  };
 
   // 1. True with zero grantedOrigins when conditions are met
   let status = controller.getStatus();
   assert.equal(status.grantedOrigins.length, 0);
   assert.equal(status.addSiteEligible, true);
   assert.equal(status.gate.open, false);
+  assert.equal(Object.hasOwn(status, "reservation"), false);
+  assert.equal(Object.hasOwn(status, "pendingIntent"), false);
+  assert.equal(status.openTabs.anyGrantedTabOpen, null);
 
   // 2. False when consent missing
   controller.consentVersion = 0;
@@ -1271,6 +1360,3 @@ test("port: getStatus().addSiteEligible evaluates eligibility independently of g
   status = controller.getStatus();
   assert.equal(status.addSiteEligible, false);
 });
-
-
-

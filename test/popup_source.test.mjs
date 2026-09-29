@@ -23,7 +23,7 @@ test("popup HTML fixes the section order and heading contract", () => {
 });
 
 test("popup consumes the upstream status derivations without recreating them", () => {
-  assert.match(popupSource, /Status\.derive\(state,/);
+  assert.match(popupSource, /Status\.derive\(state, extras\)/);
   assert.match(viewSource, /SolstoneStatus\.siteRow\(/);
   assert.doesNotMatch(popupSource, /cfg\.key|localRegistered|journalUrl|journalPermission|journalIntent/);
 });
@@ -122,10 +122,11 @@ function popupState(overrides = {}) {
     hostCapture: "permitted",
     hostDelivery: "delivered",
     hostFailure: null,
+    lease: { token: "test", freshnessMs: 10000 },
     custody: { full: false, stale: false },
     behind: null,
     pressure: { active: false },
-    siteNotices: [],
+    siteErrors: { registration: {}, enqueue: {} },
     siteRejection: null,
     lossNotice: null,
     paused: false,
@@ -165,6 +166,12 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   let handleCommand = () => ({ ok: true });
   let permissionRequests = 0;
   let optionsOpened = 0;
+  let statusListener = null;
+  let disconnectListener = null;
+  let heldStateCallback = null;
+  let holdNextState = false;
+  let reloadCount = 0;
+  const createdTabs = [];
   const sent = [];
   const mutationCommands = (messages) => messages.filter(
     (message) => ["addGrantedOrigin", "removeGrantedOrigin"].includes(message.cmd),
@@ -173,19 +180,23 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
     runtime: {
       sendMessage(message, callback) {
         sent.push(message);
-        callback(message.cmd === "getState" ? liveState : handleCommand(message));
+        if (message.cmd === "getState" && holdNextState) {
+          holdNextState = false;
+          heldStateCallback = callback;
+        } else callback(message.cmd === "getState" ? liveState : handleCommand(message));
       },
       openOptionsPage() {
         optionsOpened += 1;
       },
+      reload() { reloadCount++; },
       connect() {
         return {
-          onMessage: { addListener() {} },
-          onDisconnect: { addListener() {} },
+          onMessage: { addListener(fn) { statusListener = fn; } },
+          onDisconnect: { addListener(fn) { disconnectListener = fn; } },
         };
       },
     },
-    tabs: { query: (...args) => tabQuery(...args) },
+    tabs: { query: (...args) => tabQuery(...args), create: (info) => createdTabs.push(info) },
     permissions: {
       request: async () => {
         permissionRequests += 1;
@@ -201,12 +212,19 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   await import(new URL("../extension/lib/failures.js", import.meta.url));
   await import(new URL("../extension/lib/disclosure.js", import.meta.url));
   await import(new URL("../extension/lib/popup_view.js", import.meta.url));
+  await import(new URL("../extension/lib/actions.js", import.meta.url));
   await import(new URL("../extension/popup.js", import.meta.url));
   await new Promise((resolve) => setImmediate(resolve));
 
   const verdictNode = nodes.verdict;
   assert.equal(verdictNode.id, "verdict");
   assert.equal(nodes.verdictHeadline.textContent, "on");
+  liveState = popupState({ paused: true });
+  statusListener({ type: "status", status: liveState });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(nodes.verdictHeadline.textContent, "paused in this browser");
+  liveState = popupState();
+  await globalThis.SolstonePopup.refresh();
   nodes.actionMessage.textContent = "previous action";
 
   liveState = popupState({
@@ -265,7 +283,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
       liveState = popupState({
         chosenOrigins: ["https://mail.google.com"],
         grantedOrigins: ["https://mail.google.com"],
-        siteNotices: [{ origin: "https://mail.google.com", kind: "registration", bound: "reload" }],
+        registration: { "https://mail.google.com": "reload" },
       });
       return { ok: false, error: rawRegistrationError };
     }
@@ -289,5 +307,101 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   await nodes.pauseAction.onclick();
   assert.notEqual(nodes.actionMessage.textContent, pauseError);
   assert.match(nodes.actionMessage.textContent, /^something went wrong/);
-});
 
+  // Status envelope, equal-epoch tab projections, and lower-epoch rejection.
+  const origin = "https://mail.google.com";
+  const status = (captureEpoch, overrides = {}) => popupState({
+    captureEpoch,
+    chosenOrigins: [origin],
+    grantedOrigins: [origin],
+    ...overrides,
+  });
+  statusListener({type:"status", status:status(10)});
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(nodes.verdictReason.textContent, "");
+  statusListener({type:"status", status:status(10, {
+    openTabs:{known:true, openOrigins:[], anyGrantedTabOpen:false},
+  })});
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.notEqual(nodes.verdictReason.textContent, "");
+  statusListener({type:"status", status:status(10, {
+    openTabs:{known:true, openOrigins:[origin], anyGrantedTabOpen:true},
+  })});
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(nodes.verdictReason.textContent, "");
+
+  statusListener({type:"status", status:status(11, {paused:true})});
+  await new Promise((resolve) => setImmediate(resolve));
+  statusListener({type:"status", status:status(10)});
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(nodes.verdictHeadline.textContent, "paused in this browser");
+  statusListener({type:"status", status:status(12)});
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(nodes.verdictHeadline.textContent, "on");
+
+  holdNextState = true;
+  const oldReply = globalThis.SolstonePopup.refresh();
+  statusListener({type:"status", status:status(14, {paused:true})});
+  await new Promise((resolve) => setImmediate(resolve));
+  heldStateCallback(status(12));
+  await oldReply;
+  assert.equal(nodes.verdictHeadline.textContent, "paused in this browser");
+
+  holdNextState = true;
+  const preDisconnect = globalThis.SolstonePopup.refresh();
+  liveState = status(14, {paused:true});
+  disconnectListener();
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  heldStateCallback(status(12));
+  await preDisconnect;
+  assert.equal(nodes.verdictHeadline.textContent, "paused in this browser");
+  liveState = status(15);
+  await globalThis.SolstonePopup.refresh();
+  assert.equal(nodes.verdictHeadline.textContent, "on");
+
+  // A failed active-tab lookup affects the page block, not background open tabs.
+  tabQuery = async () => { throw new Error("active tab lookup failed"); };
+  liveState = status(16, {openTabs:{known:true, openOrigins:[origin], anyGrantedTabOpen:true}});
+  await globalThis.SolstonePopup.refresh();
+  assert.equal(nodes.verdictHeadline.textContent, "on");
+
+  // Popup get-app uses the exact app URL with no search string.
+  statusListener({type:"status", status:popupState({
+    captureEpoch:17, connected:false, everConnected:false, chosenOrigins:[], grantedOrigins:[],
+  })});
+  await new Promise((resolve) => setImmediate(resolve));
+  await nodes.verdictActions.children[0].listeners.click();
+  assert.equal(createdTabs.at(-1).url, "https://solstone.app");
+  assert.equal(new URL(createdTabs.at(-1).url).search, "");
+
+  // The Settings and update actions share one dispatcher with fresh-state validation.
+  const action = globalThis.SolstoneActions;
+  liveState = popupState({captureEpoch:18, behind:"extension", updateCheck:"update-available"});
+  await action.run({id:"update-now"}, {
+    cmd: (message) => message.cmd === "getState" ? liveState : {},
+    refresh: async () => {},
+    reload: () => { reloadCount++; },
+  });
+  assert.equal(reloadCount, 1);
+  liveState.updateCheck = "no-update";
+  await action.run({id:"update-now"}, {
+    cmd: (message) => message.cmd === "getState" ? liveState : {},
+    refresh: async () => {},
+    reload: () => { reloadCount++; },
+  });
+  assert.equal(reloadCount, 1);
+
+  liveState = popupState({
+    captureEpoch:19,
+    truncationByOrigin:{[origin]:{count:1, newestId:"doc:clip", dismissThroughId:"", pending:["doc:clip"]}},
+  });
+  await globalThis.SolstonePopup.refresh();
+  handleCommand = (message) => message.cmd === "dismissTruncation"
+    ? {ok:false, error:"storage_error"} : {ok:true};
+  const truncationRow = nodes.siteIssueRows.children.find((node) => node.children.some((child) => child.textContent === "mail.google.com"));
+  const visibleRows = nodes.siteIssueRows.children.length;
+  await truncationRow.children.find((child) => child.listeners.click).listeners.click();
+  assert.ok(nodes.actionMessage.textContent);
+  assert.equal(nodes.siteIssueRows.children.length, visibleRows, "failed dismissal leaves the row rendered");
+});

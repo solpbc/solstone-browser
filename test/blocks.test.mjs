@@ -69,6 +69,22 @@ test("normalizeTextResult accurately reports truncation strictly over 2000 code 
   assert.equal(result.text, "a".repeat(B.MAX_TEXT) + "…");
 });
 
+test("readAttrs reports only labels longer than 300 code points", () => {
+  const read = (label) => {
+    const report = { omitted: false, clips: new Set() };
+    const attrs = B.readAttrs({ getAttribute: (name) => name === "aria-label" ? label : null, tagName: "DIV" }, report);
+    return { attrs, report };
+  };
+  const exact = read("x".repeat(300));
+  assert.equal(exact.attrs.label.length, 300);
+  assert.equal(exact.report.omitted, false);
+  assert.deepEqual(Array.from(exact.report.clips), []);
+  const clipped = read("x".repeat(301));
+  assert.equal(clipped.attrs.label.length, 300);
+  assert.equal(clipped.report.omitted, true);
+  assert.deepEqual(Array.from(clipped.report.clips), ["label"]);
+});
+
 test("normalizeText strips invisible/zero-width chars (preheader junk)", () => {
   assert.equal(B.normalizeText("a​b"), "ab"); // zero-width space
   assert.equal(B.normalizeText("hi⁠ there"), "hi there"); // word-joiner, space kept

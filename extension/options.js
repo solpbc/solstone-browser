@@ -10,11 +10,15 @@
   const Disclosure = globalThis.SolstoneDisclosure;
   const Copy = globalThis.SolstoneCopy;
   const View = globalThis.SolstonePopupView;
+  const Actions = globalThis.SolstoneActions;
   const $ = (id) => document.getElementById(id);
   const cmd = (message) => new Promise((resolve) => chrome.runtime.sendMessage(message, (response) => resolve(response || {})));
 
   let state = null;
   let disclosureResolve = null;
+  let step1Action = null;
+  let paintSequence = 0;
+  let appliedCaptureEpoch = -1;
 
   function normHost(input) {
     let host = input.trim();
@@ -87,8 +91,12 @@
     if (!Hosts.isValidHostInput(raw)) {
       return;
     }
-    const host = normHost(raw);
-    const result = await View.addSite(host, Object.assign(siteEffects(), { disclose: presentDisclosure }));
+    let input = normHost(raw);
+    try {
+      if (/^https?:\/\//i.test(raw.trim())) input = new URL(raw.trim()).origin;
+    } catch (_e) {}
+    const displayHost = input.startsWith("http") ? new URL(input).hostname : input;
+    const result = await View.addSite(input, Object.assign(siteEffects(), { disclose: presentDisclosure }));
     if (result.cancelled) return;
     if (result.ok && inputElement) inputElement.value = "";
     await refresh();
@@ -96,36 +104,32 @@
     if (result.error) {
       showActionError(result.error);
     } else if (result.ok) {
-      const origin = host.startsWith("http") ? host : `https://${host}`;
-      const row = Status.siteRow(host, state, { activeSites: [] });
+      const origin = input.startsWith("http") ? input : `https://${input}`;
+      const row = Status.siteRow(origin, state);
       if (row.kind === "on-now") {
-        announce(`${host} added. what you share there now goes into your journal.`, "ok");
+        announce(`${displayHost} added. what you share there now goes into your journal.`, "ok");
       } else {
-        announce(`${host} added.`, "ok");
+        announce(`${displayHost} added.`, "ok");
       }
     }
   }
 
   async function runSiteAction(action) {
     clearAnnouncement();
-    if (action.id === "remove-site") {
-      const origin = action.origin || (action.host && action.host.startsWith("http") ? action.host : `https://${action.host}`);
-      const result = await cmd({ cmd: "removeGrantedOrigin", origin });
-      await refresh();
-      if (result.error) showActionError(result.error);
-      return;
-    }
-    if (action.id === "allow-again" || action.id === "allow-site") {
-      const result = await View.grantSite(action.host, siteEffects());
-      await refresh();
-      if (result.error) showActionError(result.error);
-      return;
-    }
-    if (action.id === "dismiss-truncation") {
-      await cmd({ cmd: "dismissTruncation", origin: action.origin || action.host, bound: action.bound });
-      await refresh();
-      return;
-    }
+    await Actions.run(action, sharedActionEffects());
+  }
+
+  function sharedActionEffects() {
+    return {
+      cmd, refresh,
+      openSettings: () => chrome.runtime.openOptionsPage(),
+      openApp: () => chrome.tabs.create({ url: "https://solstone.app" }),
+      reload: () => chrome.runtime.reload(),
+      grantSite: (origin) => View.grantSite(origin, siteEffects()),
+      showError: showActionError,
+      showDenied: () => announce("permission declined. this site stays paused.", "bad"),
+      lossSeq: () => state?.lossNotice?.seq,
+    };
   }
 
   function renderSiteRowsInto(containerId, allowlist) {
@@ -136,10 +140,10 @@
     for (const entry of allowlist) {
       let host = entry;
       try {
-        if (entry.startsWith("http")) host = new URL(entry).host;
+        if (entry.startsWith("http")) host = new URL(entry).hostname;
       } catch (_e) {}
 
-      const rowState = Status.siteRow(host, state, { activeSites: [] });
+      const rowState = Status.siteRow(entry, state);
       const row = document.createElement("div");
       row.className = "site";
       const copyEl = document.createElement("div");
@@ -148,7 +152,7 @@
       hostEl.className = "site-host";
       hostEl.textContent = host;
       const statusEl = document.createElement("div");
-      statusEl.className = `site-state${rowState.kind === "on-now" ? " ok" : (rowState.kind === "paused-by-browser" || rowState.kind === "pressure-here") ? " bad" : ""}`;
+      statusEl.className = `site-state${rowState.kind === "on-now" ? " ok" : rowState.kind === "paused-by-browser" ? " bad" : ""}`;
       statusEl.textContent = rowState.label;
       copyEl.append(hostEl, statusEl);
 
@@ -169,9 +173,27 @@
       row.append(copyEl, actions);
       list.append(row);
     }
+
+    for (const [origin, notice] of Object.entries(state?.truncationByOrigin || {})) {
+      if (!(notice?.count > 0)) continue;
+      const attention = document.createElement("div");
+      attention.className = "site-issue";
+      const sentence = document.createElement("div");
+      sentence.className = "w";
+      sentence.textContent = Copy.TRUNCATION_ATTENTION;
+      const count = document.createElement("div");
+      count.className = "count";
+      count.textContent = String(notice.count);
+      const dismiss = document.createElement("button");
+      dismiss.type = "button";
+      dismiss.textContent = "dismiss";
+      dismiss.addEventListener("click", () => runSiteAction({ id: "dismiss-truncation", origin, bound: notice.newestId }));
+      attention.append(sentence, count, dismiss);
+      list.append(attention);
+    }
   }
 
-  function getStep1State(st, derived) {
+  function getStep1State(st) {
     if (!st || typeof st !== "object" || st.ok === false || !st.inst) {
       return {
         heading: "looking for the solstone app on this computer…",
@@ -180,77 +202,12 @@
         met: false,
       };
     }
-
-    const platform = st.platform || "";
-
-    // 1. Layer 1 Version Skew
-    if (st.behind === "extension" || st.behind === "app") {
-      const item = Status.derive(st, { anyGrantedTabOpen: false });
-      return { heading: item.headline, body: item.reason, action: item.action, met: false };
-    }
-
-    // 2. Transport
-    if (!st.connected) {
-      return {
-        heading: "can't reach the solstone app",
-        body: Copy.STEP1_CANT_REACH_BODY,
-        action: { id: "get-app", label: "get the solstone app" },
-        met: false,
-      };
-    }
-
-    // 3. Handshake connecting
-    if (st.handshake === "pending") {
-      const item = Status.derive(st, { anyGrantedTabOpen: false });
-      return { heading: item.headline, body: item.reason, action: item.action, met: false };
-    }
-
-    // 4. Not paired
-    if (st.hostCapture === "not_paired") {
-      return {
-        heading: "the solstone app isn't paired yet",
-        body: Copy.STEP1_NOT_PAIRED_BODY,
-        action: null,
-        met: false,
-      };
-    }
-
-    // 5. Intake off
-    if (st.hostCapture === "intake_off") {
-      if (st.hostFailure === "unaccepted_lost" || st.hostFailure === "queue_full" || st.hostFailure === "local_io" || st.hostFailure === "resource_exhausted" || st.hostFailure === "age_policy") {
-        const item = Status.derive(st, { anyGrantedTabOpen: false });
-        return { heading: item.headline, body: item.reason, action: item.action, met: false };
-      }
-      return {
-        heading: "browser pages are off in the solstone app",
-        body: platform === "linux" ? "" : Copy.STEP1_INTAKE_OFF_BODY,
-        action: null,
-        met: false,
-      };
-    }
-
-    // 6. Layer 4 Custody limits & storage pressure
-    if (st.custody?.full === true || st.pressure?.active === true) {
-      const item = Status.derive(Object.assign({}, st, { consentVersion: 1, chosenOrigins: ["https://example.com"] }), { anyGrantedTabOpen: false });
-      return { heading: item.headline, body: item.reason, action: item.action, met: false };
-    }
-
-    // 7. Paused app
-    if (st.hostCapture === "paused") {
-      return {
-        heading: "found the solstone app, paired with your journal. it's paused right now.",
-        body: "",
-        action: null,
-        met: true,
-      };
-    }
-
-    // 8. Otherwise met
+    const hold = Status.welcomeHold(st);
     return {
-      heading: "found the solstone app, paired with your journal",
-      body: "",
-      action: null,
-      met: true,
+      heading: hold.heading,
+      body: hold.body,
+      action: hold.action,
+      met: hold.met,
     };
   }
 
@@ -267,7 +224,8 @@
     }
 
     // Step 1
-    const step1 = getStep1State(state, derived);
+    const step1 = getStep1State(state);
+    step1Action = step1.action;
     if ($("step1Heading")) $("step1Heading").textContent = step1.heading;
     if ($("step1Check")) $("step1Check").hidden = !step1.met;
     if ($("step1Body")) $("step1Body").textContent = step1.body;
@@ -349,6 +307,27 @@
       $("statusReason").textContent = derived.reason || "";
       $("statusReason").hidden = !derived.reason;
     }
+    const also = $("statusAlso");
+    if (also) {
+      also.replaceChildren();
+      for (const item of derived.also || []) {
+        const headline = document.createElement("div");
+        headline.className = "status-also";
+        headline.textContent = item.headline;
+        also.append(headline);
+      }
+    }
+    const actions = $("statusActions");
+    if (actions) {
+      actions.replaceChildren();
+      if (derived.action) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = derived.action.label;
+        button.addEventListener("click", () => Actions.run(derived.action, sharedActionEffects()));
+        actions.append(button);
+      }
+    }
 
     // Sites Section
     const allowlist = Array.isArray(state && state.chosenOrigins)
@@ -365,11 +344,12 @@
     if ($("settingsDisclosureBody") && Copy) $("settingsDisclosureBody").textContent = Copy.DISCLOSURE_BODY;
   }
 
-  async function refresh() {
-    state = await cmd({ cmd: "getState" });
+  function paint(nextState, sequence) {
+    if (sequence !== paintSequence) return;
+    state = nextState;
     if ($("ver")) $("ver").textContent = state && state.version ? `v${state.version}` : "";
 
-    const derived = Status.derive(state, { anyGrantedTabOpen: false });
+    const derived = Status.derive(state);
 
     if ($("optionsMark")) {
       $("optionsMark").src = `brand/mark-${derived.mark || "healthy"}.svg`;
@@ -392,6 +372,24 @@
     return { derived };
   }
 
+  function applyStatus(nextState) {
+    const epoch = Number.isSafeInteger(nextState?.captureEpoch) ? nextState.captureEpoch : appliedCaptureEpoch;
+    if (epoch < appliedCaptureEpoch) return;
+    appliedCaptureEpoch = Math.max(appliedCaptureEpoch, epoch);
+    const sequence = ++paintSequence;
+    paint(nextState, sequence);
+  }
+
+  async function refresh() {
+    const sequence = ++paintSequence;
+    const nextState = await cmd({ cmd: "getState" });
+    if (sequence !== paintSequence) return;
+    const epoch = Number.isSafeInteger(nextState?.captureEpoch) ? nextState.captureEpoch : appliedCaptureEpoch;
+    if (epoch < appliedCaptureEpoch) return;
+    appliedCaptureEpoch = Math.max(appliedCaptureEpoch, epoch);
+    return paint(nextState, sequence);
+  }
+
   // Welcome Step 2 Agree Button
   if ($("agreeDisclosureBtn")) {
     $("agreeDisclosureBtn").addEventListener("click", async () => {
@@ -399,6 +397,12 @@
       const result = await cmd({ cmd: "acknowledgeDisclosure", version: 1 });
       if (result.error) showActionError(result.error);
       await refresh();
+    });
+  }
+
+  if ($("step1ActionBtn")) {
+    $("step1ActionBtn").addEventListener("click", () => {
+      if (step1Action) Actions.run(step1Action, sharedActionEffects());
     });
   }
 
@@ -440,9 +444,10 @@
   try {
     const port = chrome.runtime.connect({ name: "status" });
     port.onMessage.addListener((msg) => {
-      if (msg && msg.topic === "status") refresh();
+      if (msg?.type === "status" && msg.status) applyStatus(msg.status);
     });
     port.onDisconnect.addListener(() => {
+      paintSequence++;
       refresh();
     });
   } catch (_e) {}

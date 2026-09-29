@@ -19,6 +19,7 @@ if (typeof importScripts === "function") {
     "lib/native_outbox.js",
     "lib/native_port.js",
     "lib/status.js",
+    "lib/owner_sites.js",
     "lib/router.js"
   );
 }
@@ -60,6 +61,7 @@ let port = null;
 let initPromise = null;
 let permissionEpoch = 0;
 let badgeEpoch = 0;
+let openTabsGeneration = 0;
 let badgeChain = Promise.resolve();
 const statusPorts = new Set();
 
@@ -133,6 +135,32 @@ async function updateBadge(status) {
     await chrome.action.setTitle({ title });
   });
   await badgeChain.catch(() => {});
+}
+
+function refreshOpenTabs() {
+  if (!port) return;
+  const generation = ++openTabsGeneration;
+  let settled = false;
+  const finish = (tabs, failed) => {
+    if (settled) return;
+    settled = true;
+    if (!port || generation !== openTabsGeneration) return;
+    if (failed || !Array.isArray(tabs)) {
+      port.openTabs = { generation, known: false, openOrigins: null, anyGrantedTabOpen: null };
+    } else {
+      const projected = Status.projectOpenTabs(tabs, { grantedOrigins: Array.from(port.grantedOrigins || []) });
+      port.openTabs = { generation, ...projected };
+    }
+    port.notify();
+  };
+  try {
+    const pending = chrome.tabs.query({}, (tabs) => finish(tabs, !!chrome.runtime.lastError));
+    if (pending && typeof pending.then === "function") {
+      pending.then((tabs) => finish(tabs, !!chrome.runtime.lastError), () => finish(null, true));
+    }
+  } catch (_e) {
+    finish(null, true);
+  }
 }
 
 function broadcastLeaseUpdate(status, epoch = badgeEpoch) {
@@ -304,9 +332,12 @@ async function runReconcile() {
     return [];
   }
 
-  const exemptPatterns = (port?.pendingIntent && port.now() < port.pendingIntent.expiresAt)
-    ? [port.pendingIntent.pattern]
-    : [];
+  let reservation = port?.ownerSites?.reservation || null;
+  if (reservation && port.now() >= reservation.expiresAt) {
+    Router.applyOwnerEvent(port, { type: "drop-reservation" });
+    reservation = null;
+  }
+  const exemptPatterns = reservation ? [reservation.pattern] : [];
 
   const actions = Reconcile.reconcile({
     granted,
@@ -347,7 +378,8 @@ async function doInit() {
   const everConnected = !!(await DB.get("meta", "everConnected"));
   const cfg = await getCfg();
   const lossNotice = await DB.get("meta", "lossNotice");
-  const storedNotices = (await DB.get("meta", "siteNotices"))?.items || [];
+  const storedTruncation = await DB.get("meta", "truncationByOrigin");
+  const storedSiteErrors = await DB.get("meta", "siteErrors");
 
   let platform = "";
   try {
@@ -372,13 +404,17 @@ async function doInit() {
     port.requestSnapshots = requestSnapshots;
   }
 
-  port.siteNotices = storedNotices;
   port.consentVersion = consentVersion;
   port.lossNotice = lossNotice || null;
   port.everConnected = everConnected;
   port.paused = cfg.paused;
   port.showPageIndicator = cfg.showPageIndicator;
   port.chosenOrigins = new Set(cfg.chosenOrigins || []);
+  port.truncationByOrigin = storedTruncation && typeof storedTruncation === "object" ? storedTruncation : {};
+  port.registration = storedSiteErrors?.registration && typeof storedSiteErrors.registration === "object" ? storedSiteErrors.registration : {};
+  port.enqueue = storedSiteErrors?.enqueue && typeof storedSiteErrors.enqueue === "object" ? storedSiteErrors.enqueue : {};
+  port.siteErrors = { registration: { ...port.registration }, enqueue: { ...port.enqueue } };
+  port.ownerSites = { ...(port.ownerSites || {}), reservation: null, registration: port.registration, enqueue: port.enqueue };
 
   port.permissionEpoch = permissionEpoch;
   let permissionsSettled = false;
@@ -396,13 +432,7 @@ async function doInit() {
         if (perms.origins?.includes(pattern) || perms.origins?.includes("*://*/*")) {
           liveGranted.add(origin);
           const regRes = await registerSite(u.host);
-          if (regRes === "failed") {
-            await port.setSiteNotice(origin, "registration", "failed");
-          } else if (regRes === "reload") {
-            await port.setSiteNotice(origin, "registration", "reload");
-          } else {
-            await port.clearRegistrationNotice(origin);
-          }
+          await port.setRegistration(origin, regRes);
         } else {
           missingPatterns.push(pattern);
         }
@@ -412,6 +442,8 @@ async function doInit() {
     if (epoch !== permissionEpoch) continue;
     port.chosenOrigins = new Set(latestCfg.chosenOrigins);
     port.grantedOrigins = liveGranted;
+    port.ownerSites.registration = port.registration;
+    port.ownerSites.enqueue = port.enqueue;
     port.drift = missingPatterns.length ? { patterns: Array.from(new Set(missingPatterns)).sort() } : null;
     permissionsSettled = true;
     break;
@@ -425,6 +457,7 @@ async function doInit() {
   await runReconcile().catch(() => {});
   port.connect();
   updateBadge();
+  refreshOpenTabs();
   return port;
 }
 
@@ -465,6 +498,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       removeSiteOrigin,
       broadcastPause,
       broadcastIndicator,
+      refreshOpenTabs,
     };
     return Router.route(msg, sender, deps);
   }).then(sendResponse, (err) => {
@@ -475,7 +509,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   Router.destroyBinding(tabId);
+  refreshOpenTabs();
 });
+chrome.tabs.onCreated?.addListener(() => refreshOpenTabs());
+chrome.tabs.onUpdated?.addListener(() => refreshOpenTabs());
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) {
@@ -490,79 +527,77 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 chrome.permissions.onRemoved.addListener(async (details) => {
   const removedPatterns = details?.origins || [];
-  permissionEpoch++;
   if (port) {
-    port.permissionEpoch = permissionEpoch;
-    const toRemove = [];
-    for (const origin of port.grantedOrigins) {
-      try {
-        const u = new URL(origin);
-        const hostPattern = H.matchPatternFor(u.host);
-        if (removedPatterns.some((pattern) => {
-          if (pattern === "<all_urls>" || pattern === hostPattern) return true;
-          const match = /^(\*|https?):\/\/([^/]+)\//.exec(pattern);
-          if (!match || (match[1] !== "*" && match[1] + ":" !== u.protocol)) return false;
-          const host = match[2];
-          return host === "*" || host === u.hostname ||
-            (host.startsWith("*.") && (u.hostname === host.slice(2) || u.hostname.endsWith(host.slice(1))));
-        })) {
-          toRemove.push(origin);
-        }
-      } catch (_e) {}
-    }
-    for (const o of toRemove) {
-      port.grantedOrigins.delete(o);
-    }
-    const perms = await chrome.permissions.getAll().catch(() => ({ origins: [] }));
+    Router.applyOwnerEvent(port, { type: "browser-removed", patterns: removedPatterns });
+    permissionEpoch = port.permissionEpoch;
+    port.notify();
+    refreshOpenTabs();
+    const epochAtStart = permissionEpoch;
+    let perms;
+    try { perms = await chrome.permissions.getAll(); }
+    catch (_e) { return; }
+    if (permissionEpoch !== epochAtStart || !Array.isArray(perms?.origins)) return;
     const missing = [];
     for (const o of port.chosenOrigins) {
       try {
         const pat = H.matchPatternFor(new URL(o).host);
-        if (!perms.origins?.includes(pat) && !perms.origins?.includes("*://*/*")) {
+        if (!perms.origins.includes(pat) && !perms.origins.includes("*://*/*")) {
           missing.push(pat);
         }
       } catch (_e) {}
     }
     port.drift = missing.length ? { patterns: Array.from(new Set(missing)).sort() } : null;
     port.notify();
+    runReconcile().catch(() => {});
+    return;
   }
+  permissionEpoch++;
   runReconcile().catch(() => {});
 });
 
 chrome.permissions.onAdded.addListener(async (details) => {
   const addedPatterns = details?.origins || [];
-  const isPendingMatch = port?.pendingIntent && port.now() < port.pendingIntent.expiresAt &&
-    addedPatterns.length > 0 && addedPatterns.every((p) => p === port.pendingIntent.pattern);
-
-  if (!isPendingMatch) {
-    permissionEpoch++;
-    if (port) port.permissionEpoch = permissionEpoch;
-  }
-
   if (port) {
-    const perms = await chrome.permissions.getAll().catch(() => ({ origins: [] }));
-    for (const o of port.chosenOrigins) {
-      try {
-        const u = new URL(o);
-        const pat = H.matchPatternFor(u.host);
-        if (perms.origins?.includes(pat) || perms.origins?.includes("*://*/*")) {
-          port.grantedOrigins.add(o);
-          registerSite(u.host).catch(() => {});
-        }
-      } catch (_e) {}
-    }
+    const sync = Router.applyOwnerEvent(port, { type: "browser-added-sync", patterns: addedPatterns, now: port.now() });
+    permissionEpoch = port.permissionEpoch;
+    const epochAtStart = sync.result.epochAtStart;
+    let perms;
+    try { perms = await chrome.permissions.getAll(); }
+    catch (_e) { return; }
+    if (permissionEpoch !== epochAtStart || !Array.isArray(perms?.origins)) return;
+    const published = Router.applyOwnerEvent(port, { type: "publish-grants", livePatterns: perms.origins, epochAtStart });
+    if (!published.result.ok) return;
     const missing = [];
     for (const o of port.chosenOrigins) {
       try {
         const pat = H.matchPatternFor(new URL(o).host);
-        if (!perms.origins?.includes(pat) && !perms.origins?.includes("*://*/*")) {
+        if (!perms.origins.includes(pat) && !perms.origins.includes("*://*/*")) {
           missing.push(pat);
         }
       } catch (_e) {}
     }
     port.drift = missing.length ? { patterns: Array.from(new Set(missing)).sort() } : null;
+    const epochs = Router.ownerStateFor(port);
+    for (const origin of Array.from(port.grantedOrigins)) {
+      if (permissionEpoch !== epochAtStart) return;
+      let host;
+      try { host = new URL(origin).host; } catch (_e) { continue; }
+      let status = "failed";
+      try { status = await registerSite(host); } catch (_e) {}
+      const noted = Router.applyOwnerEvent(port, {
+        type: "note-registration", origin, status,
+        capturedGrantEpoch: epochs.grantEpoch, capturedPermissionEpoch: epochAtStart,
+      });
+      if (!noted.result.ok) return;
+      await port.setRegistration(origin, status);
+    }
+    if (permissionEpoch !== epochAtStart) return;
     port.notify();
+    refreshOpenTabs();
+    runReconcile().catch(() => {});
+    return;
   }
+  permissionEpoch++;
   runReconcile().catch(() => {});
 });
 

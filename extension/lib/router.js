@@ -9,13 +9,44 @@
   const Gate = globalThis.SolstoneCaptureGate;
   const Outbox = globalThis.SolstoneNativeOutbox;
   const H = globalThis.SolstoneHosts;
+  const OwnerSites = globalThis.SolstoneOwnerSites;
 
   const frameBindings = new Map(); // key -> binding
   const frameChallenges = new Map(); // tabId:frameId -> challenge
   let ctxCounter = 0;
   let grantChain = Promise.resolve();
-  let grantEpoch = 0;
   let pauseEpoch = 0;
+
+  function ownerStateFor(port) {
+    const current = port.ownerSites || {};
+    return {
+      grantEpoch: Number.isSafeInteger(current.grantEpoch) ? current.grantEpoch : 0,
+      permissionEpoch: Number.isSafeInteger(port.permissionEpoch) ? port.permissionEpoch : 0,
+      chosen: Array.from(port.chosenOrigins || []),
+      granted: Array.from(port.grantedOrigins || []),
+      reservation: current.reservation || null,
+      registration: { ...(port.registration || current.registration || {}) },
+      enqueue: { ...(port.enqueue || current.enqueue || {}) },
+    };
+  }
+
+  function applyOwnerEvent(port, event) {
+    if (!OwnerSites?.apply) throw new Error("missing SolstoneOwnerSites");
+    const transition = OwnerSites.apply(ownerStateFor(port), event);
+    const state = transition.state;
+    port.ownerSites = {
+      grantEpoch: state.grantEpoch,
+      reservation: state.reservation,
+      registration: state.registration,
+      enqueue: state.enqueue,
+    };
+    port.permissionEpoch = state.permissionEpoch;
+    port.chosenOrigins = new Set(state.chosen);
+    port.grantedOrigins = new Set(state.granted);
+    port.registration = state.registration;
+    port.enqueue = state.enqueue;
+    return transition;
+  }
 
   function mintCtx() {
     ctxCounter++;
@@ -128,16 +159,12 @@
             return { ok: false, error: "invalid_origin" };
           }
           const pat = H && H.matchPatternFor ? H.matchPatternFor(host) : `*://${host}/*`;
-          port.pendingIntent = {
-            origin,
-            pattern: pat,
-            expiresAt: port.now() + 120000,
-          };
+          applyOwnerEvent(port, { type: "reserve", origin, pattern: pat, now: port.now() });
           return { ok: true };
         }
 
         case "clearAddIntent": {
-          port.pendingIntent = null;
+          applyOwnerEvent(port, { type: "drop-reservation" });
           return { ok: true };
         }
 
@@ -145,22 +172,23 @@
           const origin = normalizeOrigin(msg.origin);
           const bound = typeof msg.bound === "string" ? msg.bound : String(msg.bound || "");
           if (!origin || !bound) return { ok: false, error: "invalid_params" };
-          const dismissed = port.dismissTruncation ? await port.dismissTruncation(origin, bound) : false;
-          return { ok: true, dismissed };
+          const result = port.dismissTruncation ? await port.dismissTruncation(origin, bound) : { ok: true, dismissed: false };
+          return result?.ok === false ? result : { ok: true, dismissed: !!result?.dismissed };
         }
 
         case "addGrantedOrigin": {
-          const epoch = grantEpoch;
-          const permissionEpoch = port.permissionEpoch || 0;
           const origin = normalizeOrigin(msg.origin);
           if (!origin) return { ok: false, error: "invalid_origin" };
 
           const operation = grantChain.catch(() => {}).then(async () => {
+            const start = ownerStateFor(port);
+            const capturedGrantEpoch = start.grantEpoch;
+            const capturedPermissionEpoch = start.permissionEpoch;
             let host = "";
             try {
               host = new URL(origin).host;
             } catch (_e) {
-              port.pendingIntent = null;
+              applyOwnerEvent(port, { type: "drop-reservation" });
               return { ok: false, error: "invalid_origin" };
             }
 
@@ -179,77 +207,59 @@
               hasPerm = false;
             }
 
-            const canGrant = () => {
-              const epochOk = (epoch === grantEpoch && permissionEpoch === (port.permissionEpoch || 0)) ||
-                (port.pendingIntent && port.now() < port.pendingIntent.expiresAt && port.pendingIntent.origin === origin && hasPerm);
-              return epochOk &&
-                !port.paused && !port.pressure?.active && port.consentVersion === Gate.CONSENT_VERSION &&
-                port.capturePermitted === true && port.hostCapture === "permitted" && !port.custody?.full &&
-                port.lease && port.now() < port.lease.receivedAt + port.lease.freshnessMs;
-            };
+            const liveAuth = !port.paused && !port.pressure?.active && port.consentVersion === Gate.CONSENT_VERSION &&
+              port.capturePermitted === true && port.hostCapture === "permitted" && port.custody?.full !== true &&
+              port.lease && port.now() < port.lease.receivedAt + port.lease.freshnessMs;
+            const admission = applyOwnerEvent(port, {
+              type: "begin-add", origin, now: port.now(), liveAuth: !!liveAuth, hasPerm,
+              capturedGrantEpoch, capturedPermissionEpoch,
+            });
+            if (!admission.result.ok) return admission.result;
 
-            if (!canGrant()) {
-              port.pendingIntent = null;
-              return { ok: false, error: "capture_unavailable" };
-            }
-
-            if (port.consentVersion !== Gate.CONSENT_VERSION) {
-              port.pendingIntent = null;
-              return { ok: false, error: "missing_consent" };
-            }
-
-            if (!hasPerm) {
-              port.pendingIntent = null;
-              return { ok: false, error: "permission_not_granted" };
-            }
-
-            if (!canGrant()) {
-              port.pendingIntent = null;
-              return { ok: false, error: "capture_unavailable" };
-            }
-
-            const prevChosen = Array.from(port.chosenOrigins || []);
-            const nextChosen = Array.from(new Set([...prevChosen, origin]));
-            let saveOk = false;
-            if (deps.setCfg) {
-              try {
-                await deps.setCfg({ chosenOrigins: nextChosen });
-                saveOk = true;
-              } catch (_e) {
-                saveOk = false;
-              }
-            } else {
-              saveOk = true;
-            }
-
-            if (!saveOk) {
-              port.pendingIntent = null;
+            const nextChosen = Array.from(new Set([...Array.from(port.chosenOrigins || []), origin]));
+            try {
+              if (deps.setCfg) await deps.setCfg({ chosenOrigins: nextChosen });
+            } catch (_e) {
+              applyOwnerEvent(port, { type: "drop-reservation" });
               return { ok: false, error: "storage_error" };
             }
 
-            if (!canGrant()) {
-              if (deps.setCfg) await deps.setCfg({ chosenOrigins: prevChosen });
-              port.pendingIntent = null;
+            const fence = applyOwnerEvent(port, {
+              type: "fence-add", origin, capturedGrantEpoch, capturedPermissionEpoch, phase: "after-choice-write",
+            });
+            if (!fence.result.ok) {
+              if (fence.effects.includes("align-durable-to-memory") && deps.setCfg) {
+                try { await deps.setCfg({ chosenOrigins: Array.from(port.chosenOrigins || []) }); }
+                catch (_e) { return { ok: false, error: "storage_error" }; }
+              }
+              port.notify();
+              return fence.result;
+            }
+
+            let livePerms;
+            try {
+              const perms = typeof chrome !== "undefined" && chrome.permissions?.getAll ? await chrome.permissions.getAll() : null;
+              if (!Array.isArray(perms?.origins)) throw new Error("permission snapshot unavailable");
+              livePerms = perms.origins;
+            } catch (_e) {
+              const moved = ownerStateFor(port).grantEpoch !== capturedGrantEpoch;
+              if (moved && !port.chosenOrigins.has(origin) && deps.setCfg) {
+                try { await deps.setCfg({ chosenOrigins: Array.from(port.chosenOrigins || []) }); }
+                catch (_err) { applyOwnerEvent(port, { type: "drop-reservation" }); return { ok: false, error: "storage_error" }; }
+              }
+              applyOwnerEvent(port, { type: "drop-reservation" });
+              port.notify();
               return { ok: false, error: "capture_unavailable" };
             }
 
-            port.chosenOrigins.add(origin);
-            let livePerms = [];
-            try {
-              const p = typeof chrome !== "undefined" && chrome.permissions?.getAll ? await chrome.permissions.getAll() : null;
-              livePerms = p?.origins || [];
-            } catch (_e) {}
-            port.grantedOrigins = new Set();
-            for (const o of port.chosenOrigins) {
-              try {
-                const u = new URL(o);
-                const pPat = H && H.matchPatternFor ? H.matchPatternFor(u.host) : `*://${u.host}/*`;
-                if (livePerms.includes(pPat) || (livePerms.includes("*://*/*") && hasPerm)) {
-                  port.grantedOrigins.add(o);
-                }
-              } catch (_e) {}
+            const published = applyOwnerEvent(port, {
+              type: "publish-grants", livePatterns: livePerms, epochAtStart: capturedPermissionEpoch,
+            });
+            if (!published.result.ok) {
+              applyOwnerEvent(port, { type: "drop-reservation" });
+              port.notify();
+              return { ok: false, error: "capture_unavailable" };
             }
-            if (hasPerm) port.grantedOrigins.add(origin);
 
             let regStatus = "ready";
             if (typeof deps.registerSite === "function") {
@@ -260,24 +270,33 @@
               }
             }
 
-            if (regStatus === "failed") {
-              port.chosenOrigins.delete(origin);
-              port.grantedOrigins.delete(origin);
-              if (deps.setCfg) await deps.setCfg({ chosenOrigins: Array.from(port.chosenOrigins) });
-              port.pendingIntent = null;
+            const registered = applyOwnerEvent(port, {
+              type: "note-registration", origin, status: regStatus, capturedGrantEpoch, capturedPermissionEpoch,
+            });
+            if (!registered.result.ok) {
+              applyOwnerEvent(port, { type: "drop-reservation" });
               port.notify();
+              deps.refreshOpenTabs?.();
+              return { ok: false, error: "capture_unavailable" };
+            }
+
+            if (regStatus === "failed") {
+              if (port.setRegistration) await port.setRegistration(origin, "failed");
+              applyOwnerEvent(port, { type: "drop-reservation" });
+              port.notify();
+              deps.refreshOpenTabs?.();
               return { ok: false, error: "registration_failed", registration: "failed" };
             }
 
-            if (regStatus === "reload") {
-              await port.setSiteNotice(origin, "registration", "reload");
-            } else if (regStatus === "ready") {
-              await port.clearRegistrationNotice(origin);
-            }
+            if (port.setRegistration) await port.setRegistration(origin, regStatus);
 
-            port.pendingIntent = null;
+            applyOwnerEvent(port, { type: "drop-reservation" });
             port.notify();
-            if (!canGrant() || !port.grantedOrigins.has(origin)) return { ok: false, error: "capture_unavailable" };
+            deps.refreshOpenTabs?.();
+            const final = ownerStateFor(port);
+            if (final.grantEpoch !== capturedGrantEpoch || final.permissionEpoch !== capturedPermissionEpoch || !port.grantedOrigins.has(origin)) {
+              return { ok: false, error: "capture_unavailable" };
+            }
             return { ok: true, origin, registration: regStatus };
           });
           grantChain = operation;
@@ -288,10 +307,9 @@
           const origin = normalizeOrigin(msg.origin);
           if (!origin) return { ok: false, error: "invalid_origin" };
 
-          grantEpoch++;
-          port.chosenOrigins?.delete(origin);
-          port.grantedOrigins?.delete(origin);
+          applyOwnerEvent(port, { type: "owner-remove", origin });
           port.notify();
+          deps.refreshOpenTabs?.();
           let saved = true;
           if (deps.setCfg) {
             try {
@@ -404,13 +422,6 @@
           return { ok: true, dismissed };
         }
 
-        case "dismissTruncation": {
-          const origin = typeof msg.origin === "string" ? msg.origin : "";
-          const bound = typeof msg.bound === "string" ? msg.bound : "";
-          const dismissed = await port.dismissTruncation(origin, bound);
-          return { ok: true, dismissed: !!dismissed };
-        }
-
         default:
           return { ok: false, error: "unknown_command" };
       }
@@ -422,7 +433,7 @@
 
     const tabId = sender.tab.id;
     const frameId = sender.frameId || 0;
-    const docId = sender.documentId || null;
+    const browserDocumentId = sender.documentId || null;
 
     let senderOrigin = null;
     let senderUrl = "";
@@ -452,38 +463,54 @@
     if (!realmToken || typeof realmToken !== "string") {
       return { ok: false, error: "missing_realm_token" };
     }
+    const documentKey = typeof msg.documentKey === "string" && /^[0-9a-f]{32}$/.test(msg.documentKey) ? msg.documentKey : null;
+    if (!browserDocumentId && !documentKey) return { ok: false, error: "missing_document_key" };
+    const documentIdentity = browserDocumentId || documentKey;
 
-    const fKey = frameKeyFor(tabId, frameId, null);
+    const fKey = frameKeyFor(tabId, frameId, documentIdentity);
+    const challengeKey = `${tabId}:${frameId}`;
     let binding = frameBindings.get(fKey);
     if (msg.kind === "hello") {
       // Ask the live frame which realm is running. A delayed message from a
       // retired document cannot appoint itself the current realm (Firefox 140
       // does not supply documentId).
       const challenge = {};
-      frameChallenges.set(fKey, challenge);
+      frameChallenges.set(challengeKey, challenge);
       let confirmed = false;
       try {
         if (deps.confirmRealm) {
-          confirmed = await deps.confirmRealm(tabId, frameId, realmToken, docId);
+          confirmed = await deps.confirmRealm(tabId, frameId, realmToken, browserDocumentId || documentKey);
         } else if (typeof chrome !== "undefined" && chrome.tabs?.sendMessage) {
           const response = await chrome.tabs.sendMessage(tabId, { kind: "confirmRealm" }, { frameId });
           confirmed = response?.realmToken === realmToken;
         }
       } catch (_e) {}
-      if (!confirmed || frameChallenges.get(fKey) !== challenge) {
+      if (!confirmed || frameChallenges.get(challengeKey) !== challenge) {
         return { ok: false, error: "challenge_mismatch" };
       }
       binding = frameBindings.get(fKey);
-      if (binding && (binding.realmToken !== realmToken || binding.documentId !== docId || binding.origin !== senderOrigin)) {
-        destroyBinding(tabId, frameId);
+      if (binding && (binding.realmToken !== realmToken || binding.documentIdentity !== documentIdentity || binding.origin !== senderOrigin)) {
+        const old = frameBindings.get(fKey);
+        if (old && Outbox.pruneCursor) Outbox.pruneCursor(old.inst, old.ctx).catch(() => {});
+        frameBindings.delete(fKey);
         binding = null;
       }
       if (!binding) {
-        binding = { tabId, frameId, realmToken, documentId: docId,
+        // A frame has one live document. Drop prior document bindings only
+        // after the live realm challenge confirms this hello.
+        const prefix = `${tabId}:${frameId}:`;
+        for (const [key, previous] of frameBindings) {
+          if (key !== fKey && key.startsWith(prefix)) {
+            if (Outbox.pruneCursor) Outbox.pruneCursor(previous.inst, previous.ctx).catch(() => {});
+            frameBindings.delete(key);
+          }
+        }
+        binding = { tabId, frameId, realmToken, documentIdentity, documentKey,
           origin: senderOrigin, ctx: mintCtx(), url: senderUrl, inst: port.inst };
         frameBindings.set(fKey, binding);
       }
-    } else if (!binding || binding.realmToken !== realmToken || binding.documentId !== docId || binding.origin !== senderOrigin) {
+    } else if (!binding || binding.realmToken !== realmToken || binding.documentIdentity !== documentIdentity || binding.origin !== senderOrigin ||
+        (!browserDocumentId && binding.documentKey !== documentKey)) {
       return { ok: false, error: "challenge_mismatch" };
     }
 
@@ -553,6 +580,7 @@
           return true;
         };
 
+        const clips = Array.isArray(msg.clips) ? Array.from(new Set(msg.clips.filter((clip) => ["blocks", "text", "label"].includes(clip)))).sort() : [];
         try {
           const result = await Outbox.enqueueSkim({
             inst: port.inst,
@@ -570,20 +598,19 @@
 
           if (!authorize()) return { ok: false, error: "authority_mismatch" };
 
+          if (msg.omitted === true && port.recordTruncation) {
+            const observationId = `${binding.documentIdentity}:${Blocks.hashStr(JSON.stringify(blocksList))}:${msg.omitted === true}:${clips.join(",")}`;
+            const recorded = await port.recordTruncation(senderOrigin, observationId);
+            if (!recorded?.ok) return { ok: false, error: "storage_error" };
+          }
+
           if (result && result.enqueued) {
-            if (result.batchId && port.batchOriginMap) {
-              port.batchOriginMap.set(result.batchId, senderOrigin);
-              if (port.batchOriginMap.size > 64) {
-                const firstKey = port.batchOriginMap.keys().next().value;
-                port.batchOriginMap.delete(firstKey);
-              }
-            }
-            if (msg.omitted === true && port.setSiteNotice) {
-              await port.setSiteNotice(senderOrigin, "truncation", String(result.seq || Date.now()));
-            }
             if (result.pressure) port.pressure = result.pressure;
+            if (port.clearSiteError) await port.clearSiteError("enqueue", senderOrigin);
             port.notify();
             port.drain();
+          } else if (port.clearSiteError) {
+            await port.clearSiteError("enqueue", senderOrigin);
           }
 
           return {
@@ -606,9 +633,8 @@
               port.pressure = { active: true, blockedAtBytes: cap.totalBytes };
             } catch (_e) {}
           }
-          if (port.setSiteNotice) {
-            await port.setSiteNotice(senderOrigin, "enqueue", noticeBound);
-          }
+          if (port.setEnqueueError) await port.setEnqueueError(senderOrigin, noticeBound);
+          port.notify();
           return { ok: false, error: err.code || "enqueue_failed" };
         }
       }
@@ -625,6 +651,8 @@
 
   globalThis.SolstoneRouter = {
     route,
+    applyOwnerEvent,
+    ownerStateFor,
     destroyBinding,
     normalizeOrigin,
     isExtensionPageSender,

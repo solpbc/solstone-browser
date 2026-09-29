@@ -24,12 +24,14 @@ function mockStatus(overrides = {}) {
     hostFailure: null,
     custody: { full: false, stale: false },
     destinationGeneration: 1,
-    lease: { expiresAt: Date.now() + 60000 },
+    lease: { token: "t", freshnessMs: 60000, receivedAt: 0 },
     connectionGeneration: 1,
     connectionToken: "token-1",
     behind: null,
     pressure: { active: false },
-    siteNotices: [],
+    openTabs: { known: false, openOrigins: null, anyGrantedTabOpen: null },
+    registration: {},
+    enqueue: {},
     siteRejection: null,
     lossNotice: null,
     drift: null,
@@ -111,9 +113,12 @@ test("derive ladder covers all layer kinds and marks", () => {
   assert.equal(S.derive(mockStatus({ custody: { full: true } })).kind, "app-store-full");
   assert.equal(S.derive(mockStatus({ custody: { full: true } })).mark, "offline");
 
-  assert.equal(S.derive(mockStatus({ hostCapture: "intake_off", hostFailure: "unaccepted_lost" })).kind, "lost-and-held");
-  assert.equal(S.derive(mockStatus({ hostCapture: "intake_off", hostFailure: "unaccepted_lost" })).mark, "attention");
-  assert.equal(S.derive(mockStatus({ hostCapture: "intake_off", hostFailure: "unaccepted_lost" })).badge, "!");
+  const lostAndHeld = S.derive(mockStatus({ hostCapture: "intake_off", hostFailure: "unaccepted_lost" }));
+  assert.equal(lostAndHeld.kind, "lost-and-held");
+  assert.equal(lostAndHeld.mark, "attention");
+  assert.equal(lostAndHeld.badge, "!");
+  assert.equal(lostAndHeld.action, null);
+  assert.notEqual(S.derive(mockStatus({ hostCapture: "permitted", hostFailure: null })).kind, "lost-and-held");
 
   assert.equal(S.derive(mockStatus({ hostCapture: "intake_off", hostFailure: "resource_exhausted" })).kind, "intake-held");
   assert.equal(S.derive(mockStatus({ hostCapture: "intake_off", hostFailure: "resource_exhausted" })).mark, "offline");
@@ -134,9 +139,9 @@ test("derive ladder covers all layer kinds and marks", () => {
   assert.equal(S.derive(mockStatus({ inactiveOrigins: ["https://example.com"] })).mark, "attention");
   assert.equal(S.derive(mockStatus({ inactiveOrigins: ["https://example.com"] })).badge, "!");
 
-  assert.equal(S.derive(mockStatus({ siteNotices: [{ origin: "https://example.com", kind: "registration", bound: "reload" }] })).kind, "site-error");
-  assert.equal(S.derive(mockStatus({ siteNotices: [{ origin: "https://example.com", kind: "registration", bound: "reload" }] })).mark, "attention");
-  assert.equal(S.derive(mockStatus({ siteNotices: [{ origin: "https://example.com", kind: "registration", bound: "reload" }] })).badge, "!");
+  assert.equal(S.derive(mockStatus({ registration: { "https://example.com": "failed" } })).kind, "site-error");
+  assert.equal(S.derive(mockStatus({ registration: { "https://example.com": "failed" } })).mark, "attention");
+  assert.equal(S.derive(mockStatus({ registration: { "https://example.com": "failed" } })).badge, "!");
 
   // Layer 6
   assert.equal(S.derive(mockStatus({ hostDelivery: "failed" })).kind, "delivery-failed");
@@ -149,6 +154,17 @@ test("derive ladder covers all layer kinds and marks", () => {
 
   assert.equal(S.derive(mockStatus(), { anyGrantedTabOpen: false }).kind, "idle");
   assert.equal(S.derive(mockStatus(), { anyGrantedTabOpen: false }).mark, "healthy");
+
+  const unknownTabs = S.derive(mockStatus());
+  assert.equal(unknownTabs.kind, "on");
+  assert.notEqual(unknownTabs.kind, "idle");
+  assert.equal(unknownTabs.reason, "");
+  assert.equal(S.welcomeHold(mockStatus({
+    capturePermitted: false,
+    lease: {token:"t", freshnessMs:0, receivedAt:0},
+  })).met, false);
+  assert.equal(S.welcomeHold(mockStatus({connected:false})).met, false);
+  assert.equal(S.welcomeHold(mockStatus({hostCapture:"unavailable"})).met, false);
 
   assert.equal(S.derive(mockStatus(), { anyGrantedTabOpen: true }).kind, "on");
   assert.equal(S.derive(mockStatus(), { anyGrantedTabOpen: true }).mark, "healthy");
@@ -222,62 +238,62 @@ test("derive enforces precedence order across all 8 layers", () => {
   assert.equal(deliveryFailedOverOn.also.some((a) => a.kind === "on"), false);
 });
 
-test("siteRow distinguishes paused, truncated, reload-tab, idle, and on-now", () => {
-  const status = mockStatus();
+test("siteRow uses exact origin, authority precedence, and unknown tabs", () => {
+  const origin = "https://example.com";
+  const open = { known: true, openOrigins: [origin], anyGrantedTabOpen: true };
 
-  // 1. paused-by-browser
-  assert.deepEqual(S.siteRow("example.com", mockStatus({ inactiveOrigins: ["https://example.com"] })), {
-    kind: "paused-by-browser",
-    label: "paused by chrome",
-    action: { id: "allow-again", label: "allow again" },
-  });
+  const browserPaused = S.siteRow(origin, mockStatus({ inactiveOrigins: [origin] }));
+  assert.equal(browserPaused.kind, "paused-by-browser");
+  assert.equal(browserPaused.action.id, "allow-again");
 
-  // 2. paused
-  assert.deepEqual(S.siteRow("example.com", mockStatus({ paused: true })), {
-    kind: "paused",
-    label: "paused",
-    action: null,
-  });
+  assert.equal(S.siteRow(origin, mockStatus({ paused: true })).kind, "paused");
 
-  // 3. pressure-here
-  assert.deepEqual(S.siteRow("example.com", mockStatus({ pressure: { active: true } }), { activeSites: ["example.com"] }), {
-    kind: "pressure-here",
-    label: "no room for more right now",
-    action: null,
-  });
+  assert.equal(S.siteRow(origin, mockStatus({
+    registration: { [origin]: "reload" }, openTabs: open,
+  })).kind, "reload-tab");
 
-  // 4. truncated
-  assert.deepEqual(S.siteRow("example.com", mockStatus({ siteNotices: [{ origin: "https://example.com", kind: "truncation", bound: "1" }] })), {
-    kind: "truncated",
-    label: "part of this page was too long to keep",
-    action: { id: "dismiss-truncation", label: "dismiss", bound: "1" },
-  });
+  assert.equal(S.siteRow(origin, mockStatus({
+    openTabs: { known: true, openOrigins: [], anyGrantedTabOpen: false },
+  })).kind, "added-idle");
 
-  // 5. reload-tab
-  assert.deepEqual(S.siteRow("example.com", mockStatus({ siteNotices: [{ origin: "https://example.com", kind: "registration", bound: "reload" }] }), { activeSites: ["example.com"] }), {
-    kind: "reload-tab",
-    label: "reload this tab to begin",
-    action: null,
-  });
+  assert.equal(S.siteRow(origin, mockStatus({ hostCapture: "intake_off", openTabs: open })).kind, "not-taken-in");
 
-  // 6. added-idle
-  assert.deepEqual(S.siteRow("example.com", mockStatus(), { activeSites: [] }), {
-    kind: "added-idle",
-    label: "added. open or reload a tab",
-    action: null,
-  });
+  assert.equal(S.siteRow(origin, mockStatus({ openTabs: open })).kind, "on-now");
 
-  // 7. not-taken-in
-  assert.deepEqual(S.siteRow("example.com", mockStatus({ hostCapture: "intake_off" }), { activeSites: ["example.com"] }), {
-    kind: "not-taken-in",
-    label: "not taken in right now",
-    action: null,
-  });
+  assert.equal(S.siteRow(origin, mockStatus()).kind, "added");
+  assert.equal(S.siteRow("http://example.com", mockStatus({ openTabs: open })).kind, "not-taken-in");
+  assert.equal(S.siteRow(origin, mockStatus({
+    registration: { [origin]: "failed" }, inactiveOrigins: [origin],
+  })).kind, "error");
+});
 
-  // 8. on-now
-  assert.deepEqual(S.siteRow("example.com", mockStatus(), { activeSites: ["example.com"] }), {
-    kind: "on-now",
-    label: "on now",
-    action: null,
+test("projectOpenTabs distinguishes unknown, empty, and exact granted origins", () => {
+  assert.deepEqual(S.projectOpenTabs(null), { known: false, openOrigins: null, anyGrantedTabOpen: null });
+  assert.deepEqual(S.projectOpenTabs("not tabs"), { known: false, openOrigins: null, anyGrantedTabOpen: null });
+  assert.deepEqual(S.projectOpenTabs([]), { known: true, openOrigins: [], anyGrantedTabOpen: false });
+  assert.deepEqual(S.projectOpenTabs([
+    { url: "https://example.com/a" }, { url: "https://example.com/b" },
+    { url: "http://example.com/" }, { url: "ftp://example.com/file" },
+  ], { grantedOrigins: ["https://example.com"] }), {
+    known: true,
+    openOrigins: ["http://example.com", "https://example.com"],
+    anyGrantedTabOpen: true,
   });
+  assert.deepEqual(S.projectOpenTabs([{url:"https://unrelated.example/"}], {
+    grantedOrigins:["https://example.com"],
+  }), {
+    known:true,
+    openOrigins:["https://unrelated.example"],
+    anyGrantedTabOpen:false,
+  });
+});
+
+test("welcomeHold selects only the specified blockers from derive items", () => {
+  assert.equal(S.welcomeHold(mockStatus({ consentVersion: 0, chosenOrigins: [] })).met, true);
+  assert.equal(S.welcomeHold(mockStatus({ hostCapture: "not_paired" })).heading, "the solstone app isn't paired yet");
+  assert.equal(S.welcomeHold(mockStatus({ hostCapture: "intake_off" })).heading, "browser pages are off in the solstone app");
+  assert.equal(S.welcomeHold(mockStatus({ custody: { full: false, stale: true } })).met, true);
+  assert.equal(S.welcomeHold(mockStatus({ custody: { full: true, stale: false } })).met, false);
+  assert.equal(S.welcomeHold(mockStatus({ hostCapture: "unavailable" })).met, false);
+  assert.equal(S.derive(new Proxy({}, { get() { throw new Error("fixture"); } })).kind, "unavailable");
 });

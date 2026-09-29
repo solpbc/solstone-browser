@@ -29,6 +29,7 @@
       "lib/native_outbox.js",
       "lib/native_port.js",
       "lib/status.js",
+      "lib/owner_sites.js",
       "lib/router.js",
       "background.js"
     ],

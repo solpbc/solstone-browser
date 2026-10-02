@@ -82,6 +82,9 @@
       this.handshake = "closed"; // "closed" | "pending" | "ready"
       this.handshakeStartedAt = 0;
       this.destinationGeneration = null;
+      this.about = null;
+      this.aboutDestination = null;
+      this.aboutDeadline = null;
 
       this.hostCapture = null;
       this.hostDelivery = null;
@@ -351,6 +354,9 @@
         hostDelivery: fresh ? this.hostDelivery : null,
         hostFailure: fresh ? this.hostFailure : null,
         custody: fresh && this.custody ? { ...this.custody } : null,
+        about: this.about ? { ...this.about, journal_current: this.about.journal_current &&
+          this.livePort != null && this.handshake === "ready" && this.aboutDeadline != null &&
+          nowMs < this.aboutDeadline && fresh } : null,
         destinationGeneration: this.destinationGeneration,
         lease: fresh && this.lease ? { ...this.lease } : null,
         connectionGeneration: this.connectionGeneration,
@@ -382,6 +388,10 @@
     }
 
     connect() {
+      // A new native connection never inherits a prior journal's facts.
+      this.about = null;
+      this.aboutDestination = null;
+      this.aboutDeadline = null;
       this.opEpoch++;
       this.stateRevision++;
       this.hostStateDeadline = null;
@@ -506,6 +516,14 @@
           if (this.handshake !== "pending" || codec.handshakeExpired(this.handshakeStartedAt, nowMs, getConsts().HANDSHAKE_MS_BUDGET)) return;
           this.handshake = "ready";
         } else if (this.handshake !== "ready") return;
+        // Clear the old destination before the first status or any await,
+        // including a new destination with absent or malformed optional facts.
+        if (val.type === "hello_ack" || this.aboutDestination !== (val.destination_generation || null)) {
+          this.about = null;
+          this.aboutDestination = val.destination_generation || null;
+        }
+        this.aboutDeadline = null;
+        const about = globalThis.SolstoneAbout?.decode(val.about) || null;
         const deliveryContinues = this.destinationGeneration === val.destination_generation &&
           ["permitted", "paused", "intake_off"].includes(val.capture);
         const revision = ++this.stateRevision;
@@ -550,6 +568,10 @@
         this.behind = null;
         this.capturePermitted = codec.captureIsPermitted(val);
         this.hostStateDeadline = val.freshness_ms > 0 ? nowMs + val.freshness_ms : null;
+        if (about) {
+          this.about = about;
+          this.aboutDeadline = this.hostStateDeadline;
+        }
         const expire = () => {
           if (!current()) return;
           this.lease = null;

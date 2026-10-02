@@ -233,6 +233,12 @@
   }
 
   function renderCurrent() {
+    const about = globalThis.SolstoneAbout.block(chrome.runtime.getManifest().version, state?.about);
+    if ($("aboutBlock").textContent !== about) {
+      $("aboutBlock").textContent = about;
+      $("aboutCopy").textContent = "copy";
+      $("aboutMessage").textContent = "";
+    }
     const extras = {};
     const derived = Status.derive(state, extras);
     const sections = View.arrange(derived, state, page, extras);
@@ -276,6 +282,21 @@
   }
 
   $("disclosureConfirm").addEventListener("click", () => closeDisclosure(true));
+  $("aboutCopy").addEventListener("click", async () => {
+    const displayed = $("aboutBlock").textContent;
+    try {
+      await navigator.clipboard.writeText(displayed);
+      if ($("aboutBlock").textContent === displayed) {
+        $("aboutCopy").textContent = "copied";
+        $("aboutMessage").textContent = "";
+      }
+    } catch (_error) {
+      if ($("aboutBlock").textContent === displayed) {
+        $("aboutCopy").textContent = "copy";
+        $("aboutMessage").textContent = "couldn't copy. select the text and copy it.";
+      }
+    }
+  });
   $("disclosureCancel").addEventListener("click", () => closeDisclosure(false));
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !$("disclosure").hidden) closeDisclosure(false);
@@ -299,6 +320,7 @@
       subscriptionEpoch++;
       appliedCaptureEpoch = -1;
       const closed = { ...(state || {}), connected: false, handshake: "closed",
+        about: state?.about ? { ...state.about, journal_current: false } : null,
         lease: null, hostCapture: null, hostDelivery: null, hostFailure: null,
         custody: null, capturePermitted: false, addSiteEligible: false };
       paint(closed, ++paintSequence);

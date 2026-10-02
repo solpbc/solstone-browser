@@ -167,6 +167,8 @@
       }
       a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
       .action-message { min-height: 0; margin-top: 7px; color: var(--bad); font-size: 12px; }
+      .about-block { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font: inherit; margin: 0 0 8px; }
+      .about-block:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
       .sheet { padding: 0 14px 14px; }
       .sheet h1 { margin: 0; font: 700 16px/1.3 "Comfortaa", system-ui, sans-serif; }
       .sheet p { margin: 10px 0 0; color: var(--soft); }
@@ -232,6 +234,12 @@
         </div>
       </section>
 
+      <section id="about" class="blk">
+        <h2 class="blk-h">about</h2>
+        <pre id="aboutBlock" class="about-block" tabindex="0"></pre>
+        <button id="aboutCopy" type="button">copy</button>
+        <div id="aboutMessage" class="action-message" aria-live="polite"></div>
+      </section>
       <div id="actionMessage" class="action-message" aria-live="polite"></div>
     </main>
 
@@ -256,6 +264,7 @@
     </footer>
 
     <script src="lib/copy.js"></script>
+    <script src="lib/about.js"></script>
     <script src="lib/hosts.js"></script>
     <script src="lib/status.js"></script>
     <script src="lib/failures.js"></script>

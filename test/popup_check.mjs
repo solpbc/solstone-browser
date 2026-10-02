@@ -16,6 +16,17 @@ function base() {
   return {
     ok: true,
     version: "0.2.0",
+    captureEpoch: 1,
+    everConnected: true,
+    connected: true,
+    handshake: "ready",
+    brand: "chrome",
+    hostCapture: "permitted",
+    hostDelivery: "delivered",
+    capturePermitted: true,
+    addSiteEligible: true,
+    consentVersion: 1,
+    lease: {freshnessMs: 15000},
     activeSites: [],
     outbox: { entries: 0, lines: 0 },
     hostname: "laptop",
@@ -60,6 +71,8 @@ function fixture(allowlist) {
   const state = base();
   state.allowlist = allowlist.slice();
   state.activeSites = allowlist.slice();
+  state.chosenOrigins = allowlist.map(host => "https://" + host);
+  state.grantedOrigins = state.chosenOrigins.slice();
   return {
     state,
     tab: { id: 7, url: "https://mail.google.com/inbox" },
@@ -90,6 +103,9 @@ const FIXTURES = {
   })(),
   "no-journal": (() => {
     const value = fixture([]);
+    value.state.hostCapture = "not_paired";
+    value.state.capturePermitted = false;
+    value.state.addSiteEligible = false;
     value.state.remote = {
       paired: false,
       pending: false,
@@ -103,11 +119,12 @@ const FIXTURES = {
   })(),
   "browser-paused": (() => {
     const value = fixture(THREE);
+    value.state.grantedOrigins = value.state.grantedOrigins.filter(origin => origin !== "https://mail.google.com");
     value.state.activeSites = ["app.slack.com", "github.com"];
     value.state.pausedHosts = { "mail.google.com": true };
     return value;
   })(),
-  "disclosure-unpaired": (() => {
+  "app-unpaired": (() => {
     const value = fixture([]);
     value.state.remote = {
       paired: false,
@@ -116,13 +133,26 @@ const FIXTURES = {
       relayOrigin: "",
       pairedAt: null,
     };
-    value.disclosure = true;
-    value.focusConfirm = true;
+    value.state.hostCapture = "not_paired";
+    value.state.capturePermitted = false;
+    value.state.addSiteEligible = false;
     return value;
   })(),
   "disclosure-remote": (() => {
     const value = fixture([]);
     value.disclosure = true;
+    return value;
+  })(),
+  "about-new-host": (() => {
+    const value = fixture([]);
+    value.state.about = {protocol_version: 1, os: "windows", os_version: "11 26100", arch: "arm64",
+      journal_line: "journal 2.0.29 · ubuntu 24.04 · x86_64", journal_current: true, journal_seen_at_epoch_secs: 1700000000};
+    return value;
+  })(),
+  "about-last-known": (() => {
+    const value = fixture([]);
+    value.state.about = {protocol_version: 1, os: "ubuntu", os_version: "24.04", arch: "x86_64",
+      journal_line: "journal 2.0.29 · macos 26.5 · arm64", journal_current: false, journal_seen_at_epoch_secs: Math.floor(Date.now() / 1000) - 172800};
     return value;
   })(),
 };
@@ -148,6 +178,8 @@ try {
     await page.addInitScript(({ state, tab }) => {
       window.chrome = {
         runtime: {
+          getManifest: () => ({version: "0.2.0"}),
+          connect: () => ({onMessage: {addListener() {}}, onDisconnect: {addListener() {}}}),
           sendMessage(message, callback) {
             const response = message.cmd === "getState" ? state : { ok: true };
             setTimeout(() => callback(response), 0);

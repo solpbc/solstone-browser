@@ -147,7 +147,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   globalThis.setTimeout = fn => { reconnects.push(fn); return reconnects.length; };
   t.after(() => { globalThis.setTimeout = originalTimeout; });
   const ids = [
-    "actionMessage", "verdict", "verdictDot", "verdictHeadline", "verdictSub",
+    "aboutBlock", "aboutCopy", "aboutMessage", "actionMessage", "verdict", "verdictDot", "verdictHeadline", "verdictSub",
     "verdictReason", "verdictActions", "siteIssues", "siteIssueRows", "pageHost",
     "currentPageState", "pageSiteAction", "pauseAction", "siteCount", "siteCountText",
     "disclosure", "disclosureTitle", "disclosureWhat", "disclosureUnsent", "disclosureDestination",
@@ -182,6 +182,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   );
   globalThis.chrome = {
     runtime: {
+      getManifest: () => ({version: "0.2.0"}),
       sendMessage(message, callback) {
         sent.push(message);
         if (message.cmd === "getState" && holdNextState) {
@@ -211,6 +212,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   };
 
   await import(new URL("../extension/lib/copy.js", import.meta.url));
+  await import(new URL("../extension/lib/about.js", import.meta.url));
   await import(new URL("../extension/lib/hosts.js", import.meta.url));
   await import(new URL("../extension/lib/status.js", import.meta.url));
   await import(new URL("../extension/lib/failures.js", import.meta.url));
@@ -223,6 +225,39 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   const verdictNode = nodes.verdict;
   assert.equal(verdictNode.id, "verdict");
   assert.equal(nodes.verdictHeadline.textContent, "on");
+  const nativeFacts = {protocol_version: 1, os: "windows", os_version: "11 26100", arch: "arm64",
+    journal_line: "journal 2.0.29 · ubuntu 24.04 · x86_64", journal_current: true, journal_seen_at_epoch_secs: 1700000000};
+  liveState = popupState({about: nativeFacts});
+  await globalThis.SolstonePopup.refresh();
+  const displayed = nodes.aboutBlock.textContent;
+  assert.equal(displayed, "solstone extension 0.2.0 · windows 11 26100 · arm64\njournal 2.0.29 · ubuntu 24.04 · x86_64");
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const clipboardWrites = [];
+  let failClipboard = false, releaseClipboard;
+  Object.defineProperty(globalThis, "navigator", {configurable: true, value: {clipboard: {writeText: async value => {
+    if (failClipboard) throw new Error("clipboard refused");
+    clipboardWrites.push(value);
+    if (releaseClipboard === null) await new Promise(resolve => {releaseClipboard = resolve;});
+  }}}});
+  t.after(() => {
+    if (navigatorDescriptor) Object.defineProperty(globalThis, "navigator", navigatorDescriptor);
+    else delete globalThis.navigator;
+  });
+  await nodes.aboutCopy.listeners.click();
+  assert.equal(clipboardWrites.at(-1), displayed);
+  assert.equal(nodes.aboutCopy.textContent, "copied");
+  failClipboard = true;
+  await nodes.aboutCopy.listeners.click();
+  assert.equal(nodes.aboutCopy.textContent, "copy");
+  assert.equal(nodes.aboutMessage.textContent, "couldn't copy. select the text and copy it.");
+  assert.equal(nodes.aboutBlock.textContent, displayed);
+  failClipboard = false; releaseClipboard = null;
+  const pendingCopy = nodes.aboutCopy.listeners.click();
+  liveState = popupState({about: {...nativeFacts, journal_line: "journal 2.0.30"}});
+  await globalThis.SolstonePopup.refresh();
+  releaseClipboard(); await pendingCopy;
+  assert.equal(clipboardWrites.at(-1), displayed);
+  assert.equal(nodes.aboutCopy.textContent, "copy", "a completed older copy cannot confirm a different displayed block");
   liveState = popupState({ paused: true });
   statusListener({ type: "status", status: liveState });
   await new Promise((resolve) => setImmediate(resolve));

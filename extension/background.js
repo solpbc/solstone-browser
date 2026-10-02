@@ -17,6 +17,7 @@ if (typeof importScripts === "function") {
     "lib/segment.js",
     "lib/gate.js",
     "lib/native_outbox.js",
+    "lib/about.js",
     "lib/native_port.js",
     "lib/status.js",
     "lib/owner_sites.js",

@@ -133,12 +133,15 @@
       .destination-box .detail { margin-top: 2px; color: var(--soft); font-size: 12px; overflow-wrap: anywhere; }
       details { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
       summary { cursor: pointer; color: var(--muted); font-size: 12px; }
-      .disclosure-pre {
-        white-space: pre-wrap;
+      .disclosure {
         font: inherit;
         color: var(--soft);
         margin: 12px 0 0;
       }
+      .disclosure p { margin: 12px 0 0; }
+      .disclosure ul { margin: 8px 0 0; padding-left: 22px; }
+      .disclosure li { margin-top: 6px; padding-left: 2px; }
+      .disclosure > :first-child { margin-top: 0; }
       .addrow { display: flex; gap: 8px; align-items: flex-end; }
       .addrow > div { flex: 1; }
       .site {
@@ -206,7 +209,7 @@
               <span id="step2Heading">what the solstone extension takes in</span>
             </h2>
             <div id="step2Content">
-              <div id="step2DisclosureBody" class="disclosure-pre"></div>
+              <div id="step2DisclosureBody" class="disclosure"></div>
               <p id="step2PendingText" class="muted" hidden></p>
               <div class="actions" id="step2Actions">
                 <button id="agreeDisclosureBtn" class="primary" type="button" hidden>agree and go on</button>
@@ -215,7 +218,7 @@
             <div id="step2Completed" hidden>
               <details id="step2ReReadDetails">
                 <summary id="step2ReadAgain">read it again</summary>
-                <div id="step2ReReadBody" class="disclosure-pre"></div>
+                <div id="step2ReReadBody" class="disclosure"></div>
               </details>
             </div>
           </section>
@@ -292,7 +295,7 @@
           <h2>what the solstone extension takes in</h2>
           <details id="disclosureDetails">
             <summary>read it again</summary>
-            <div id="settingsDisclosureBody" class="disclosure-pre"></div>
+            <div id="settingsDisclosureBody" class="disclosure"></div>
           </details>
         </section>
       </div>

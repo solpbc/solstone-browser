@@ -302,7 +302,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   const failedAdd = nodes.pageSiteAction.onclick();
   nodes.disclosureConfirm.listeners.click();
   await failedAdd;
-  assert.equal(nodes.actionMessage.textContent, "chrome doesn't let extensions work on this page");
+  assert.equal(nodes.actionMessage.textContent, "Chrome doesn't let extensions work on this page");
 
   await nodes.pauseAction.onclick();
   assert.equal(nodes.actionMessage.textContent, "");

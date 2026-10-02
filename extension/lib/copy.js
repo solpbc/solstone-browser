@@ -17,9 +17,9 @@
   }
 
   function browserName(brand) {
-    if (brand === "firefox") return "firefox";
-    if (brand === "edge") return "edge";
-    if (brand === "chrome") return "chrome";
+    if (brand === "firefox") return "Firefox";
+    if (brand === "edge") return "Edge";
+    if (brand === "chrome") return "Chrome";
     return "your browser";
   }
 
@@ -41,7 +41,7 @@ where it goes: nothing leaves this browser except to the solstone app on this co
 
 the solstone extension doesn't run in private windows. that covers this extension only.
 
-pause from the toolbar any time, or pause the solstone app to stop everything at once. pausing doesn't hold back what's already taken in. if you remove a site, nothing new comes from it; what's already in your journal stays there.
+pause any time in the solstone extension, or pause the solstone app to stop everything at once. pausing doesn't hold back what's already taken in. if you remove a site, nothing new comes from it; what's already in your journal stays there.
 
 no analytics. no telemetry. no phone home. nobody counted.`;
 
@@ -51,7 +51,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
   const TRUNCATION_ATTENTION = "part of what you shared on this site was too long to keep";
 
   function step3Body(brand) {
-    return `open a site you want to share, click solstone in the toolbar, and choose add this site. ${browserName(brand)} will ask you to allow it.`;
+    return `open a site you want to share, open solstone from your browser's toolbar or extensions menu, and choose add this site. ${browserName(brand)} will ask you to allow it.`;
   }
 
   // Linux pure functions (not called in production derivation or UI)

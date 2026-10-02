@@ -10,8 +10,8 @@ await import(new URL("../extension/lib/failures.js", import.meta.url));
 const F = globalThis.SolstoneFailures;
 
 test("classify maps restricted failures", () => {
-  assert.equal(F.classify("Cannot access chrome:// URL", { brand: "chrome" }), "chrome doesn't let extensions work on this page");
-  assert.equal(F.classify("moz-extension:// blocked", { brand: "firefox" }), "firefox doesn't let extensions work on this page");
+  assert.equal(F.classify("Cannot access chrome:// URL", { brand: "chrome" }), "Chrome doesn't let extensions work on this page");
+  assert.equal(F.classify("moz-extension:// blocked", { brand: "firefox" }), "Firefox doesn't let extensions work on this page");
 });
 
 test("classify maps unmapped failures with token escaping", () => {

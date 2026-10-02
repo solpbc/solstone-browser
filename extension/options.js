@@ -14,6 +14,30 @@
   const $ = (id) => document.getElementById(id);
   const cmd = (message) => new Promise((resolve) => chrome.runtime.sendMessage(message, (response) => resolve(response || {})));
 
+  function renderDisclosure(element) {
+    if (!element || !Copy) return;
+    element.replaceChildren();
+    let list = null;
+    for (const line of Copy.DISCLOSURE_BODY.split("\n")) {
+      if (!line) {
+        list = null;
+      } else if (line.startsWith("- ")) {
+        if (!list) {
+          list = document.createElement("ul");
+          element.append(list);
+        }
+        const item = document.createElement("li");
+        item.textContent = line.slice(2);
+        list.append(item);
+      } else {
+        list = null;
+        const paragraph = document.createElement("p");
+        paragraph.textContent = line;
+        element.append(paragraph);
+      }
+    }
+  }
+
   let state = null;
   let disclosureResolve = null;
   let step1Action = null;
@@ -246,8 +270,6 @@
     // Step 2
     const consentGiven = state && state.consentVersion === 1;
     if ($("step2Heading")) $("step2Heading").textContent = "what the solstone extension takes in";
-    if ($("step2DisclosureBody") && Copy) $("step2DisclosureBody").textContent = Copy.DISCLOSURE_BODY;
-    if ($("step2ReReadBody") && Copy) $("step2ReReadBody").textContent = Copy.DISCLOSURE_BODY;
 
     if (consentGiven) {
       if ($("step2Check")) $("step2Check").hidden = false;
@@ -350,8 +372,6 @@
     // Indicator Section
     if ($("showPageIndicator")) $("showPageIndicator").checked = !!(state && state.showPageIndicator);
 
-    // Disclosure Section
-    if ($("settingsDisclosureBody") && Copy) $("settingsDisclosureBody").textContent = Copy.DISCLOSURE_BODY;
   }
 
   function paint(nextState, sequence) {
@@ -398,6 +418,10 @@
     if (epoch < appliedCaptureEpoch) return;
     appliedCaptureEpoch = Math.max(appliedCaptureEpoch, epoch);
     return paint(nextState, sequence);
+  }
+
+  for (const id of ["step2DisclosureBody", "step2ReReadBody", "settingsDisclosureBody"]) {
+    renderDisclosure($(id));
   }
 
   // Welcome Step 2 Agree Button

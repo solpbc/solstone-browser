@@ -81,11 +81,12 @@ class FakeNode {
   }
 
   get textContent() {
-    return this._textContent;
+    return this._textContent + this.children.map((child) => child.textContent).join("");
   }
 
   set textContent(value) {
     this._textContent = String(value);
+    this.children = [];
     this.textWrites += 1;
   }
 
@@ -284,7 +285,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   assert.equal(nodes.step1Check.hidden, false);
   assert.equal(nodes.agreeDisclosureBtn.hidden, false);
   assert.equal(nodes.agreeDisclosureBtn.textContent, "agree and go on");
-  assert.equal(nodes.step2DisclosureBody.textContent, C.DISCLOSURE_BODY);
+  assert.equal(nodes.step2DisclosureBody.textContent, C.DISCLOSURE_BODY.replace(/^- /gm, "").replaceAll("\n", ""));
 
   // 4. hostCapture: "paused" with consent unset
   liveState = optionsState({ hostCapture: "paused", consentVersion: 0, chosenOrigins: [] });
@@ -303,7 +304,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   ackResponse = { ok: true, consentVersion: 1 };
   await nodes.agreeDisclosureBtn.listeners.click();
   assert.equal(nodes.step2Completed.hidden, false);
-  assert.equal(nodes.step2ReReadBody.textContent, C.DISCLOSURE_BODY);
+  assert.equal(nodes.step2ReReadBody.textContent, C.DISCLOSURE_BODY.replace(/^- /gm, "").replaceAll("\n", ""));
 
   // 7. Step 1 with custody.full, hostCapture: "permitted", and lossNotice shows full-store headline and not dropped reason
   liveState = optionsState({

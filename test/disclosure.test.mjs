@@ -17,7 +17,7 @@ test("addSite produces structured sheet copy from SolstoneCopy", () => {
   assert.ok(sheet.what.includes("never pixels"));
   assert.equal(sheet.destination, "your journal, through the solstone app on this computer");
   assert.equal(sheet.destinationDetail, "nothing leaves this browser except to the solstone app on this computer.");
-  assert.ok(sheet.browser.includes("chrome will ask you to allow this next"));
+  assert.ok(sheet.browser.includes("Chrome will ask you to allow this next"));
   assert.equal(sheet.confirmLabel, "add this site");
   assert.equal(sheet.cancelLabel, "cancel");
 });
@@ -38,4 +38,3 @@ test("disclosure helpers do not mutate caller state", () => {
     brand: "chrome",
   });
 });
-

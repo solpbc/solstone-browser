@@ -4,6 +4,12 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 `make set-version` keeps `manifest.json` / `package.json` / `package-lock.json` /
 `background.js` in lockstep, and `make dist` refuses to build if they drift.
 
+## [Unreleased]
+
+### Fixed
+
+- the welcome page shows its disclosure as a list and explains how to open solstone from the toolbar or extensions menu. browser names keep their own case.
+
 ## 0.2.0 (2026-07-30)
 
 sol now sends browser segments only to your journal at a paired home.

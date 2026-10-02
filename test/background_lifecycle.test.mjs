@@ -872,6 +872,90 @@ test("lifecycle: permission prompt onAdded followed by add completes with matchi
   assert.equal(port.ownerSites.reservation, null);
 });
 
+test("lifecycle: a real grant completes the reserved add after the popup disappears", async () => {
+  const {mock, sandbox, bg} = await startWorker();
+  const port = bg.port;
+  mock.grantedPermissions.clear();
+  port.hostCapture = "permitted";
+  port.capturePermitted = true;
+  port.consentVersion = 1;
+  port.lease = {token:"t", generation:"g", receivedAt:port.now(), freshnessMs:10000};
+  const id = mock.chrome.runtime.id;
+  const origin = "https://first.example";
+  const pattern = "*://first.example/*";
+  await sandbox.SolstoneRouter.route({cmd:"intendAddOrigin", origin},
+    {id, url:`chrome-extension://${id}/popup.html`}, {port});
+  mock.grantedPermissions.add(pattern);
+  await mock.listeners.onAddedPerm[0]({origins:[pattern]});
+  assert.equal(port.chosenOrigins.has(origin), true);
+  assert.equal(port.grantedOrigins.has(origin), true);
+  assert.ok(mock.registeredScripts.has("cs-first.example"));
+  assert.ok((await bg.getCfg()).chosenOrigins.includes(origin));
+  assert.equal(port.ownerSites.reservation, null);
+});
+
+for (const reason of ["unreserved", "cancelled", "expired", "unrelated", "broad", "mixed", "withdrawn", "removed", "paused", "no-consent", "no-lease", "pressure", "full"]) {
+  test(`lifecycle: a ${reason} grant cannot complete an owner reservation`, async () => {
+    const {mock, sandbox, bg} = await startWorker();
+    const port = bg.port;
+    mock.grantedPermissions.clear();
+    port.hostCapture = "permitted";
+    port.capturePermitted = true;
+    port.consentVersion = 1;
+    port.lease = {token:"t", generation:"g", receivedAt:port.now(), freshnessMs:10000};
+    const id = mock.chrome.runtime.id;
+    const origin = "https://first.example";
+    const pattern = "*://first.example/*";
+    const route = message => sandbox.SolstoneRouter.route(message,
+      {id, url:`chrome-extension://${id}/popup.html`}, {port});
+    if (reason !== "unreserved") await route({cmd:"intendAddOrigin", origin});
+    if (reason === "cancelled") await route({cmd:"clearAddIntent"});
+    if (reason === "expired") port.now = () => port.ownerSites.reservation.expiresAt;
+    if (reason === "withdrawn") await mock.listeners.onRemovedPerm[0]({origins:[pattern]});
+    if (reason === "removed") await route({cmd:"removeGrantedOrigin", origin});
+    if (reason === "paused") port.paused = true;
+    if (reason === "no-consent") port.consentVersion = 0;
+    if (reason === "no-lease") port.lease = null;
+    if (reason === "pressure") port.pressure = {active:true};
+    if (reason === "full") port.custody = {full:true};
+    const patterns = reason === "unrelated" ? ["*://other.example/*"] :
+      reason === "broad" ? ["*://*/*"] : reason === "mixed" ? [pattern,"*://other.example/*"] : [pattern];
+    patterns.forEach(p => mock.grantedPermissions.add(p));
+    await mock.listeners.onAddedPerm[0]({origins:patterns});
+    assert.equal(port.chosenOrigins.has(origin), false);
+    assert.equal(port.grantedOrigins.has(origin), false);
+    assert.equal(mock.registeredScripts.has("cs-first.example"), false);
+  });
+}
+
+test("lifecycle: withdrawal while reserved completion awaits permission wins", async () => {
+  const {mock, sandbox, bg} = await startWorker();
+  const port = bg.port;
+  mock.grantedPermissions.clear();
+  port.hostCapture = "permitted";
+  port.capturePermitted = true;
+  port.consentVersion = 1;
+  port.lease = {token:"t", generation:"g", receivedAt:port.now(), freshnessMs:10000};
+  const id = mock.chrome.runtime.id;
+  const origin = "https://first.example";
+  const pattern = "*://first.example/*";
+  await sandbox.SolstoneRouter.route({cmd:"intendAddOrigin", origin},
+    {id, url:`chrome-extension://${id}/popup.html`}, {port});
+  const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return {promise, resolve}; };
+  const entered = deferred(), permission = deferred();
+  mock.chrome.permissions.contains = () => { entered.resolve(); return permission.promise; };
+  mock.grantedPermissions.add(pattern);
+  const completing = mock.listeners.onAddedPerm[0]({origins:[pattern]});
+  await entered.promise;
+  mock.grantedPermissions.delete(pattern);
+  await mock.listeners.onRemovedPerm[0]({origins:[pattern]});
+  permission.resolve(true);
+  await completing;
+  assert.equal(port.chosenOrigins.has(origin), false);
+  assert.equal(port.grantedOrigins.has(origin), false);
+  assert.equal(mock.registeredScripts.has("cs-first.example"), false);
+});
+
 function authorizeFixture({mock,bg}) {
  const p=bg.port;
  mock.grantedPermissions.clear(); mock.grantedPermissions.add("*://example.com/*");

@@ -114,6 +114,144 @@
     } catch (_err) { return false; }
   }
 
+  function addGrantedOrigin(origin, deps, reservation = null) {
+    const port = deps.port;
+    // Capture withdrawal authority at command admission, including time
+    // queued behind another add or an already-dispatched browser effect.
+    const start = ownerStateFor(port);
+    const capturedGrantEpoch = reservation ? reservation.grantEpoch : start.grantEpoch;
+    const capturedPermissionEpoch = reservation ? reservation.permissionEpoch : start.permissionEpoch;
+    const operation = grantChain.catch(() => {}).then(async () => {
+      await deps.settlePermissionEffects?.();
+      if (reservation && (port.ownerSites?.reservation !== reservation || port.now() >= reservation.expiresAt)) {
+        return { ok: false, error: "capture_unavailable" };
+      }
+      let host = "";
+      try {
+        host = new URL(origin).host;
+      } catch (_e) {
+        applyOwnerEvent(port, { type: "drop-reservation" });
+        return { ok: false, error: "invalid_origin" };
+      }
+
+      const pat = H && H.matchPatternFor ? H.matchPatternFor(host) : `*://${host}/*`;
+      let hasPerm = false;
+      try {
+        if (typeof chrome !== "undefined" && chrome.permissions?.contains) {
+          hasPerm = await chrome.permissions.contains({ origins: [pat] });
+        } else if (typeof chrome !== "undefined" && chrome.permissions?.getAll) {
+          const perms = await chrome.permissions.getAll();
+          hasPerm = Array.isArray(perms?.origins) && (perms.origins.includes(pat) || perms.origins.includes("*://*/*"));
+        } else {
+          hasPerm = false;
+        }
+      } catch (_e) {
+        hasPerm = false;
+      }
+
+      if (reservation && (port.ownerSites?.reservation !== reservation || port.now() >= reservation.expiresAt)) {
+        return { ok: false, error: "capture_unavailable" };
+      }
+      const liveAuth = !port.paused && !port.pressure?.active && port.consentVersion === Gate.CONSENT_VERSION &&
+        port.capturePermitted === true && port.hostCapture === "permitted" && port.custody?.full !== true &&
+        port.lease && port.now() < port.lease.receivedAt + port.lease.freshnessMs;
+      const admission = applyOwnerEvent(port, {
+        type: "begin-add", origin, now: port.now(), liveAuth: !!liveAuth, hasPerm,
+        capturedGrantEpoch, capturedPermissionEpoch,
+      });
+      if (!admission.result.ok) return admission.result;
+
+      const nextChosen = Array.from(new Set([...Array.from(port.chosenOrigins || []), origin]));
+      try {
+        if (deps.setCfg) await deps.setCfg({ chosenOrigins: nextChosen });
+      } catch (_e) {
+        applyOwnerEvent(port, { type: "drop-reservation" });
+        return { ok: false, error: "storage_error" };
+      }
+
+      const fence = applyOwnerEvent(port, {
+        type: "fence-add", origin, capturedGrantEpoch, capturedPermissionEpoch, phase: "after-choice-write",
+      });
+      if (!fence.result.ok) {
+        if (fence.effects.includes("align-durable-to-memory") && deps.setCfg) {
+          try { await deps.setCfg({ chosenOrigins: Array.from(port.chosenOrigins || []) }); }
+          catch (_e) { return { ok: false, error: "storage_error" }; }
+        }
+        port.notify();
+        return fence.result;
+      }
+
+      let livePerms;
+      try {
+        const perms = typeof chrome !== "undefined" && chrome.permissions?.getAll ? await chrome.permissions.getAll() : null;
+        if (!Array.isArray(perms?.origins)) throw new Error("permission snapshot unavailable");
+        livePerms = perms.origins;
+      } catch (_e) {
+        const moved = ownerStateFor(port).grantEpoch !== capturedGrantEpoch;
+        if (moved && !port.chosenOrigins.has(origin) && deps.setCfg) {
+          try { await deps.setCfg({ chosenOrigins: Array.from(port.chosenOrigins || []) }); }
+          catch (_err) { applyOwnerEvent(port, { type: "drop-reservation" }); return { ok: false, error: "storage_error" }; }
+        }
+        applyOwnerEvent(port, { type: "drop-reservation" });
+        port.notify();
+        return { ok: false, error: "capture_unavailable" };
+      }
+
+      const published = applyOwnerEvent(port, {
+        type: "publish-grants", livePatterns: livePerms, epochAtStart: capturedPermissionEpoch,
+      });
+      if (!published.result.ok) {
+        applyOwnerEvent(port, { type: "drop-reservation" });
+        port.notify();
+        return { ok: false, error: "capture_unavailable" };
+      }
+
+      let regStatus = "ready";
+      if (typeof deps.registerSite === "function") {
+        try {
+          regStatus = await deps.registerSite(host);
+        } catch (_e) {
+          regStatus = "failed";
+        }
+      }
+
+      const registered = applyOwnerEvent(port, {
+        type: "note-registration", origin, status: regStatus, capturedGrantEpoch, capturedPermissionEpoch,
+      });
+      if (!registered.result.ok) {
+        applyOwnerEvent(port, { type: "drop-reservation" });
+        port.notify();
+        deps.refreshOpenTabs?.();
+        return { ok: false, error: "capture_unavailable" };
+      }
+
+      if (regStatus === "failed") {
+        if (port.setRegistration) await port.setRegistration(origin, "failed");
+        applyOwnerEvent(port, { type: "drop-reservation" });
+        port.notify();
+        deps.refreshOpenTabs?.();
+        return { ok: false, error: "registration_failed", registration: "failed" };
+      }
+
+      if (port.setRegistration) await port.setRegistration(origin, regStatus);
+
+      applyOwnerEvent(port, { type: "drop-reservation" });
+      port.notify();
+      deps.refreshOpenTabs?.();
+      const final = ownerStateFor(port);
+      if (final.grantEpoch !== capturedGrantEpoch || final.permissionEpoch !== capturedPermissionEpoch || !port.grantedOrigins.has(origin)) {
+        return { ok: false, error: "capture_unavailable" };
+      }
+      return { ok: true, origin, registration: regStatus };
+    });
+    grantChain = operation;
+    return operation;
+  }
+
+  function completeReservedOrigin(reservation, deps) {
+    return addGrantedOrigin(reservation.origin, deps, reservation);
+  }
+
   async function route(msg, sender, deps = {}) {
     const runtimeId = deps.runtimeId || (typeof chrome !== "undefined" && chrome.runtime?.id ? chrome.runtime.id : "");
     if (!sender || sender.id !== runtimeId) {
@@ -180,130 +318,7 @@
           const origin = normalizeOrigin(msg.origin);
           if (!origin) return { ok: false, error: "invalid_origin" };
 
-          // Capture withdrawal authority at command admission, including time
-          // queued behind another add or an already-dispatched browser effect.
-          const start = ownerStateFor(port);
-          const capturedGrantEpoch = start.grantEpoch;
-          const capturedPermissionEpoch = start.permissionEpoch;
-          const operation = grantChain.catch(() => {}).then(async () => {
-            await deps.settlePermissionEffects?.();
-            let host = "";
-            try {
-              host = new URL(origin).host;
-            } catch (_e) {
-              applyOwnerEvent(port, { type: "drop-reservation" });
-              return { ok: false, error: "invalid_origin" };
-            }
-
-            const pat = H && H.matchPatternFor ? H.matchPatternFor(host) : `*://${host}/*`;
-            let hasPerm = false;
-            try {
-              if (typeof chrome !== "undefined" && chrome.permissions?.contains) {
-                hasPerm = await chrome.permissions.contains({ origins: [pat] });
-              } else if (typeof chrome !== "undefined" && chrome.permissions?.getAll) {
-                const perms = await chrome.permissions.getAll();
-                hasPerm = Array.isArray(perms?.origins) && (perms.origins.includes(pat) || perms.origins.includes("*://*/*"));
-              } else {
-                hasPerm = false;
-              }
-            } catch (_e) {
-              hasPerm = false;
-            }
-
-            const liveAuth = !port.paused && !port.pressure?.active && port.consentVersion === Gate.CONSENT_VERSION &&
-              port.capturePermitted === true && port.hostCapture === "permitted" && port.custody?.full !== true &&
-              port.lease && port.now() < port.lease.receivedAt + port.lease.freshnessMs;
-            const admission = applyOwnerEvent(port, {
-              type: "begin-add", origin, now: port.now(), liveAuth: !!liveAuth, hasPerm,
-              capturedGrantEpoch, capturedPermissionEpoch,
-            });
-            if (!admission.result.ok) return admission.result;
-
-            const nextChosen = Array.from(new Set([...Array.from(port.chosenOrigins || []), origin]));
-            try {
-              if (deps.setCfg) await deps.setCfg({ chosenOrigins: nextChosen });
-            } catch (_e) {
-              applyOwnerEvent(port, { type: "drop-reservation" });
-              return { ok: false, error: "storage_error" };
-            }
-
-            const fence = applyOwnerEvent(port, {
-              type: "fence-add", origin, capturedGrantEpoch, capturedPermissionEpoch, phase: "after-choice-write",
-            });
-            if (!fence.result.ok) {
-              if (fence.effects.includes("align-durable-to-memory") && deps.setCfg) {
-                try { await deps.setCfg({ chosenOrigins: Array.from(port.chosenOrigins || []) }); }
-                catch (_e) { return { ok: false, error: "storage_error" }; }
-              }
-              port.notify();
-              return fence.result;
-            }
-
-            let livePerms;
-            try {
-              const perms = typeof chrome !== "undefined" && chrome.permissions?.getAll ? await chrome.permissions.getAll() : null;
-              if (!Array.isArray(perms?.origins)) throw new Error("permission snapshot unavailable");
-              livePerms = perms.origins;
-            } catch (_e) {
-              const moved = ownerStateFor(port).grantEpoch !== capturedGrantEpoch;
-              if (moved && !port.chosenOrigins.has(origin) && deps.setCfg) {
-                try { await deps.setCfg({ chosenOrigins: Array.from(port.chosenOrigins || []) }); }
-                catch (_err) { applyOwnerEvent(port, { type: "drop-reservation" }); return { ok: false, error: "storage_error" }; }
-              }
-              applyOwnerEvent(port, { type: "drop-reservation" });
-              port.notify();
-              return { ok: false, error: "capture_unavailable" };
-            }
-
-            const published = applyOwnerEvent(port, {
-              type: "publish-grants", livePatterns: livePerms, epochAtStart: capturedPermissionEpoch,
-            });
-            if (!published.result.ok) {
-              applyOwnerEvent(port, { type: "drop-reservation" });
-              port.notify();
-              return { ok: false, error: "capture_unavailable" };
-            }
-
-            let regStatus = "ready";
-            if (typeof deps.registerSite === "function") {
-              try {
-                regStatus = await deps.registerSite(host);
-              } catch (_e) {
-                regStatus = "failed";
-              }
-            }
-
-            const registered = applyOwnerEvent(port, {
-              type: "note-registration", origin, status: regStatus, capturedGrantEpoch, capturedPermissionEpoch,
-            });
-            if (!registered.result.ok) {
-              applyOwnerEvent(port, { type: "drop-reservation" });
-              port.notify();
-              deps.refreshOpenTabs?.();
-              return { ok: false, error: "capture_unavailable" };
-            }
-
-            if (regStatus === "failed") {
-              if (port.setRegistration) await port.setRegistration(origin, "failed");
-              applyOwnerEvent(port, { type: "drop-reservation" });
-              port.notify();
-              deps.refreshOpenTabs?.();
-              return { ok: false, error: "registration_failed", registration: "failed" };
-            }
-
-            if (port.setRegistration) await port.setRegistration(origin, regStatus);
-
-            applyOwnerEvent(port, { type: "drop-reservation" });
-            port.notify();
-            deps.refreshOpenTabs?.();
-            const final = ownerStateFor(port);
-            if (final.grantEpoch !== capturedGrantEpoch || final.permissionEpoch !== capturedPermissionEpoch || !port.grantedOrigins.has(origin)) {
-              return { ok: false, error: "capture_unavailable" };
-            }
-            return { ok: true, origin, registration: regStatus };
-          });
-          grantChain = operation;
-          return operation;
+          return addGrantedOrigin(origin, deps);
         }
 
         case "removeGrantedOrigin": {
@@ -651,6 +666,7 @@
   }
 
   globalThis.SolstoneRouter = {
+    completeReservedOrigin,
     route,
     applyOwnerEvent,
     ownerStateFor,

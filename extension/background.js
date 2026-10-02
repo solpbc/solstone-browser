@@ -647,6 +647,11 @@ chrome.permissions.onAdded.addListener(async (details) => {
       if (!noted.result.ok) return;
       await port.setRegistration(origin, status);
     }
+    if (sync.result.reservation) {
+      await Router.completeReservedOrigin(sync.result.reservation, {
+        port, setCfg, registerSite, settlePermissionEffects, refreshOpenTabs,
+      });
+    }
     if (permissionEpoch !== epochAtStart) return;
     port.notify();
     refreshOpenTabs();

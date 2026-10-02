@@ -39,7 +39,10 @@
 
     switch (event.type) {
       case "reserve":
-        state.reservation = { origin, pattern: event.pattern, expiresAt: event.now + 120000 };
+        state.reservation = {
+          origin, pattern: event.pattern, expiresAt: event.now + 120000,
+          grantEpoch: state.grantEpoch, permissionEpoch: state.permissionEpoch,
+        };
         break;
       case "drop-reservation":
         state.reservation = null;
@@ -60,7 +63,7 @@
         const pending = state.reservation && event.now < state.reservation.expiresAt;
         const matches = pending && event.patterns.length > 0 && event.patterns.every((pattern) => pattern === state.reservation.pattern);
         if (!matches) state.permissionEpoch++;
-        result = { ok: true, epochAtStart: state.permissionEpoch };
+        result = { ok: true, epochAtStart: state.permissionEpoch, reservation: matches ? state.reservation : null };
         break;
       }
       case "publish-grants":

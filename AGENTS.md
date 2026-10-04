@@ -10,7 +10,7 @@ The content scripts produce semantic page blocks. They do not segment files or u
 
 `lib/native_port.js` owns port identity, freshness, reconnect and receipt handling. `lib/native_outbox.js` persists complete skims and their durable batch identities in IndexedDB. Sending is at least once: retry the saved batch under the same identity. Recovery snapshots come from its original skim, never a new DOM read. The app assigns periods and handles finalization; a boundary can require a new snapshot. App acceptance means kept locally, not delivered to the journal.
 
-Keep page-reading authorization separate from delivery. Pause closes new page reading but does not erase or hold back material already taken in. Generation changes must prevent an old batch from reaching a newly paired journal. Never evict accepted material to make room or turn local queue expiry into a delivery claim.
+Keep page-reading authorization separate from delivery. Pause closes new page reading but does not erase material already taken in. Held pages go to the currently paired journal once the owner confirms its mark. Re-pairing, unpairing and mark rejection preserve waiting pages. Stamp the live destination generation and transport time when sending, preserving the original saved content, record timestamps and batch identities. Keep the size bound; held pages have no time-based expiry.
 
 `contracts/native-browser/` is the versioned wire authority. It imports the journal's browser-record schema; do not maintain a second record definition. Generated constants, registration data, JavaScript validation and Rust framing must stay in agreement. Update the manifest and conformance vectors deliberately when the contract changes. Native implementations consume this bundle.
 

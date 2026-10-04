@@ -381,6 +381,80 @@ test("account: confirmed generation promotes the oldest held delta and keeps row
   assert.equal(await DB.get("meta", "lossNotice"), undefined);
 });
 
+test("account: returning to a previous generation promotes the remaining delta before sending", async () => {
+  await resetDB();
+  const fixture = blocks => ({
+    inst: "00000000-0000-0000-0000-000000000001", ctx: "return-generation",
+    destinationGeneration: "gen-a", senderUrl: "https://example.test/page", site: "example.test",
+    title: "Title", adapter: "generic", blocks, nowMs: 1000,
+  });
+  const base = [{ id: "1", text: "base" }];
+  const initial = await Outbox.enqueueSkim(fixture(base));
+  await Outbox.removeBatch(initial.batchId);
+  const first = await Outbox.enqueueSkim(fixture([...base, { id: "2", text: "first" }]));
+  const second = await Outbox.enqueueSkim(fixture([...base, { id: "2", text: "first" }, { id: "3", text: "second" }]));
+  const original = await DB.get("outbox", second.batchId);
+  assert.equal(original.records[0].t, "delta");
+  await Outbox.promoteHeldForGeneration("gen-b");
+  await Outbox.removeBatch(first.batchId);
+  await Outbox.promoteHeldForGeneration("gen-a");
+  const remaining = await DB.get("outbox", second.batchId);
+  const wire = Outbox.buildWireBatch(remaining, { destinationGeneration: "gen-a", queuedAtMs: 2000 });
+  assert.equal(wire.records[0].t, "segment_start");
+  assert.equal(wire.batch_id, original.batchId);
+  assert.deepEqual(remaining.records, original.records);
+  assert.deepEqual(wire.records, original.snapshotRecords);
+  assert.equal(await DB.get("meta", "lossNotice"), undefined);
+});
+
+test("account: a held delta without its producer cursor starts with a full snapshot", async () => {
+  await resetDB();
+  const fixture = blocks => ({
+    inst: "00000000-0000-0000-0000-000000000001", ctx: "missing-producer",
+    destinationGeneration: "gen-a", senderUrl: "https://example.test/page", site: "example.test",
+    title: "Title", adapter: "generic", blocks, nowMs: 1000,
+  });
+  const initial = await Outbox.enqueueSkim(fixture([{ id: "1", text: "base" }]));
+  await Outbox.removeBatch(initial.batchId);
+  const delta = await Outbox.enqueueSkim(fixture([{ id: "1", text: "changed" }]));
+  assert.equal((await DB.get("outbox", delta.batchId)).records[0].t, "delta");
+  await DB.del("producer", "00000000-0000-0000-0000-000000000001\nmissing-producer");
+  await Outbox.promoteHeldForGeneration("gen-a");
+  const wire = Outbox.buildWireBatch(await DB.get("outbox", delta.batchId));
+  assert.equal(wire.records[0].t, "segment_start");
+  assert.equal(wire.batch_id, delta.batchId);
+});
+
+test("account: cursor recovery and maximum generation stamps stay within a saturated byte budget", async () => {
+  await resetDB();
+  const key = "00000000-0000-0000-0000-000000000001\nbounded-promotion";
+  const fixture = blocks => ({
+    inst: "00000000-0000-0000-0000-000000000001", ctx: "bounded-promotion",
+    destinationGeneration: "g", senderUrl: "https://example.test/page", site: "example.test",
+    title: "Title", adapter: "generic", blocks, nowMs: 1000,
+  });
+  const initial = await Outbox.enqueueSkim(fixture([{ id: "1", text: "base" }]));
+  await Outbox.removeBatch(initial.batchId);
+  const delta = await Outbox.enqueueSkim(fixture([{ id: "1", text: "changed" }]));
+  try {
+    for (const recoverCursor of [false, true]) {
+      if (recoverCursor) await DB.del("producer", key);
+      const limit = (await Outbox.getCapacityStatus()).totalBytes;
+      globalThis.SolstoneNativeBrowserConstants = { ...Constants, OUTBOX_BYTES_MAX: limit };
+      await Outbox.promoteHeldForGeneration((recoverCursor ? "b" : "a").repeat(Constants.GENERATION_MAX));
+      const stored = await DB.get("outbox", delta.batchId);
+      const cursor = await DB.get("producer", key);
+      assert.ok(Outbox.byteLengthOf(stored) + Outbox.byteLengthOf(cursor) <= limit);
+      assert.ok((await Outbox.getCapacityStatus()).totalBytes <= limit);
+      await assert.rejects(Outbox.enqueueSkim({ ...fixture([{ id: "1", text: "fresh" }]), ctx: "capacity-new" }),
+        error => error.code === "outbox-full");
+      assert.equal((await DB.get("outbox", delta.batchId)).batchId, delta.batchId);
+    }
+  } finally {
+    globalThis.SolstoneNativeBrowserConstants = Constants;
+  }
+});
+
 test("account: unauthorized generation promotion leaves a held delta and cursor unchanged", async () => {
   await resetDB();
   const inst = "00000000-0000-0000-0000-000000000001", ctx = "authorize-promotion";

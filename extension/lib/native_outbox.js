@@ -63,6 +63,23 @@
     return `${inst}\n${ctx}`;
   }
 
+  function cursorByteBudget(cursor) {
+    return byteLengthOf({ ...cursor, generation: "g".repeat(getConsts().GENERATION_MAX) });
+  }
+
+  function producerByteBudget(items, cursors) {
+    const byKey = new Map(cursors.map(cursor => [cursor.contextKey, cursor]));
+    for (const row of items) {
+      const key = contextKeyFor(row.inst, row.ctx);
+      if (!byKey.has(key)) byKey.set(key, {
+        contextKey: key, inst: row.inst, ctx: row.ctx, generation: "", snapshotRequired: false, blocks: [],
+      });
+    }
+    let total = 0;
+    for (const cursor of byKey.values()) total += cursorByteBudget(cursor);
+    return total;
+  }
+
   function buildWireBatch(storedItem, transport) {
     const records = storedItem.sendSnapshot ? storedItem.snapshotRecords : storedItem.records;
     return {
@@ -166,10 +183,7 @@
             outboxBytes += item.bytes || byteLengthOf(item);
             if (item.seq && item.seq > maxSeq) maxSeq = item.seq;
           }
-          let producerBytes = 0;
-          for (const c of (allCursors || [])) {
-            producerBytes += byteLengthOf(c);
-          }
+          const producerBytes = producerByteBudget(allItems || [], allCursors || []);
           const totalBytes = outboxBytes + producerBytes;
 
           let recordsToUse = null;
@@ -258,7 +272,9 @@
             snapshotRequired: false,
           };
 
-          const cursorDelta = byteLengthOf(nextCursor) - (cursor ? byteLengthOf(cursor) : 0);
+          const priorCursor = cursor || (sortedItems.some(row => contextKeyFor(row.inst, row.ctx) === ctxKey)
+            ? { contextKey: ctxKey, inst, ctx, generation: "", snapshotRequired: false, blocks: [] } : null);
+          const cursorDelta = cursorByteBudget(nextCursor) - (priorCursor ? cursorByteBudget(priorCursor) : 0);
           if (totalBytes + storedItem.bytes + cursorDelta > consts.OUTBOX_BYTES_MAX) {
             const err = new Error("outbox-full");
             err.code = "outbox-full";
@@ -531,7 +547,9 @@
             if (cursor.generation !== newGeneration) affected.add(cursor.contextKey);
           }
           for (const [key, rows] of rowsByKey) {
-            if (!cursorByKey.has(key) && rows.some(row => row.destinationGeneration !== newGeneration)) affected.add(key);
+            const head = rows[0];
+            const needsBaseline = head && !head.sendSnapshot && head.records?.some(record => record.t === "delta");
+            if (!cursorByKey.has(key) && (needsBaseline || rows.some(row => row.destinationGeneration !== newGeneration))) affected.add(key);
           }
 
           for (const key of affected) {
@@ -554,7 +572,7 @@
             }
 
             const oldest = rowsByKey.get(key)?.[0];
-            if (oldest && oldest.destinationGeneration !== newGeneration && oldest.sendSnapshot !== true &&
+            if (oldest && oldest.sendSnapshot !== true &&
                 Array.isArray(oldest.records) && oldest.records.some(record => record.t === "delta")) {
               oldest.sendSnapshot = true;
               outboxStore.put(oldest);
@@ -614,10 +632,7 @@
           for (const item of (allItems || [])) {
             outboxBytes += item.bytes || byteLengthOf(item);
           }
-          let producerBytes = 0;
-          for (const c of (allCursors || [])) {
-            producerBytes += byteLengthOf(c);
-          }
+          const producerBytes = producerByteBudget(allItems || [], allCursors || []);
           const totalBytes = outboxBytes + producerBytes;
           t.__result = {
             totalBytes,

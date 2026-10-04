@@ -33,7 +33,7 @@ Use `make set-version V=<next-version>` to update the four version locations tog
 
 ## Installed compatibility gate
 
-For each supported browser and desktop, verify the extension with the actual signed app/helper and a test journal. A matching wire version is necessary but does not prove the installed path. Check delivery and search, app quit/pause, crash and lost-ACK replay, re-pair isolation, version mismatch recovery, private-window exclusion, manifest repair and app update while helpers are connected. Confirm production registrations contain only production IDs and that no development registration is overwritten during app launch or update.
+For each supported browser and desktop, verify the extension with the actual signed app/helper and a test journal. A matching wire version is necessary but does not prove the installed path. Check delivery and search, app quit/pause, crash and lost-ACK replay, held-page delivery after re-pair and mark confirmation, unpairing for more than ten minutes followed by confirmation of a different journal, version mismatch recovery, private-window exclusion, manifest repair and app update while helpers are connected. Confirm production registrations contain only production IDs and that no development registration is overwritten during app launch or update.
 
 Run the shared raw-message vectors in JavaScript, Rust and each native implementation. Record the adopted bundle and journal-schema digests. Exercise runtime network observation with a deliberate leak mutation; static CSP inspection alone is insufficient. App custody acknowledgments cannot stand in for journal delivery evidence.
 

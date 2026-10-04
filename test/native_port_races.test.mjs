@@ -420,6 +420,32 @@ await run("all retryable refusals are paced including age policy", async () => {
   assert.equal(p.sent.filter((x) => x.type === "batch").length, 1);
 });
 
+await run("cached legacy expiry cannot spin through repeated host state updates", async () => {
+  const { c, p, clock } = setup(), item = await enqueue();
+  await p.receive(ack());
+  const first = p.sent.find(message => message.type === "batch");
+  const refusal = {
+    type: "accepted", result: "rejected", class: "permanent", reason: "expired_unaccepted",
+    batch_id: item.batchId, inst: c.inst, destination_generation: "A",
+  };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await p.receive(refusal);
+    for (let update = 0; update < 4; update++) {
+      await p.receive(ack("permitted", "A", "state"));
+      await c.drain();
+    }
+    assert.equal(p.sent.filter(message => message.type === "batch").length, attempt + 1);
+    assert.ok(await DB.get("outbox", item.batchId));
+    assert.equal(await DB.get("meta", "lossNotice"), undefined);
+    clock.now += c.retryDelayMs;
+    await c.drain();
+    const posts = p.sent.filter(message => message.type === "batch");
+    assert.equal(posts.length, attempt + 2);
+    assert.equal(posts.at(-1).batch_id, first.batch_id);
+    assert.deepEqual(posts.at(-1).records, first.records);
+  }
+});
+
 await run(
   "bye publishes closure before snapshot marking finishes",
   async () => {

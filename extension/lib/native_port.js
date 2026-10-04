@@ -687,13 +687,9 @@
               if (rejectRes?.seq) {
                 this.lossNotice = await DB.get("meta", "lossNotice");
               }
-              if (val.class === "retryable") {
+              if (val.class === "retryable" || val.reason === "expired_unaccepted") {
                 this.retryNotBefore = this.now() + this.retryDelayMs;
                 this.schedule(() => this.drain(), this.retryDelayMs);
-              } else if (val.reason === "expired_unaccepted") {
-                if (this.handshake === "ready" && typeof this.destinationGeneration === "string" && this.destinationGeneration.length > 0) {
-                  await this.drain();
-                }
               } else if (val.reason === "stale_generation") {
                 if (this.stateRevision === fence.stateRevision) this.retryAfterState = true;
               } else {

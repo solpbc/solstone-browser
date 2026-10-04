@@ -816,7 +816,7 @@ test("port: failed promotion keeps deltas held until a later current state succe
   assert.equal((await DB.get("outbox", delta.batchId)).sendSnapshot, true);
 });
 
-test("port: stale generation waits for state; expired unaccepted retries immediately", async () => {
+test("port: stale generation waits for state; legacy expiry retries with pacing", async () => {
   const inst = "00000000-0000-0000-0000-000000000001";
   await resetDB();
   const stale = await Outbox.enqueueSkim({
@@ -872,10 +872,12 @@ test("port: stale generation waits for state; expired unaccepted retries immedia
   });
   await DB.put("meta", lossNotice, "lossNotice");
   wallNow = 8000;
+  let retryMono = 0;
   const expiredPort = new MockPort();
   const expiredController = new PortController({
     inst, runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", connectNative: () => expiredPort,
     wallNow: () => wallNow,
+    now: () => retryMono, schedule: () => 0,
   });
   expiredController.connect();
   await expiredPort.receive({
@@ -888,6 +890,11 @@ test("port: stale generation waits for state; expired unaccepted retries immedia
     type: "accepted", result: "rejected", reason: "expired_unaccepted", class: "permanent",
     batch_id: expired.batchId, destination_generation: "generation-a", inst,
   });
+  assert.equal(expiredPort.sent.filter(message => message.type === "batch").length, 1);
+  await expiredController.drain();
+  assert.equal(expiredPort.sent.filter(message => message.type === "batch").length, 1);
+  retryMono += expiredController.retryDelayMs;
+  await expiredController.drain();
   const expiredPosts = expiredPort.sent.filter(message => message.type === "batch");
   assert.equal(expiredPosts.length, 2);
   assert.equal(expiredPosts[1].batch_id, firstExpiredPost.batch_id);

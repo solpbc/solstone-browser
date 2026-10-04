@@ -251,18 +251,18 @@ await run("unsupported clears previous host facts", async () => {
   assert.equal(s.hostCapture, null);
   assert.equal(s.custody, null);
 });
-await run("obsolete retirement cannot mutate replacement queue", async () => {
+await run("obsolete generation promotion cannot mutate replacement queue", async () => {
   const { c, p, ports } = setup();
   c.everConnected = true;
   const d = deferred(),
     entered = deferred(),
-    oldRetire = O.retireStaleGeneration;
-  O.retireStaleGeneration = async (g, authorize) => {
+    oldPromote = O.promoteHeldForGeneration;
+  O.promoteHeldForGeneration = async (g, authorize) => {
     if (g === "A") {
       entered.resolve();
       await d.promise;
     }
-    return oldRetire(g, authorize);
+    return oldPromote(g, authorize);
   };
   try {
     const pending = p.receive(ack("permitted", "A"));
@@ -278,7 +278,7 @@ await run("obsolete retirement cannot mutate replacement queue", async () => {
       true,
     );
   } finally {
-    O.retireStaleGeneration = oldRetire;
+    O.promoteHeldForGeneration = oldPromote;
   }
 });
 await run("concurrent drains post once and paused delivery works", async () => {

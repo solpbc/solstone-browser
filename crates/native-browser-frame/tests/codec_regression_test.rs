@@ -210,6 +210,25 @@ fn actual_receipt_builders_roundtrip_every_result_and_reason() {
             assert!(build_reply(&r).is_err());
         }
     }
+    for reason in LEGACY_PERMANENT_REASONS {
+        let mut permanent = json!({"type":"accepted","result":"rejected","reason":reason,"class":"permanent"});
+        permanent["destination_generation"] = identity["destination_generation"].clone();
+        permanent["inst"] = identity["inst"].clone();
+        permanent["batch_id"] = identity["batch_id"].clone();
+        assert!(matches!(
+            decode(&encode(&permanent).unwrap(), Direction::HostToExtension),
+            DecodeOutcome::Accept(_)
+        ));
+        let mut retryable = permanent.clone();
+        retryable["class"] = json!("retryable");
+        refused(&retryable);
+
+        let mut request = identity.clone();
+        request["result"] = json!("rejected");
+        request["reason"] = json!(reason);
+        request["class"] = json!("permanent");
+        assert_eq!(build_reply(&request), Err("invalid_receipt"));
+    }
     assert!(build_reply(&json!({"result":"accepted","period_id":"p"})).is_err());
     let mut rejected = identity;
     rejected["result"] = json!("rejected");

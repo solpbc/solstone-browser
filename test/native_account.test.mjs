@@ -24,6 +24,7 @@ await import(new URL("../extension/skim.js", import.meta.url));
 
 const Constants = globalThis.SolstoneNativeBrowserConstants;
 const Blocks = globalThis.SolstoneBlocks;
+const Seg = globalThis.SolstoneSegment;
 const Adapters = globalThis.SolstoneAdapters;
 const Skim = globalThis.SolstoneSkim;
 const DB = globalThis.SolstoneDB;
@@ -86,8 +87,8 @@ test("account: stored bytes count both copies and escapes", async () => {
   const head = await Outbox.getHead();
   assert.ok(head);
   const exactBytes = new TextEncoder().encode(JSON.stringify(head)).byteLength;
-  assert.equal(head.bytes, exactBytes + 64);
-  assert.equal(res.bytes, exactBytes + 64);
+  assert.equal(head.bytes, exactBytes);
+  assert.equal(res.bytes, exactBytes);
   // \u0001 in JSON is escaped as \u0001 (6 chars) instead of 1 raw char
   assert.ok(exactBytes > JSON.stringify(head).length - 5);
 });
@@ -278,7 +279,7 @@ test("account: outbox-full does not advance the cursor", async () => {
   assert.deepEqual(cursorAfter.blocks, cursorBefore.blocks);
 });
 
-test("account: expired unaccepted retires with count", async () => {
+test("account: old queued rows remain without expiry deletion or loss", async () => {
   await resetDB();
 
   // Item at t = 1000 (age = 600000 ms at now = 601000)
@@ -323,31 +324,28 @@ test("account: expired unaccepted retires with count", async () => {
     monotonicNow: 500000,
   });
 
-  // 1 ms before max age: does not retire
-  const resNoop = await Outbox.retireExpired(1000 + Constants.OUTBOX_AGE_MS_MAX - 1);
-  assert.equal(resNoop.count, 0);
-
-  // Exactly at max age: b1 retires
-  const resRetire = await Outbox.retireExpired(1000 + Constants.OUTBOX_AGE_MS_MAX);
-  assert.equal(resRetire.count, 1);
-  assert.equal(resRetire.disposition, "expired_unaccepted");
-
   const all = await Outbox.getAll();
-  assert.equal(all.some((x) => x.batchId === b1.batchId), false);
-
-  // Descendant promoted to snapshot (sendSnapshot = true without rewriting records)
-  const b2Promoted = all.find((x) => x.batchId === b2.batchId);
-  assert.ok(b2Promoted);
-  assert.equal(b2Promoted.sendSnapshot, true);
-  assert.equal(Outbox.buildWireBatch(b2Promoted).records[0].t, "segment_start");
-
-  // Other context unchanged
-  const otherFound = all.find((x) => x.batchId === bOther.batchId);
-  assert.ok(otherFound);
+  assert.deepEqual(all.map((x) => x.batchId).sort(), [b1.batchId, b2.batchId, bOther.batchId].sort());
+  assert.equal(all.find((x) => x.batchId === b2.batchId).sendSnapshot, false);
+  assert.equal(await DB.get("meta", "lossNotice"), undefined);
 });
 
-test("account: stale generation retires with count and does not rewrite survivors", async () => {
+test("account: confirmed generation promotes the oldest held delta and keeps rows", async () => {
   await resetDB();
+
+  const bBase = await Outbox.enqueueSkim({
+    inst: "inst-stale",
+    ctx: "ctx-stale",
+    destinationGeneration: "gen-old",
+    senderUrl: "https://example.test/page",
+    site: "example.test",
+    title: "Title",
+    adapter: "generic",
+    blocks: [{ id: "1", text: "Base" }],
+    nowMs: 1000,
+    monotonicNow: 1000,
+  });
+  await Outbox.removeBatch(bBase.batchId);
 
   const bOld = await Outbox.enqueueSkim({
     inst: "inst-stale",
@@ -357,31 +355,53 @@ test("account: stale generation retires with count and does not rewrite survivor
     site: "example.test",
     title: "Title",
     adapter: "generic",
-    blocks: [{ id: "1", text: "Old Gen" }],
-    nowMs: 1000,
-    monotonicNow: 1000,
-  });
-
-  const bNew = await Outbox.enqueueSkim({
-    inst: "inst-stale",
-    ctx: "ctx-new",
-    destinationGeneration: "gen-new",
-    senderUrl: "https://example.test/page",
-    site: "example.test",
-    title: "Title",
-    adapter: "generic",
-    blocks: [{ id: "2", text: "New Gen" }],
+    blocks: [{ id: "1", text: "Base" }, { id: "2", text: "Old delta" }],
     nowMs: 2000,
     monotonicNow: 2000,
   });
+  const bSameGeneration = { ...(await DB.get("outbox", bOld.batchId)),
+    batchId: "b".repeat(32), seq: bOld.seq + 1, destinationGeneration: "gen-new", sendSnapshot: false };
+  settleRowBytes(bSameGeneration);
+  await DB.put("outbox", bSameGeneration);
+  const sameGenerationBefore = await DB.get("outbox", bSameGeneration.batchId);
+  const cursorBefore = await DB.get("producer", "inst-stale\nctx-stale");
 
-  const res = await Outbox.retireStaleGeneration("gen-new");
-  assert.equal(res.count, 1);
-  assert.equal(res.disposition, "stale-generation");
+  const res = await Outbox.promoteHeldForGeneration("gen-new");
+  assert.equal(res.count, 0);
 
   const all = await Outbox.getAll();
-  assert.equal(all.length, 1);
-  assert.equal(all[0].batchId, bNew.batchId);
+  assert.equal(all.length, 2);
+  assert.deepEqual(all.map((x) => x.batchId).sort(), [bOld.batchId, bSameGeneration.batchId].sort());
+  assert.equal((await DB.get("outbox", bOld.batchId)).sendSnapshot, true);
+  assert.deepEqual(await DB.get("outbox", bSameGeneration.batchId), sameGenerationBefore);
+  const cursorAfter = await DB.get("producer", "inst-stale\nctx-stale");
+  assert.equal(cursorAfter.generation, "gen-new");
+  assert.equal(cursorAfter.snapshotRequired, true);
+  assert.deepEqual(cursorAfter.blocks, cursorBefore.blocks);
+  assert.equal(await DB.get("meta", "lossNotice"), undefined);
+});
+
+test("account: unauthorized generation promotion leaves a held delta and cursor unchanged", async () => {
+  await resetDB();
+  const inst = "00000000-0000-0000-0000-000000000001", ctx = "authorize-promotion";
+  const first = await Outbox.enqueueSkim({
+    inst, ctx, destinationGeneration: "gen-a", senderUrl: "https://example.test/page", site: "example.test",
+    title: "Title", adapter: "generic", blocks: [{ id: "1", text: "base" }], nowMs: 1,
+  });
+  await Outbox.removeBatch(first.batchId);
+  const delta = await Outbox.enqueueSkim({
+    inst, ctx, destinationGeneration: "gen-a", senderUrl: "https://example.test/page", site: "example.test",
+    title: "Title", adapter: "generic", blocks: [{ id: "1", text: "base" }, { id: "2", text: "delta" }], nowMs: 2,
+  });
+  const beforeRow = await DB.get("outbox", delta.batchId);
+  const beforeCursor = await DB.get("producer", `${inst}\n${ctx}`);
+  await assert.rejects(Outbox.promoteHeldForGeneration("gen-b", () => false), err => err.code === "authorization_failed");
+  assert.deepEqual(await DB.get("outbox", delta.batchId), beforeRow);
+  assert.deepEqual(await DB.get("producer", `${inst}\n${ctx}`), beforeCursor);
+  const promoted = await Outbox.promoteHeldForGeneration("gen-b", () => true);
+  assert.equal(promoted.count, 0);
+  assert.equal((await DB.get("outbox", delta.batchId)).sendSnapshot, true);
+  assert.equal((await DB.get("producer", `${inst}\n${ctx}`)).generation, "gen-b");
 });
 
 function makeMockElement(id, text) {
@@ -469,7 +489,7 @@ test("skim: boundary block counting respects 1499 edge", () => {
   assert.equal(res.omitted, false);
 });
 
-test("account: monotonic floor, backward wall jump, future skew, and missing ageSampleWallMs", async () => {
+test("account: expiry and future-skew old rows remain, including legacy age metadata", async () => {
   await resetDB();
 
   // Item 1: floor 300000 with ageSampleWallMs at T=100000
@@ -497,28 +517,11 @@ test("account: monotonic floor, backward wall jump, future skew, and missing age
     };
   });
 
-  // Fresh process (no in-memory sample), wall T + 60000 = 160000, mono 10000
-  // Age computed is 300000 + 60000 = 360000. Row is still present.
-  const r1 = await Outbox.retireExpired(10000, 160000);
-  assert.equal(r1.count, 0);
+  // No outbox expiry pass interprets prior age metadata.
   const itemAfterR1 = await DB.get("outbox", b1.batchId);
   assert.ok(itemAfterR1);
-  assert.equal(itemAfterR1.observedAgeMs, 360000);
-
-  // Backward wall jump: wall T - 10000 = 90000, mono 20000
-  // Monotonic clock advanced by 10s, so floor advances monotonically to 370000 despite backward wall jump
-  const r2 = await Outbox.retireExpired(20000, 90000);
-  assert.equal(r2.count, 0);
-  const itemAfterR2 = await DB.get("outbox", b1.batchId);
-  assert.ok(itemAfterR2);
-  assert.equal(itemAfterR2.observedAgeMs, 370000);
-
-  // Advancing to 600000 floor: mono 250000 (370000 + (250000 - 20000) = 600000 floor >= OUTBOX_AGE_MS_MAX)
-  // Retires via queuedPastOutboxAge with reason expired_unaccepted
-  const r3 = await Outbox.retireExpired(250000, 340000);
-  assert.equal(r3.count, 1);
-  assert.equal(r3.disposition, "expired_unaccepted");
-  assert.equal(await DB.get("outbox", b1.batchId), undefined);
+  assert.equal(itemAfterR1.observedAgeMs, 300000);
+  assert.equal(itemAfterR1.ageSampleWallMs, 100000);
 
   // Future skew test: queuedAtMs > 60000 in future
   const bFuture = await Outbox.enqueueSkim({
@@ -533,12 +536,8 @@ test("account: monotonic floor, backward wall jump, future skew, and missing age
     nowMs: 200000,
     monotonicNow: 200000,
   });
-  // Wall is 100000 (100000 < 200000 - 60000), queuedAtMs is > 60s in future
-  const rFuture = await Outbox.retireExpired(1000, 100000);
-  assert.equal(rFuture.count, 1);
-  assert.equal(rFuture.disposition, "age_policy");
-  assert.equal(rFuture.reason, "age_policy");
-  assert.equal((await DB.get("meta", "lossNotice")).reason, "age_policy");
+  // Future-skew is a wire predicate, not a local outbox deletion rule.
+  assert.ok(await DB.get("outbox", bFuture.batchId));
 
   // Missing ageSampleWallMs test: does not use queuedAtMs as sample
   const bNoSample = await Outbox.enqueueSkim({
@@ -562,11 +561,19 @@ test("account: monotonic floor, backward wall jump, future skew, and missing age
       store.put(item);
     };
   });
-  // Wall age remains a lower bound even without a saved wall sample.
-  const rNoSample = await Outbox.retireExpired(1000, 500000);
-  assert.equal(rNoSample.count, 0);
+  // A manually inserted old row carrying age metadata remains untouched.
   const itemNoSample = await DB.get("outbox", bNoSample.batchId);
-  assert.equal(itemNoSample.observedAgeMs, 400000);
+  assert.equal(itemNoSample.observedAgeMs, 50000);
+  assert.equal(itemNoSample.ageSampleWallMs, undefined);
+  const fresh = await Outbox.enqueueSkim({
+    inst: "inst-floor", ctx: "ctx-fresh", destinationGeneration: "gen-1",
+    senderUrl: "https://example.test/page", site: "example.test", title: "Title", adapter: "generic",
+    blocks: [{ id: "fresh", text: "fresh" }], nowMs: 700000,
+  });
+  const freshRow = await DB.get("outbox", fresh.batchId);
+  assert.equal("observedAgeMs" in freshRow, false);
+  assert.equal("ageSampleWallMs" in freshRow, false);
+  assert.equal(await DB.get("meta", "lossNotice"), undefined);
 });
 
 function settleRowBytes(row) {
@@ -802,25 +809,30 @@ test("account: near-cap predecessor loss promotes descendant without growing tot
 
   const startCap = await Outbox.getCapacityStatus();
 
-  await Outbox.retireStaleGeneration(rowD.destinationGeneration);
+  await Outbox.promoteHeldForGeneration(rowD.destinationGeneration);
 
   const rowDAfter = await DB.get("outbox", rowD.batchId);
   assert.ok(rowDAfter);
   assert.equal(rowDAfter.bytes, rowD.bytes);
   assert.equal(rowDAfter.batchId, rowD.batchId);
   assert.equal(rowDAfter.queuedAtMs, rowD.queuedAtMs);
-  assert.equal(rowDAfter.sendSnapshot, true);
+  assert.equal(rowDAfter.sendSnapshot, false);
 
   const rowSAfter = await DB.get("outbox", rowS.batchId);
   assert.ok(rowSAfter);
   assert.equal(rowSAfter.bytes, rowS.bytes);
 
   const rowPAfter = await DB.get("outbox", rowP.batchId);
-  assert.equal(rowPAfter, undefined);
+  assert.ok(rowPAfter);
+  assert.equal(rowPAfter.bytes, rowP.bytes);
 
   const postCap = await Outbox.getCapacityStatus();
   assert.ok(postCap.totalBytes <= startCap.totalBytes);
   assert.ok(postCap.totalBytes <= Constants.OUTBOX_BYTES_MAX);
+  const cursor = await DB.get("producer", "00000000-0000-0000-0000-000000000001\nctx-1");
+  assert.equal(cursor.generation, "gen-new");
+  assert.equal(cursor.snapshotRequired, true);
+  assert.equal(await DB.get("meta", "lossNotice"), undefined);
 });
 
 test("account: lone-surrogate enqueue is refused with code lone_surrogate and leaves no outbox or producer record", async () => {
@@ -950,28 +962,52 @@ function agingFixture(ctx, wall=1000000) {
     nowMs:wall,monotonicNow:0};
 }
 
-test("account: forward wall equality retires despite a newer monotonic sample", async () => {
+test("account: elapsed wall time does not delete a queued row", async () => {
   await resetDB();
   const item=await Outbox.enqueueSkim(agingFixture("wall"));
-  await Outbox.retireExpired(0,1000000);
-  const retired=await Outbox.retireExpired(1,1000000+Constants.OUTBOX_AGE_MS_MAX);
-  assert.equal(retired.count,1);
-  assert.equal(await DB.get("outbox",item.batchId),undefined);
+  assert.ok(await DB.get("outbox",item.batchId));
+  assert.equal(await DB.get("meta","lossNotice"),undefined);
 });
 
-test("account: age metadata growth fits its reserved bytes without changing replay", async () => {
+test("account: max-width transport stamp fits the stored byte budget without mutation", async () => {
   await resetDB();
-  const item=await Outbox.enqueueSkim(agingFixture("growth"));
+  const item=await Outbox.enqueueSkim({...agingFixture("growth"),destinationGeneration:"g",nowMs:7});
   const before=await DB.get("outbox",item.batchId);
-  await Outbox.retireExpired(0,1000000);
-  await Outbox.retireExpired(12345.12345,1012345);
-  const after=await DB.get("outbox",item.batchId);
-  assert.ok(Outbox.byteLengthOf(after) <= after.bytes);
-  assert.equal(after.bytes,before.bytes);
-  assert.deepEqual(Outbox.buildWireBatch(after),Outbox.buildWireBatch(before));
-  const actual=(await DB.getAll("outbox")).reduce((n,row)=>n+Outbox.byteLengthOf(row),0)+
-    (await DB.getAll("producer")).reduce((n,row)=>n+Outbox.byteLengthOf(row),0);
-  assert.ok(actual <= (await Outbox.getCapacityStatus()).totalBytes);
+  const maxWire=Outbox.buildWireBatch(before,{
+    destinationGeneration:"g".repeat(Constants.GENERATION_MAX),
+    queuedAtMs:Constants.TIMESTAMP_MAX,
+  });
+  assert.equal(before.bytes,Outbox.byteLengthOf(before));
+  assert.equal((await DB.get("outbox",item.batchId)).bytes,before.bytes);
+  assert.equal(maxWire.batch_id,before.batchId);
+  assert.deepEqual(maxWire.records,before.records);
+  assert.equal(maxWire.records[0].ts,before.records[0].ts);
+  assert.equal(Outbox.validateWireBatch(maxWire),true);
+
+  const inst="00000000-0000-0000-0000-000000000001",ctx="max-width-oversize";
+  const makeWire=(text,generation,queuedAtMs)=>{
+    const record=Seg.snapshotLine("example.test",{url:"https://example.test/page",title:"Title",adapter:"generic"},
+      [{id:"1",type:"text",depth:0,text}],1,0);
+    record.ctx=ctx; record.inst=inst;
+    return {type:"batch",destination_generation:generation,inst,batch_id:"0".repeat(32),queued_at_ms:queuedAtMs,records:[record]};
+  };
+  const maxGeneration="g".repeat(Constants.GENERATION_MAX),maxTimestamp=Constants.TIMESTAMP_MAX;
+  const emptyShort=makeWire("","g",1),emptyMax=makeWire("",maxGeneration,maxTimestamp);
+  const stampDelta=Outbox.byteLengthOf(emptyMax)-Outbox.byteLengthOf(emptyShort);
+  const textLength=Constants.EXTENSION_TO_HOST_MAX-Outbox.byteLengthOf(emptyShort)-Math.floor(stampDelta/2);
+  const payload="x".repeat(textLength);
+  const shortBytes=Outbox.byteLengthOf(makeWire(payload,"g",1));
+  const maxBytes=Outbox.byteLengthOf(makeWire(payload,maxGeneration,maxTimestamp));
+  assert.ok(shortBytes<=Constants.EXTENSION_TO_HOST_MAX);
+  assert.ok(maxBytes>Constants.EXTENSION_TO_HOST_MAX);
+  const cursorKey=`${inst}\n${ctx}`;
+  const cursorBefore={contextKey:cursorKey,inst,ctx,blocks:[{id:"prior",text:"prior"}],generation:"g",snapshotRequired:false};
+  await DB.put("producer",cursorBefore);
+  await assert.rejects(Outbox.enqueueSkim({
+    inst,ctx,destinationGeneration:"g",senderUrl:"https://example.test/page",site:"example.test",title:"Title",adapter:"generic",
+    blocks:[{id:"1",type:"text",depth:0,text:payload}],nowMs:1,
+  }),err=>err.code==="batch-oversize");
+  assert.deepEqual(await DB.get("producer",cursorKey),cursorBefore);
 });
 
 test("account: undisclosed losses accumulate across permanent refusals", async () => {
@@ -988,6 +1024,24 @@ test("account: undisclosed losses accumulate across permanent refusals", async (
   assert.equal(await Outbox.dismissLoss(old.seq),false);
 });
 
+test("account: retired permanent receipt reasons leave the row, cursor, and loss notice untouched", async () => {
+  await resetDB();
+  const item = await Outbox.enqueueSkim(agingFixture("legacy-receipt"));
+  const key = `${item.inst || "fixture"}\nlegacy-receipt`;
+  const rowBefore = await DB.get("outbox", item.batchId);
+  const cursorBefore = await DB.get("producer", key);
+  const lossNotice = { seq: 9, reason: "oversize", count: 2 };
+  await DB.put("meta", lossNotice, "lossNotice");
+
+  for (const [reason, receiptClass] of [["stale_generation", "permanent"], ["expired_unaccepted", "retryable"]]) {
+    const result = await Outbox.applyRejectedReceipt(item.batchId, { reason, class: receiptClass });
+    assert.deepEqual(result, { removed: 0, promotedBatchId: null });
+    assert.deepEqual(await DB.get("outbox", item.batchId), rowBefore);
+    assert.deepEqual(await DB.get("producer", key), cursorBefore);
+    assert.deepEqual(await DB.get("meta", "lossNotice"), lossNotice);
+  }
+});
+
 test("account: pressure persists until capacity actually falls", async () => {
   await resetDB();
   const item=await Outbox.enqueueSkim(agingFixture("pressure"));
@@ -1000,7 +1054,7 @@ test("account: pressure persists until capacity actually falls", async () => {
 });
 
 
-test("account: expiry repairs a surviving delta between separate retired rows", async () => {
+test("account: elapsed age leaves all queued rows and does not promote a delta", async () => {
   await resetDB();
   const W=1000000;
   const rows=[];
@@ -1009,10 +1063,10 @@ test("account: expiry repairs a surviving delta between separate retired rows", 
     fixture.blocks=[{id:"1",type:"text",depth:0,text:String(i)}];
     rows.push(await Outbox.enqueueSkim(fixture));
   }
-  const result=await Outbox.retireExpired(599000,W+599000);
-  assert.equal(result.count,2);
-  const survivors=await Outbox.getAll();
-  assert.equal(survivors.length,1);
-  assert.equal(survivors[0].batchId,rows[1].batchId);
-  assert.equal(Outbox.buildWireBatch(survivors[0]).records[0].t,"segment_start");
+  const queued=await Outbox.getAll();
+  assert.equal(queued.length,3);
+  assert.deepEqual(queued.map(row=>row.batchId),rows.map(row=>row.batchId));
+  assert.deepEqual(queued.map(row=>row.records[0].t),["segment_start","delta","delta"]);
+  assert.ok(queued.every(row=>row.sendSnapshot===false));
+  assert.equal(await DB.get("meta","lossNotice"),undefined);
 });

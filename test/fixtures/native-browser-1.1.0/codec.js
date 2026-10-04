@@ -279,8 +279,7 @@
 
     if (type === "accepted" && obj.result === "rejected") {
       const reasons = consts.RECEIPT_CLASSES[obj.class];
-      const legacyPermanent = obj.class === "permanent" && consts.LEGACY_PERMANENT_REASONS.includes(obj.reason);
-      if ((!reasons || !reasons.includes(obj.reason)) && !legacyPermanent) return refuse("invalid_receipt");
+      if (!reasons || !reasons.includes(obj.reason)) return refuse("invalid_receipt");
     }
 
     if (type === "batch") {
@@ -332,7 +331,6 @@
     } else if (result === "rejected") {
       reply.reason = receipt.reason;
       reply.class = receipt.class;
-      if (consts.LEGACY_PERMANENT_REASONS.includes(reply.reason)) throw refuse("invalid_receipt").error;
       if (reply.class === undefined) for (const [kind, reasons] of Object.entries(consts.RECEIPT_CLASSES)) {
         if (reasons.includes(reply.reason)) reply.class = kind;
       }

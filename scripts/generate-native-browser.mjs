@@ -141,13 +141,13 @@ const envelopeSchema = {
         type: { const: "accepted" }, result: { enum: authority.enums.result },
         destination_generation: generationSchema, inst: instSchema, batch_id: batchIdSchema,
         period_id: periodSchema,
-        reason: { enum: Object.values(authority.receipt_classes).flat() },
+        reason: { enum: [...Object.values(authority.receipt_classes).flat(), ...authority.legacy_permanent_reasons] },
         class: { enum: Object.keys(authority.receipt_classes) },
       },
       oneOf: [
         { properties: { result: { enum: ["accepted", "duplicate"] } }, required: ["period_id"], ...noProperties("reason", "class") },
         ...Object.entries(authority.receipt_classes).map(([classification, reasons]) => ({
-          properties: { result: { const: "rejected" }, reason: { enum: reasons }, class: { const: classification } },
+          properties: { result: { const: "rejected" }, reason: { enum: classification === "permanent" ? [...reasons, ...authority.legacy_permanent_reasons] : reasons }, class: { const: classification } },
           required: ["reason", "class"], ...noProperties("period_id"),
         })),
       ],
@@ -180,7 +180,6 @@ const constantsObj = {
   JSON_MAX_DEPTH: authority.caps.json_max_depth,
   FILE_MAX: authority.policy.file,
   OUTBOX_BYTES_MAX: authority.policy.outbox_bytes,
-  OUTBOX_AGE_MS_MAX: authority.policy.outbox_age_ms,
   SPOOL_BYTES_MAX: authority.policy.spool_bytes,
   SPOOL_AGE_MS_MAX: authority.policy.spool_age_ms,
   FUTURE_SKEW_MS_MAX: authority.policy.future_skew_ms,
@@ -209,6 +208,7 @@ const constantsObj = {
   HOSTS_AND_IDS: authority.hosts_and_ids,
   REGISTRATION: authority.registration,
   RECEIPT_CLASSES: authority.receipt_classes,
+  LEGACY_PERMANENT_REASONS: authority.legacy_permanent_reasons,
   CANONICAL_KEY_ORDER: authority.canonical_key_order,
 };
 
@@ -240,7 +240,6 @@ pub const JSON_MAX_DEPTH: usize = ${authority.caps.json_max_depth};
 
 pub const FILE_MAX: usize = ${authority.policy.file};
 pub const OUTBOX_BYTES_MAX: usize = ${authority.policy.outbox_bytes};
-pub const OUTBOX_AGE_MS_MAX: u64 = ${authority.policy.outbox_age_ms};
 pub const SPOOL_BYTES_MAX: usize = ${authority.policy.spool_bytes};
 pub const SPOOL_AGE_MS_MAX: u64 = ${authority.policy.spool_age_ms};
 pub const FUTURE_SKEW_MS_MAX: u64 = ${authority.policy.future_skew_ms};
@@ -282,6 +281,7 @@ pub const BEHIND_ENUM: &[&str] = &[${authority.enums.behind.map((x) => `"${x}"`)
 pub const RESULT_ENUM: &[&str] = &[${authority.enums.result.map((x) => `"${x}"`).join(", ")}];
 pub const RETRYABLE_REASONS: &[&str] = &[${authority.receipt_classes.retryable.map((x) => `"${x}"`).join(", ")}];
 pub const PERMANENT_REASONS: &[&str] = &[${authority.receipt_classes.permanent.map((x) => `"${x}"`).join(", ")}];
+pub const LEGACY_PERMANENT_REASONS: &[&str] = &[${authority.legacy_permanent_reasons.map((x) => `"${x}"`).join(", ")}];
 pub const REGISTRATION_JSON: &str = r#"${JSON.stringify(authority.registration)}"#;
 pub const CANONICAL_KEY_ORDER_JSON: &str = r#"${JSON.stringify(authority.canonical_key_order)}"#;
 
@@ -1383,6 +1383,11 @@ for (const [classification, reasons] of Object.entries(authority.receipt_classes
     addVector({ id: "receipt_wrong_class_" + reason, direction: "host_to_extension", payloadObj: { ...value, class: classification === "retryable" ? "permanent" : "retryable" }, expect: "refuse", code: "invalid_receipt" });
   }
 }
+for (const reason of authority.legacy_permanent_reasons) {
+  const value = { type: "accepted", result: "rejected", ...receiptIdentity, reason, class: "permanent" };
+  addVector({ id: "receipt_legacy_permanent_" + reason, direction: "host_to_extension", payloadObj: value, expect: "accept" });
+  addVector({ id: "receipt_legacy_retryable_" + reason, direction: "host_to_extension", payloadObj: { ...value, class: "retryable" }, expect: "refuse", code: "invalid_receipt" });
+}
 for (const result of ["accepted", "duplicate"]) {
   const value = { type: "accepted", result, ...receiptIdentity, period_id: "p_original" };
   addVector({ id: "receipt_success_" + result, direction: "host_to_extension", payloadObj: value, expect: "accept" });
@@ -1490,7 +1495,7 @@ for (const rel of artifactRelativePaths) {
 const manifestObj = {
   generator: {
     name: "solstone-native-browser-gen",
-    version: "1.1.0",
+    version: authority.bundle_version,
   },
   bundle_version: authority.bundle_version,
   wire_protocol: authority.wire_protocol,

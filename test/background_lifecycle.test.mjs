@@ -513,6 +513,23 @@ test("lifecycle: restart loads loss notice and prunes orphan producer text", asy
   assert.equal((await second.sandbox.SolstoneDB.getAll("producer")).length,0);
 });
 
+test("lifecycle: doInit retains held outbox batches without recording expiry loss", async () => {
+  const { bg, sandbox } = await startWorker();
+  const DB = sandbox.SolstoneDB;
+  await DB.clear("outbox");
+  await DB.clear("producer");
+  await DB.del("meta", "lossNotice");
+  const batchId = "0123456789abcdef0123456789abcdef";
+  await DB.put("outbox", {
+    batchId, seq: 1, inst: "00000000-0000-0000-0000-000000000001", ctx: "held-after-init",
+    destinationGeneration: "generation-old", queuedAtMs: 1000, records: [], snapshotRecords: [],
+    bytes: 1, sendSnapshot: false,
+  });
+  await bg.doInit();
+  assert.ok(await DB.get("outbox", batchId));
+  assert.equal(await DB.get("meta", "lossNotice"), undefined);
+});
+
 test("lifecycle: worker restart reloads truncation occurrences and exact-origin errors", async () => {
   const first = await startWorker();
   const origin = "https://example.com";

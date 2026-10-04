@@ -55,6 +55,7 @@
     constructor(options = {}) {
       this.connectNative = options.connectNative || (typeof chrome !== "undefined" && chrome.runtime?.connectNative ? chrome.runtime.connectNative.bind(chrome.runtime) : null);
       this.now = options.now || (() => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now()));
+      this.wallNow = options.wallNow || (() => Math.floor(Date.now()));
       this.schedule = options.schedule || ((fn, ms) => {
         const timer = setTimeout(fn, ms);
         if (timer && typeof timer.unref === "function") timer.unref();
@@ -100,6 +101,7 @@
 
       this.drainOwner = false;
       this.inflightBatch = null;
+      this.retryAfterState = false;
       this.retryNotBefore = 0;
 
       this.everConnected = false;
@@ -544,10 +546,10 @@
         }
         this.notify();
         try {
-          if (val.destination_generation) {
-            const retired = await Outbox.retireStaleGeneration(val.destination_generation, current);
+          if (typeof val.destination_generation === "string" && val.destination_generation.length > 0) {
+            const promoted = await Outbox.promoteHeldForGeneration(val.destination_generation, current);
             if (!current()) return;
-            if (retired?.count) {
+            if (promoted?.count) {
               await this.refreshStorageStatus();
               if (!current()) return;
             }
@@ -591,6 +593,9 @@
           if (this.hostStateDeadline != null) this.schedule(expire, this.hostStateDeadline - this.now());
         }
         this.notify();
+        if (typeof val.destination_generation === "string" && val.destination_generation.length > 0) {
+          this.retryAfterState = false;
+        }
         await this.drain();
         return;
       }
@@ -655,7 +660,7 @@
           const batchId = val.batch_id;
           const operation = this.inflightBatch;
           operation.receipting = true;
-          const fence = { epoch: this.opEpoch, gen, token, port: this.livePort, destGen: this.destinationGeneration };
+          const fence = { epoch: this.opEpoch, gen, token, port: this.livePort, destGen: this.destinationGeneration, stateRevision: this.stateRevision };
 
           try {
             if (val.result === "accepted" || val.result === "duplicate") {
@@ -685,6 +690,12 @@
               if (val.class === "retryable") {
                 this.retryNotBefore = this.now() + this.retryDelayMs;
                 this.schedule(() => this.drain(), this.retryDelayMs);
+              } else if (val.reason === "expired_unaccepted") {
+                if (this.handshake === "ready" && typeof this.destinationGeneration === "string" && this.destinationGeneration.length > 0) {
+                  await this.drain();
+                }
+              } else if (val.reason === "stale_generation") {
+                if (this.stateRevision === fence.stateRevision) this.retryAfterState = true;
               } else {
                 await this.drain();
               }
@@ -759,7 +770,6 @@
       const consts = getConsts();
       const codec = globalThis.SolstoneNativeBrowser;
       const monoNow = Number(now !== undefined ? now : this.now());
-      const wallNow = Date.now();
 
       if (this.livePort && this.handshake === "pending") {
         if (codec.handshakeExpired(this.handshakeStartedAt, monoNow, consts.HANDSHAKE_MS_BUDGET)) {
@@ -787,17 +797,6 @@
         }
       }
 
-      try {
-        const result = await Outbox.retireExpired(monoNow, wallNow);
-        if (result && result.count > 0) {
-          this.lossNotice = { seq: result.seq, reason: result.reason || result.disposition, count: result.count };
-          this.notify();
-        }
-      } catch (_err) {
-        // If retirement throws, do not connect or drain
-        return;
-      }
-
       await this.refreshStorageStatus();
       this.notify();
       if (!this.livePort) {
@@ -823,6 +822,7 @@
     }
 
     async drain() {
+      if (this.retryAfterState) return;
       if (this.drainOwner || !this.livePort || this.handshake !== "ready") return;
       if (!this.destinationGeneration) return;
       if (!["permitted", "paused", "intake_off"].includes(this.hostCapture)) return;
@@ -837,34 +837,47 @@
         port: this.livePort,
         destGen: this.destinationGeneration,
       };
+      const ownsDrain = () => this.opEpoch === fence.epoch &&
+        this.connectionGeneration === fence.gen && this.connectionToken === fence.token &&
+        this.livePort === fence.port && this.destinationGeneration === fence.destGen &&
+        this.drainOwner === owner && this.handshake === "ready" &&
+        ["permitted", "paused", "intake_off"].includes(this.hostCapture);
 
       try {
         const head = await Outbox.getHead();
-        if (
-          this.opEpoch !== fence.epoch ||
-          this.connectionGeneration !== fence.gen ||
-          this.connectionToken !== fence.token ||
-          this.livePort !== fence.port ||
-          this.destinationGeneration !== fence.destGen ||
-          this.drainOwner !== owner || this.handshake !== "ready" ||
-          !["permitted", "paused", "intake_off"].includes(this.hostCapture)
-        ) {
+        if (!ownsDrain()) {
           if (this.drainOwner === owner) this.drainOwner = false;
           return;
         }
 
-        if (!head || head.destinationGeneration !== this.destinationGeneration) {
+        if (!head) {
           this.drainOwner = false;
           return;
         }
 
-        const wireBatch = Outbox.buildWireBatch(head);
+        const cursor = await DB.get("producer", `${head.inst}\n${head.ctx}`);
+        if (!ownsDrain()) {
+          if (this.drainOwner === owner) this.drainOwner = false;
+          return;
+        }
+
+        const sendingDelta = !head.sendSnapshot && Array.isArray(head.records) && head.records.some(record => record.t === "delta");
+        if (sendingDelta && head.destinationGeneration !== this.destinationGeneration &&
+            (!cursor || cursor.generation !== this.destinationGeneration)) {
+          this.drainOwner = false;
+          return;
+        }
+
+        const wireBatch = Outbox.buildWireBatch(head, {
+          destinationGeneration: this.destinationGeneration,
+          queuedAtMs: this.wallNow(),
+        });
         Outbox.validateWireBatch(wireBatch);
 
         this.inflightBatch = {
           batchId: head.batchId,
           seq: head.seq,
-          destinationGeneration: head.destinationGeneration,
+          destinationGeneration: this.destinationGeneration,
           wireBatch,
           postedAt: this.now(),
         };

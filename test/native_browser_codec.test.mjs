@@ -127,6 +127,24 @@ test("receipt builder and decode success is not accepted", () => {
   assert.equal(rejReply.reason, "snapshot_required");
   assert.equal(rejReply.class, "retryable");
 
+  for (const reason of ["stale_generation", "expired_unaccepted"]) {
+    const permanent = {
+      type: "accepted", result: "rejected", reason, class: "permanent",
+      destination_generation: "g1", inst: "inst1", batch_id: "0123456789abcdef0123456789abcdef",
+    };
+    assert.equal(Codec.decode(Codec.encode(permanent), "host_to_extension").status, "accept");
+    for (const receiptClass of [undefined, "permanent", "retryable"]) {
+      const receipt = {
+        reason, destination_generation: "g1", inst: "inst1",
+        batch_id: "0123456789abcdef0123456789abcdef",
+      };
+      if (receiptClass !== undefined) receipt.class = receiptClass;
+      assert.throws(() => Codec.buildReply(receipt), err => err.code === "invalid_receipt");
+    }
+    const retryable = { ...permanent, class: "retryable" };
+    assert.equal(Codec.decode(Codec.encode(retryable), "host_to_extension").code, "invalid_receipt");
+  }
+
   // Decode success of a batch has type 'batch' and is not an accepted receipt
   const batchJson = JSON.stringify({
     type: "batch",

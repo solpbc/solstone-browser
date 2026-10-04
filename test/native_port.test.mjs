@@ -491,6 +491,7 @@ test("port: paused drain delivers the promoted snapshot", async () => {
     inst: "00000000-0000-0000-0000-000000000001",
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     connectNative: () => mockPort2,
+    wallNow: () => 9000,
   });
   c2.paused = true;
   c2.consentVersion = 1;
@@ -506,11 +507,11 @@ test("port: paused drain delivers the promoted snapshot", async () => {
     period_id: "p-1",
   });
 
-  // Next post is C's saved snapshot, C's original batch id, C's original queued_at_ms
+  // Next post is C's saved snapshot, with its saved identity and a send-time queue stamp.
   assert.equal(mockPort2.sent.length, 2); // hello + batch C
   const sentC = mockPort2.sent[1];
   assert.equal(sentC.batch_id, bC.batchId);
-  assert.equal(sentC.queued_at_ms, 3000);
+  assert.equal(sentC.queued_at_ms, 9000);
   assert.equal(sentC.records.length, 1);
   assert.equal(sentC.records[0].t, "segment_start");
   assert.equal(sentC.records[0].blocks.length, 3);
@@ -535,6 +536,7 @@ test("port: paused drain delivers the promoted snapshot", async () => {
     inst: "00000000-0000-0000-0000-000000000001",
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     connectNative: () => mockPort3,
+    wallNow: () => 9000,
   });
   c3.connect();
   await mockPort3.receive({
@@ -546,7 +548,7 @@ test("port: paused drain delivers the promoted snapshot", async () => {
     period_id: "p-1",
   });
   assert.equal(mockPort3.sent[1].batch_id, bC.batchId);
-  assert.equal(mockPort3.sent[1].queued_at_ms, 3000);
+  assert.equal(mockPort3.sent[1].queued_at_ms, 9000);
 
   // Duplicate removal without setting delivered
   await mockPort3.receive({
@@ -592,6 +594,7 @@ test("port: lost ack resends identical batch and enforces one inflight", async (
       mockPort2 = new MockPort();
       return mockPort2;
     },
+    wallNow: () => 4000,
   });
 
   controller.connect();
@@ -630,11 +633,270 @@ test("port: lost ack resends identical batch and enforces one inflight", async (
   assert.equal(mockPort2.sent.length, 2); // hello + resent batch
   const secondBatch = mockPort2.sent[1];
 
-  // The next posted batch equals the previous one on batch_id, records, destination_generation, and queued_at_ms
+  // The replay keeps batch identity and records while restamping the send wall time.
   assert.equal(secondBatch.batch_id, firstBatch.batch_id);
   assert.deepEqual(secondBatch.records, firstBatch.records);
   assert.equal(secondBatch.destination_generation, firstBatch.destination_generation);
-  assert.equal(secondBatch.queued_at_ms, firstBatch.queued_at_ms);
+  assert.equal(firstBatch.queued_at_ms, 4000);
+  assert.equal(secondBatch.queued_at_ms, 4000);
+});
+
+test("port: aged held batches survive null pairing and a fresh controller posts them under the confirmed generation", async () => {
+  await resetDB();
+  const inst = "00000000-0000-0000-0000-000000000001";
+  const queued = [];
+  for (const [ctx, text, nowMs] of [["held-one", "first body", 1000], ["held-two", "second body", 2000]]) {
+    queued.push(await Outbox.enqueueSkim({
+      inst, ctx, destinationGeneration: "generation-a", senderUrl: "https://example.test/page",
+      site: "example.test", title: ctx, adapter: "generic",
+      blocks: [{ id: "1", type: "text", depth: 0, text }], nowMs,
+    }));
+  }
+  // doInit clears producer cursors on a cold controller start; the outbox stays durable.
+  await DB.clear("producer");
+  let wallNow = 602000;
+  const mockPort = new MockPort();
+  const controller = new PortController({
+    inst, runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", connectNative: () => mockPort,
+    wallNow: () => wallNow,
+  });
+  controller.paused = true;
+  controller.connect();
+  await mockPort.receive({
+    type: "hello_ack", capture: "not_paired", delivery: "idle", freshness_ms: 0,
+    destination_generation: null, period_id: null,
+  });
+  assert.equal(mockPort.sent.filter(message => message.type === "batch").length, 0);
+  assert.equal((await Outbox.getAll()).length, 2);
+
+  await mockPort.receive({
+    type: "state", capture: "paused", delivery: "idle", freshness_ms: 0,
+    destination_generation: "generation-b", period_id: "period-b",
+  });
+  const first = mockPort.sent.find(message => message.type === "batch");
+  assert.equal(first.batch_id, queued[0].batchId);
+  assert.equal(first.destination_generation, "generation-b");
+  assert.equal(first.queued_at_ms, wallNow);
+  const firstStored = await DB.get("outbox", queued[0].batchId);
+  assert.deepEqual(first.records, firstStored.records);
+  assert.equal(first.records[0].ts, firstStored.records[0].ts);
+  assert.equal(await DB.get("meta", "lossNotice"), undefined);
+
+  await mockPort.receive({
+    type: "accepted", result: "accepted", batch_id: queued[0].batchId,
+    destination_generation: "generation-b", inst, period_id: "period-b",
+  });
+  const batches = mockPort.sent.filter(message => message.type === "batch");
+  assert.equal(batches.length, 2);
+  assert.equal(batches[1].batch_id, queued[1].batchId);
+  assert.equal(batches[1].destination_generation, "generation-b");
+  assert.equal(batches[1].queued_at_ms, wallNow);
+  assert.deepEqual(batches[1].records, (await DB.get("outbox", queued[1].batchId)).records);
+  assert.equal(await DB.get("meta", "lossNotice"), undefined);
+});
+
+test("port: generation transition promotes only each context head snapshot and preserves seq order", async () => {
+  await resetDB();
+  const inst = "00000000-0000-0000-0000-000000000001";
+  const enqueue = (ctx, blocks, nowMs) => Outbox.enqueueSkim({
+    inst, ctx, destinationGeneration: "generation-a", senderUrl: "https://example.test/page",
+    site: "example.test", title: ctx, adapter: "generic", blocks, nowMs,
+  });
+  const c1Base = await enqueue("context-one", [{ id: "1", text: "one" }], 1);
+  const c2Base = await enqueue("context-two", [{ id: "1", text: "two" }], 2);
+  let snapshotRequests = 0;
+  const mockPort = new MockPort();
+  const controller = new PortController({
+    inst, runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", connectNative: () => mockPort,
+    requestSnapshots: () => { snapshotRequests++; }, wallNow: () => 7000,
+  });
+  controller.connect();
+  await mockPort.receive({
+    type: "hello_ack", capture: "permitted", delivery: "idle", freshness_ms: 10000,
+    destination_generation: "generation-a", period_id: "period-a",
+  });
+  assert.equal(mockPort.sent.filter(message => message.type === "batch")[0].batch_id, c1Base.batchId);
+  await mockPort.receive({
+    type: "accepted", result: "accepted", batch_id: c1Base.batchId,
+    destination_generation: "generation-a", inst, period_id: "period-a",
+  });
+  assert.equal(mockPort.sent.filter(message => message.type === "batch")[1].batch_id, c2Base.batchId);
+  await mockPort.receive({
+    type: "accepted", result: "accepted", batch_id: c2Base.batchId,
+    destination_generation: "generation-a", inst, period_id: "period-a",
+  });
+  assert.equal((await Outbox.getAll()).length, 0);
+  const c1Head = await enqueue("context-one", [{ id: "1", text: "one" }, { id: "2", text: "one delta" }], 3);
+  const c1Later = await enqueue("context-one", [{ id: "1", text: "one" }, { id: "2", text: "one delta" }, { id: "3", text: "later delta" }], 4);
+  const c2Head = await enqueue("context-two", [{ id: "1", text: "two" }, { id: "2", text: "two delta" }], 5);
+  await mockPort.receive({
+    type: "state", capture: "paused", delivery: "idle", freshness_ms: 0,
+    destination_generation: "generation-b", period_id: "period-b",
+  });
+
+  let sent = mockPort.sent.filter(message => message.type === "batch");
+  assert.equal(sent.length, 3);
+  assert.equal(sent[2].batch_id, c1Head.batchId);
+  assert.equal(sent[2].records.length, 1);
+  assert.equal(sent[2].records[0].t, "segment_start");
+  assert.deepEqual(sent[2].records, (await DB.get("outbox", c1Head.batchId)).snapshotRecords);
+  assert.equal((await DB.get("outbox", c1Head.batchId)).sendSnapshot, true);
+  assert.equal((await DB.get("outbox", c1Later.batchId)).sendSnapshot, false);
+  assert.equal((await DB.get("outbox", c2Head.batchId)).sendSnapshot, true);
+  assert.equal((await Outbox.getAll()).length, 3);
+
+  // Removing the promoted head and repeating the same generation is a no-op for its later delta.
+  await Outbox.removeBatch(c1Head.batchId);
+  await Outbox.promoteHeldForGeneration("generation-b");
+  assert.equal((await DB.get("outbox", c1Later.batchId)).sendSnapshot, false);
+  await mockPort.receive({
+    type: "accepted", result: "accepted", batch_id: c1Head.batchId,
+    destination_generation: "generation-b", inst, period_id: "period-b",
+  });
+  sent = mockPort.sent.filter(message => message.type === "batch");
+  assert.equal(sent[3].batch_id, c1Later.batchId);
+  assert.equal(sent[3].records[0].t, "delta");
+  await mockPort.receive({
+    type: "accepted", result: "accepted", batch_id: c1Later.batchId,
+    destination_generation: "generation-b", inst, period_id: "period-b",
+  });
+  sent = mockPort.sent.filter(message => message.type === "batch");
+  assert.equal(sent[4].batch_id, c2Head.batchId);
+  assert.equal(sent[4].records.length, 1);
+  assert.equal(sent[4].records[0].t, "segment_start");
+  assert.deepEqual(sent[4].records, (await DB.get("outbox", c2Head.batchId)).snapshotRecords);
+  await mockPort.receive({
+    type: "accepted", result: "accepted", batch_id: c2Head.batchId,
+    destination_generation: "generation-b", inst, period_id: "period-b",
+  });
+  assert.equal(snapshotRequests, 0);
+  assert.equal(await DB.get("meta", "lossNotice"), undefined);
+});
+
+test("port: failed promotion keeps deltas held until a later current state succeeds", async () => {
+  await resetDB();
+  const inst = "00000000-0000-0000-0000-000000000001", ctx = "ctx-failed-promotion";
+  const base = await Outbox.enqueueSkim({
+    inst, ctx, destinationGeneration: "generation-a", senderUrl: "https://example.test/page",
+    site: "example.test", title: "Page", adapter: "generic", blocks: [{ id: "1", text: "base" }], nowMs: 1,
+  });
+  await Outbox.removeBatch(base.batchId);
+  const delta = await Outbox.enqueueSkim({
+    inst, ctx, destinationGeneration: "generation-a", senderUrl: "https://example.test/page",
+    site: "example.test", title: "Page", adapter: "generic", blocks: [{ id: "1", text: "base" }, { id: "2", text: "delta" }], nowMs: 2,
+  });
+  const mockPort = new MockPort();
+  const controller = new PortController({
+    inst, runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", connectNative: () => mockPort,
+    wallNow: () => 8000,
+  });
+  const promote = Outbox.promoteHeldForGeneration;
+  Outbox.promoteHeldForGeneration = (generation, authorize) => promote(generation, () => false);
+  try {
+    controller.connect();
+    await mockPort.receive({
+      type: "hello_ack", capture: "permitted", delivery: "idle", freshness_ms: 10000,
+      destination_generation: "generation-b", period_id: "period-b",
+    });
+  } finally {
+    Outbox.promoteHeldForGeneration = promote;
+  }
+  assert.equal(controller.destinationGeneration, null);
+  assert.equal((await DB.get("outbox", delta.batchId)).sendSnapshot, false);
+  assert.equal(mockPort.sent.filter(message => message.type === "batch").length, 0);
+
+  await mockPort.receive({
+    type: "state", capture: "permitted", delivery: "idle", freshness_ms: 10000,
+    destination_generation: "generation-b", period_id: "period-b",
+  });
+  const posted = mockPort.sent.find(message => message.type === "batch");
+  assert.equal(posted.batch_id, delta.batchId);
+  assert.equal(posted.destination_generation, "generation-b");
+  assert.equal(posted.records[0].t, "segment_start");
+  assert.equal((await DB.get("outbox", delta.batchId)).sendSnapshot, true);
+});
+
+test("port: stale generation waits for state; expired unaccepted retries immediately", async () => {
+  const inst = "00000000-0000-0000-0000-000000000001";
+  await resetDB();
+  const stale = await Outbox.enqueueSkim({
+    inst, ctx: "ctx-stale-receipt", destinationGeneration: "generation-a", senderUrl: "https://example.test/page",
+    site: "example.test", title: "Stale", adapter: "generic", blocks: [{ id: "1", text: "same body" }], nowMs: 123,
+  });
+  const lossNotice = { seq: 4, reason: "oversize", count: 2 };
+  await DB.put("meta", lossNotice, "lossNotice");
+  let wallNow = 5000;
+  const stalePort = new MockPort();
+  const staleController = new PortController({
+    inst, runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", connectNative: () => stalePort,
+    wallNow: () => wallNow,
+  });
+  staleController.connect();
+  await stalePort.receive({
+    type: "hello_ack", capture: "permitted", delivery: "idle", freshness_ms: 10000,
+    destination_generation: "generation-a", period_id: "period-a",
+  });
+  const originalPost = stalePort.sent.find(message => message.type === "batch");
+  const mismatched = {
+    type: "accepted", result: "rejected", reason: "stale_generation", class: "permanent",
+    batch_id: "f".repeat(32), destination_generation: "generation-a", inst,
+  };
+  await stalePort.receive(mismatched);
+  assert.equal(staleController.retryAfterState, false);
+  assert.ok(await DB.get("outbox", stale.batchId));
+
+  await stalePort.receive({ ...mismatched, batch_id: stale.batchId });
+  assert.equal(staleController.retryAfterState, true);
+  await staleController.poll(1000);
+  assert.equal(stalePort.sent.filter(message => message.type === "batch").length, 1);
+  assert.deepEqual(await DB.get("meta", "lossNotice"), lossNotice);
+
+  wallNow = 7000;
+  await stalePort.receive({
+    type: "state", capture: "paused", delivery: "idle", freshness_ms: 0,
+    destination_generation: "generation-b", period_id: "period-b",
+  });
+  const staleRetry = stalePort.sent.filter(message => message.type === "batch")[1];
+  assert.equal(staleController.retryAfterState, false);
+  assert.equal(staleRetry.batch_id, originalPost.batch_id);
+  assert.equal(staleRetry.destination_generation, "generation-b");
+  assert.equal(staleRetry.queued_at_ms, 7000);
+  assert.deepEqual(staleRetry.records, originalPost.records);
+  assert.equal(staleRetry.records[0].ts, originalPost.records[0].ts);
+  assert.deepEqual(await DB.get("meta", "lossNotice"), lossNotice);
+
+  await resetDB();
+  const expired = await Outbox.enqueueSkim({
+    inst, ctx: "ctx-expired-receipt", destinationGeneration: "generation-a", senderUrl: "https://example.test/page",
+    site: "example.test", title: "Expired", adapter: "generic", blocks: [{ id: "1", text: "same body" }], nowMs: 456,
+  });
+  await DB.put("meta", lossNotice, "lossNotice");
+  wallNow = 8000;
+  const expiredPort = new MockPort();
+  const expiredController = new PortController({
+    inst, runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", connectNative: () => expiredPort,
+    wallNow: () => wallNow,
+  });
+  expiredController.connect();
+  await expiredPort.receive({
+    type: "hello_ack", capture: "permitted", delivery: "idle", freshness_ms: 10000,
+    destination_generation: "generation-a", period_id: "period-a",
+  });
+  const firstExpiredPost = expiredPort.sent.find(message => message.type === "batch");
+  wallNow = 9000;
+  await expiredPort.receive({
+    type: "accepted", result: "rejected", reason: "expired_unaccepted", class: "permanent",
+    batch_id: expired.batchId, destination_generation: "generation-a", inst,
+  });
+  const expiredPosts = expiredPort.sent.filter(message => message.type === "batch");
+  assert.equal(expiredPosts.length, 2);
+  assert.equal(expiredPosts[1].batch_id, firstExpiredPost.batch_id);
+  assert.equal(expiredPosts[1].destination_generation, "generation-a");
+  assert.equal(expiredPosts[1].queued_at_ms, 9000);
+  assert.deepEqual(expiredPosts[1].records, firstExpiredPost.records);
+  assert.equal(expiredPosts[1].records[0].ts, firstExpiredPost.records[0].ts);
+  assert.ok(await DB.get("outbox", expired.batchId));
+  assert.deepEqual(await DB.get("meta", "lossNotice"), lossNotice);
 });
 
 test("port: snapshot_required replaces deltas with saved snapshot", async () => {
@@ -670,6 +932,7 @@ test("port: snapshot_required replaces deltas with saved snapshot", async () => 
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     connectNative: () => mockPort,
     now: () => mono,
+    wallNow: () => 5000,
     schedule: () => 0,
   });
 
@@ -715,11 +978,11 @@ test("port: snapshot_required replaces deltas with saved snapshot", async () => 
   mono += controller.retryDelayMs;
   await controller.drain();
 
-  // The next post uses the same batch_id and queued_at_ms, and records are the saved snapshot (t: "segment_start")
+  // The retry keeps the batch id and saved snapshot, with a send-time wall stamp.
   assert.equal(mockPort.sent.length, 4);
   const retriedB2 = mockPort.sent[3];
   assert.equal(retriedB2.batch_id, b2.batchId);
-  assert.equal(retriedB2.queued_at_ms, 2000);
+  assert.equal(retriedB2.queued_at_ms, 5000);
   assert.equal(retriedB2.records.length, 1);
   assert.equal(retriedB2.records[0].t, "segment_start");
   assert.equal(retriedB2.records[0].blocks.length, 2);
@@ -1118,40 +1381,19 @@ test("port: hello_ack put rejection leaves everConnected false and port up", asy
   }
 });
 
-test("port: poll awaits retirement before connect or drain and records lossNotice", async () => {
+test("port: poll connects without expiry retirement or creating a loss notice", async () => {
   await resetDB();
   const events = [];
-  const originalRetire = Outbox.retireExpired;
-  Outbox.retireExpired = async (_mono, _wall) => {
-    events.push("retire-start");
-    await new Promise((r) => setTimeout(r, 10));
-    await DB.put("meta", { seq: 4, reason: "expired_unaccepted", count: 3 }, "lossNotice");
-    events.push("retire-done");
-    return { count: 3, seq: 4, disposition: "expired_unaccepted", reason: "expired_unaccepted" };
-  };
-
-  try {
-    let connectCalls = 0;
-    const mockPort = new MockPort();
-    const controller = new PortController({
-      inst: "00000000-0000-0000-0000-000000000001",
-      runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
-      connectNative: () => {
-        events.push("connect");
-        connectCalls++;
-        return mockPort;
-      },
-    });
-
-    await controller.poll(1000);
-    assert.deepEqual(events, ["retire-start", "retire-done", "connect"]);
-    assert.ok(controller.lossNotice);
-    assert.equal(controller.lossNotice.seq, 4);
-    assert.equal(controller.lossNotice.count, 3);
-    assert.equal(controller.lossNotice.reason, "expired_unaccepted");
-  } finally {
-    Outbox.retireExpired = originalRetire;
-  }
+  const mockPort = new MockPort();
+  const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+    connectNative: () => { events.push("connect"); return mockPort; },
+  });
+  await controller.poll(1000);
+  assert.deepEqual(events, ["connect"]);
+  assert.equal(controller.lossNotice, null);
+  assert.equal(await DB.get("meta", "lossNotice"), undefined);
 });
 
 test("port: accepted receipt does not clear registration or truncation state", async () => {

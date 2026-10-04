@@ -288,10 +288,62 @@ test("outbox: permanent failure receipt removes item and promotes descendant to 
   assert.equal(wire3.records[0].blocks.length, 3);
 });
 
-test("outbox: retireStaleGeneration purges items from older generation", async () => {
-  const res = await Outbox.retireStaleGeneration("gen-2");
-  assert.equal(res.count, 2);
-
+test("outbox: confirmed generation promotes held rows without deleting them", async () => {
+  await resetDB();
+  const base = await Outbox.enqueueSkim({
+    inst: "00000000-0000-0000-0000-000000000001", ctx: "ctx-held", destinationGeneration: "gen-1",
+    senderUrl: "https://example.test/page", site: "example.test", title: "Page", adapter: "generic",
+    blocks: [{ id: "1", type: "text", depth: 0, text: "base" }], nowMs: 1,
+  });
+  await Outbox.removeBatch(base.batchId);
+  const delta = await Outbox.enqueueSkim({
+    inst: "00000000-0000-0000-0000-000000000001", ctx: "ctx-held", destinationGeneration: "gen-1",
+    senderUrl: "https://example.test/page", site: "example.test", title: "Page", adapter: "generic",
+    blocks: [{ id: "1", type: "text", depth: 0, text: "base" }, { id: "2", type: "text", depth: 0, text: "delta" }], nowMs: 2,
+  });
+  const before = await Outbox.getAll();
+  const lossBefore = await DB.get("meta", "lossNotice");
+  const res = await Outbox.promoteHeldForGeneration("gen-2");
+  assert.equal(res.count, 0);
   const items = await Outbox.getAll();
-  assert.equal(items.length, 0);
+  assert.equal(items.length, before.length);
+  for (const row of before) assert.ok(items.some(item => item.batchId === row.batchId));
+  assert.equal((await DB.get("outbox", delta.batchId)).sendSnapshot, true);
+  const cursor = await DB.get("producer", "00000000-0000-0000-0000-000000000001\nctx-held");
+  assert.equal(cursor.generation, "gen-2");
+  assert.equal(cursor.snapshotRequired, true);
+  assert.deepEqual(await DB.get("meta", "lossNotice"), lossBefore);
+});
+
+test("outbox: aborted generation promotion leaves cursor and held row unchanged", async () => {
+  await resetDB();
+  const inst = "00000000-0000-0000-0000-000000000001", ctx = "ctx-abort-promotion";
+  const base = await Outbox.enqueueSkim({
+    inst, ctx, destinationGeneration: "gen-1", senderUrl: "https://example.test/page", site: "example.test",
+    title: "Page", adapter: "generic", blocks: [{ id: "1", text: "base" }], nowMs: 1,
+  });
+  await Outbox.removeBatch(base.batchId);
+  const delta = await Outbox.enqueueSkim({
+    inst, ctx, destinationGeneration: "gen-1", senderUrl: "https://example.test/page", site: "example.test",
+    title: "Page", adapter: "generic", blocks: [{ id: "1", text: "base" }, { id: "2", text: "delta" }], nowMs: 2,
+  });
+  const rowBefore = await DB.get("outbox", delta.batchId);
+  const cursorBefore = await DB.get("producer", `${inst}\n${ctx}`);
+  const originalPut = IDBObjectStore.prototype.put;
+  let abortNextProducerPut = true;
+  IDBObjectStore.prototype.put = function (...args) {
+    const request = originalPut.apply(this, args);
+    if (abortNextProducerPut && this.name === "producer") {
+      abortNextProducerPut = false;
+      request.addEventListener("success", () => this.transaction.abort(), { once: true });
+    }
+    return request;
+  };
+  try {
+    await assert.rejects(Outbox.promoteHeldForGeneration("gen-2"));
+  } finally {
+    IDBObjectStore.prototype.put = originalPut;
+  }
+  assert.deepEqual(await DB.get("outbox", delta.batchId), rowBefore);
+  assert.deepEqual(await DB.get("producer", `${inst}\n${ctx}`), cursorBefore);
 });

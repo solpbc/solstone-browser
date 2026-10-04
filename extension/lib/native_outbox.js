@@ -7,8 +7,6 @@
   const DB = globalThis.SolstoneDB;
   const Seg = globalThis.SolstoneSegment;
   const Blocks = globalThis.SolstoneBlocks;
-  const ageSamples = new Map(); // batchId -> { mono, floor }
-
   const activeTransactions = new Set();
   function checkAuthorization() {
     for (const check of activeTransactions) check();
@@ -65,14 +63,16 @@
     return `${inst}\n${ctx}`;
   }
 
-  function buildWireBatch(storedItem) {
+  function buildWireBatch(storedItem, transport) {
     const records = storedItem.sendSnapshot ? storedItem.snapshotRecords : storedItem.records;
     return {
       type: "batch",
-      destination_generation: storedItem.destinationGeneration,
+      destination_generation: transport && Object.hasOwn(transport, "destinationGeneration")
+        ? transport.destinationGeneration : storedItem.destinationGeneration,
       inst: storedItem.inst,
       batch_id: storedItem.batchId,
-      queued_at_ms: storedItem.queuedAtMs,
+      queued_at_ms: transport && Object.hasOwn(transport, "queuedAtMs")
+        ? transport.queuedAtMs : storedItem.queuedAtMs,
       records,
     };
   }
@@ -92,11 +92,12 @@
     return true;
   }
 
-  async function enqueueSkim({ inst, ctx, destinationGeneration, senderUrl, site, title, adapter, blocks, nowMs, monotonicNow, authorize, writeObservation } = {}) {
-    const mono = monotonicNow ?? performance.now();
+  async function enqueueSkim({ inst, ctx, destinationGeneration, senderUrl, site, title, adapter, blocks, nowMs, authorize, writeObservation } = {}) {
     const consts = getConsts();
     const clonedBlocks = structuredClone(blocks || []);
     const ts = Math.floor(Number(nowMs !== undefined ? nowMs : Date.now()));
+    const maxGeneration = "g".repeat(consts.GENERATION_MAX);
+    const maxQueuedAtMs = consts.TIMESTAMP_MAX;
     const originUrl = Blocks.originPath(senderUrl || "");
 
     const truncatedTitle = Blocks.sliceCodePoints ? Blocks.sliceCodePoints(title || "", consts.TITLE_STRING_MAX || 8192) : (title || "");
@@ -108,6 +109,25 @@
     snapshotRec.inst = inst;
 
     const ctxKey = contextKeyFor(inst, ctx);
+    const maxStamp = { destinationGeneration: maxGeneration, queuedAtMs: maxQueuedAtMs };
+    const candidateWire = (records) => ({
+      type: "batch",
+      destination_generation: maxGeneration,
+      inst,
+      batch_id: "00000000000000000000000000000000",
+      queued_at_ms: maxQueuedAtMs,
+      records,
+    });
+    const snapshotRecords = [snapshotRec];
+    const snapshotWire = candidateWire(snapshotRecords);
+    const snapshotBytes = byteLengthOf(snapshotWire);
+    if (snapshotBytes > consts.EXTENSION_TO_HOST_MAX) {
+      const err = new Error("batch-oversize");
+      err.code = "batch-oversize";
+      err.disposition = "batch-oversize";
+      throw err;
+    }
+    validateWireBatch(snapshotWire);
 
     const result = await DB.tx(["outbox", "producer", "meta"], "readwrite", (stores, t) => {
       const outboxStore = stores.outbox;
@@ -153,7 +173,6 @@
           const totalBytes = outboxBytes + producerBytes;
 
           let recordsToUse = null;
-          const snapshotRecords = [snapshotRec];
           const hasValidCursor = cursor && cursor.generation === destinationGeneration && cursor.snapshotRequired !== true && Array.isArray(cursor.blocks);
 
           if (hasValidCursor) {
@@ -169,14 +188,7 @@
               d.inst = inst;
             }
 
-            const candidateWireBatch = {
-              type: "batch",
-              destination_generation: destinationGeneration,
-              inst,
-              batch_id: "00000000000000000000000000000000",
-              queued_at_ms: ts,
-              records: deltas,
-            };
+            const candidateWireBatch = candidateWire(deltas);
 
             const deltasCountOk = deltas.length <= consts.DELTA_RECORDS_MAX;
             const deltasBytesOk = byteLengthOf(candidateWireBatch) <= consts.EXTENSION_TO_HOST_MAX;
@@ -184,15 +196,7 @@
             if (deltasCountOk && deltasBytesOk) {
               recordsToUse = deltas;
             } else {
-              const snapshotWire = {
-                type: "batch",
-                destination_generation: destinationGeneration,
-                inst,
-                batch_id: "00000000000000000000000000000000",
-                queued_at_ms: ts,
-                records: snapshotRecords,
-              };
-              if (byteLengthOf(snapshotWire) <= consts.EXTENSION_TO_HOST_MAX) {
+              if (snapshotBytes <= consts.EXTENSION_TO_HOST_MAX) {
                 recordsToUse = snapshotRecords;
               } else {
                 const err = new Error("batch-oversize");
@@ -204,15 +208,7 @@
               }
             }
           } else {
-            const snapshotWire = {
-              type: "batch",
-              destination_generation: destinationGeneration,
-              inst,
-              batch_id: "00000000000000000000000000000000",
-              queued_at_ms: ts,
-              records: snapshotRecords,
-            };
-            if (byteLengthOf(snapshotWire) <= consts.EXTENSION_TO_HOST_MAX) {
+            if (snapshotBytes <= consts.EXTENSION_TO_HOST_MAX) {
               recordsToUse = snapshotRecords;
             } else {
               const err = new Error("batch-oversize");
@@ -236,23 +232,19 @@
             records: recordsToUse,
             snapshotRecords,
             bytes: 0,
-            observedAgeMs: 0,
-            ageSampleWallMs: ts,
             sendSnapshot: false,
           };
 
           // Pre-validate BOTH candidate wire batch AND snapshot recovery wire batch
-          const wireBatch = buildWireBatch(storedItem);
+          const wireBatch = buildWireBatch(storedItem, maxStamp);
           validateWireBatch(wireBatch);
-          const recoveryBatch = buildWireBatch({ ...storedItem, sendSnapshot: true });
+          const recoveryBatch = buildWireBatch({ ...storedItem, sendSnapshot: true }, maxStamp);
           validateWireBatch(recoveryBatch);
 
-          // Reserve 64 bytes for bounded age metadata growth; accounting is
-          // deliberately conservative even as clock values gain digits.
-          let itemBytes = byteLengthOf(storedItem) + 64;
+          let itemBytes = byteLengthOf(storedItem);
           storedItem.bytes = itemBytes;
           while (true) {
-            const nextBytes = byteLengthOf(storedItem) + 64;
+            const nextBytes = byteLengthOf(storedItem);
             if (nextBytes === storedItem.bytes) break;
             storedItem.bytes = nextBytes;
           }
@@ -337,7 +329,6 @@
         t.abort();
       };
     });
-    if (result?.enqueued) ageSamples.set(result.batchId, { mono, floor: 0 });
     return result;
   }
 
@@ -372,7 +363,6 @@
   }
 
   async function removeBatch(batchId) {
-    ageSamples.delete(batchId);
     return DB.tx("outbox", "readwrite", (outboxStore) => {
       outboxStore.delete(batchId);
       return true;
@@ -424,6 +414,9 @@
   }
 
   async function applyRejectedReceipt(batchId, receipt) {
+    if (["stale_generation", "expired_unaccepted"].includes(receipt.reason)) {
+      return { removed: 0, promotedBatchId: null };
+    }
     return DB.tx(["outbox", "producer", "meta"], "readwrite", (stores, t) => {
       const outboxStore = stores.outbox;
       const producerStore = stores.producer;
@@ -460,7 +453,6 @@
               const permanentReasons = consts.RECEIPT_CLASSES?.permanent || [];
               if (permanentReasons.includes(receipt.reason)) {
                 outboxStore.delete(batchId);
-                ageSamples.delete(batchId);
 
                 const lossSeqReq = metaStore.get("lossSeq");
                 lossSeqReq.onsuccess = () => {
@@ -511,206 +503,74 @@
     });
   }
 
-  async function retireExpired(monoNow, wallNow) {
-    const consts = getConsts();
-    const codec = globalThis.SolstoneNativeBrowser;
-    const mono = Number(monoNow !== undefined ? monoNow : (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now()));
-    const wall = Number(wallNow !== undefined ? wallNow : (monoNow !== undefined ? monoNow : Date.now()));
-
-    return DB.tx(["outbox", "producer", "meta"], "readwrite", (stores, t) => {
-      const outboxStore = stores.outbox;
-      const producerStore = stores.producer;
-      const metaStore = stores.meta;
-
-      const allReq = outboxStore.getAll();
-      let retiredCount = 0;
-
-      allReq.onsuccess = () => {
-        try {
-          const allItems = allReq.result || [];
-          const expiredByContext = new Map();
-
-          for (const item of allItems) {
-            const storedFloor = Number(item.observedAgeMs || 0);
-            const sample = ageSamples.get(item.batchId);
-            let floor = storedFloor;
-
-            if (sample && sample.floor >= storedFloor) {
-              floor = Math.max(storedFloor, sample.floor + Math.max(0, mono - sample.mono));
-            } else if (typeof item.ageSampleWallMs === "number") {
-              floor = storedFloor + Math.max(0, wall - item.ageSampleWallMs);
-            } else {
-              floor = storedFloor;
-            }
-
-            floor = Math.ceil(Math.max(floor, 0, wall - item.queuedAtMs));
-
-            let isExpired = false;
-            let reason = "expired_unaccepted";
-
-            if (codec.futureBeyondTolerance(item.queuedAtMs, wall, consts.FUTURE_SKEW_MS_MAX)) {
-              isExpired = true;
-              reason = "age_policy";
-            } else if (codec.queuedPastOutboxAge(0, floor, consts.OUTBOX_AGE_MS_MAX)) {
-              isExpired = true;
-              reason = "expired_unaccepted";
-            }
-
-            if (isExpired) {
-              retiredCount++;
-              outboxStore.delete(item.batchId);
-              ageSamples.delete(item.batchId);
-              const key = contextKeyFor(item.inst, item.ctx);
-              if (!expiredByContext.has(key)) expiredByContext.set(key, []);
-              expiredByContext.get(key).push({ item, reason });
-            } else {
-              item.observedAgeMs = floor;
-              item.ageSampleWallMs = wall;
-              ageSamples.set(item.batchId, { mono, floor });
-              outboxStore.put(item);
-            }
-          }
-
-          if (retiredCount > 0) {
-            let noticeReason = "expired_unaccepted";
-            for (const list of expiredByContext.values()) {
-              if (list.some((e) => e.reason === "age_policy")) {
-                noticeReason = "age_policy";
-                break;
-              }
-            }
-
-            const lossSeqReq = metaStore.get("lossSeq");
-            lossSeqReq.onsuccess = () => {
-              try {
-                const currentSeq = Number(lossSeqReq.result || 0);
-                const nextLossSeq = currentSeq + 1;
-                metaStore.put(nextLossSeq, "lossSeq");
-                appendLoss(metaStore, { seq: nextLossSeq, reason: noticeReason, count: retiredCount });
-
-                for (const [ctxKey, expiredList] of expiredByContext) {
-                  const cursorReq = producerStore.get(ctxKey);
-                  cursorReq.onsuccess = () => {
-                    try {
-                      const cursor = cursorReq.result;
-                      if (cursor) {
-                        cursor.snapshotRequired = true;
-                        producerStore.put(cursor);
-                      }
-                    } catch (err) {
-                      t.__error = err;
-                      t.abort();
-                      return;
-                    }
-                  };
-
-                  // Wall-clock jumps can expire noncontiguous rows. Repair
-                  // every surviving run after a removed predecessor.
-                  const removed = new Set(expiredList.map(e => e.item.batchId));
-                  const sample = expiredList[0].item;
-                  let needsSnapshot = false;
-                  for (const row of allItems.filter(x => x.inst === sample.inst && x.ctx === sample.ctx)
-                    .sort((a, b) => a.seq - b.seq)) {
-                    if (removed.has(row.batchId)) { needsSnapshot = true; continue; }
-                    if (needsSnapshot) {
-                      row.sendSnapshot = true;
-                      outboxStore.put(row);
-                      needsSnapshot = false;
-                    }
-                  }
-                }
-                t.__result = { count: retiredCount, seq: nextLossSeq, reason: noticeReason, disposition: noticeReason };
-              } catch (err) {
-                t.__error = err;
-                t.abort();
-              }
-            };
-          } else {
-            t.__result = { count: 0, seq: 0, reason: "clean", disposition: "clean" };
-          }
-        } catch (err) {
-          t.__error = err;
-          t.abort();
-        }
-      };
-    });
-  }
-
-  async function retireStaleGeneration(newGeneration, authorize) {
+  async function promoteHeldForGeneration(newGeneration, authorize) {
     return DB.tx(["outbox", "producer", "meta"], "readwrite", (stores, t) => {
       if (!guardTransaction(t, authorize)) return;
       const outboxStore = stores.outbox;
       const producerStore = stores.producer;
-      const metaStore = stores.meta;
+      const allRowsReq = outboxStore.getAll();
+      const allCursorsReq = producerStore.getAll();
+      let allRows = null;
+      let allCursors = null;
+      let pending = 2;
 
-      const allReq = outboxStore.getAll();
-      let retiredCount = 0;
-
-      allReq.onsuccess = () => {
+      function promoteWhenReady() {
+        if (--pending > 0) return;
         try {
-          const allItems = allReq.result || [];
-          const staleContexts = new Set();
-          for (const item of allItems) {
-            if (item.destinationGeneration !== newGeneration) {
-              retiredCount++;
-              outboxStore.delete(item.batchId);
-              ageSamples.delete(item.batchId);
-              staleContexts.add(contextKeyFor(item.inst, item.ctx));
-            }
+          const cursorByKey = new Map((allCursors || []).map(cursor => [cursor.contextKey, cursor]));
+          const rowsByKey = new Map();
+          for (const row of allRows || []) {
+            const key = contextKeyFor(row.inst, row.ctx);
+            if (!rowsByKey.has(key)) rowsByKey.set(key, []);
+            rowsByKey.get(key).push(row);
           }
-          for (const ctxKey of staleContexts) {
-            const cursorReq = producerStore.get(ctxKey);
-            cursorReq.onsuccess = () => {
-              try {
-                const cursor = cursorReq.result;
-                if (cursor) {
-                  cursor.snapshotRequired = true;
-                  producerStore.put(cursor);
-                }
-              } catch (err) {
-                t.__error = err;
-                t.abort();
-                return;
-              }
-            };
+          for (const rows of rowsByKey.values()) rows.sort((a, b) => (a.seq || 0) - (b.seq || 0));
+
+          const affected = new Set();
+          for (const cursor of allCursors || []) {
+            if (cursor.generation !== newGeneration) affected.add(cursor.contextKey);
+          }
+          for (const [key, rows] of rowsByKey) {
+            if (!cursorByKey.has(key) && rows.some(row => row.destinationGeneration !== newGeneration)) affected.add(key);
           }
 
-          // In each affected context where items were retired, promote the oldest surviving delta to sendSnapshot = true
-          if (retiredCount > 0) {
-            for (const ctxKey of staleContexts) {
-              const survivors = allItems
-                .filter((x) => x.destinationGeneration === newGeneration && contextKeyFor(x.inst, x.ctx) === ctxKey)
-                .sort((a, b) => (a.seq || 0) - (b.seq || 0));
-              if (survivors.length > 0 && !survivors[0].sendSnapshot && survivors[0].records && survivors[0].records.some((r) => r.t === "delta")) {
-                survivors[0].sendSnapshot = true;
-                outboxStore.put(survivors[0]);
-              }
+          for (const key of affected) {
+            const cursor = cursorByKey.get(key);
+            if (cursor) {
+              cursor.snapshotRequired = true;
+              cursor.generation = newGeneration;
+              producerStore.put(cursor);
+            } else {
+              const row = rowsByKey.get(key)?.[0];
+              if (!row) continue;
+              producerStore.put({
+                contextKey: key,
+                inst: row.inst,
+                ctx: row.ctx,
+                generation: newGeneration,
+                snapshotRequired: true,
+                blocks: [],
+              });
+            }
+
+            const oldest = rowsByKey.get(key)?.[0];
+            if (oldest && oldest.destinationGeneration !== newGeneration && oldest.sendSnapshot !== true &&
+                Array.isArray(oldest.records) && oldest.records.some(record => record.t === "delta")) {
+              oldest.sendSnapshot = true;
+              outboxStore.put(oldest);
             }
           }
-
-          if (retiredCount > 0) {
-            const lossSeqReq = metaStore.get("lossSeq");
-            lossSeqReq.onsuccess = () => {
-              try {
-                const currentSeq = Number(lossSeqReq.result || 0);
-                const nextLossSeq = currentSeq + 1;
-                metaStore.put(nextLossSeq, "lossSeq");
-                appendLoss(metaStore, { seq: nextLossSeq, reason: "stale_generation", count: retiredCount });
-                t.__result = { count: retiredCount, seq: nextLossSeq, disposition: "stale-generation" };
-              } catch (err) {
-                t.__error = err;
-                t.abort();
-              }
-            };
-          } else {
-            t.__result = { count: 0, seq: 0, disposition: "stale-generation" };
-          }
+          t.__result = { count: 0 };
         } catch (err) {
           t.__error = err;
           t.abort();
-          return;
         }
-      };
+      }
+
+      allRowsReq.onsuccess = () => { allRows = allRowsReq.result || []; promoteWhenReady(); };
+      allRowsReq.onerror = () => { t.__error = allRowsReq.error; t.abort(); };
+      allCursorsReq.onsuccess = () => { allCursors = allCursorsReq.result || []; promoteWhenReady(); };
+      allCursorsReq.onerror = () => { t.__error = allCursorsReq.error; t.abort(); };
     });
   }
 
@@ -799,8 +659,7 @@
     markAllSnapshotRequired,
     pruneCursor,
     applyRejectedReceipt,
-    retireExpired,
-    retireStaleGeneration,
+    promoteHeldForGeneration,
     dismissLoss,
     getCapacityStatus,
     buildWireBatch,

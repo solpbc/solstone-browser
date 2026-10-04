@@ -73,15 +73,15 @@ test("same destination failure keeps last-known facts and age; new destination c
     assert.equal(f.controller.getStatus().about.journal_seen_at_epoch_secs, seen);
   }
   await f.ports[0].receive(state());
-  const original = Outbox.retireStaleGeneration; let release;
-  Outbox.retireStaleGeneration = () => new Promise(resolve => {release = resolve;});
+  const original = Outbox.promoteHeldForGeneration; let release;
+  Outbox.promoteHeldForGeneration = (_generation, _authorize) => new Promise(resolve => {release = resolve;});
   try {
     const switched = state("state", {...facts, hostname: "PRIVATE_NEW_HOST"}, "destination-b");
     const pending = f.ports[0].receive(switched);
     assert.equal(f.updates.at(-1).about, null, "withdraw old journal before durable transition completes");
     release({count: 0}); await pending;
     assert.equal(f.controller.getStatus().about, null);
-  } finally {Outbox.retireStaleGeneration = original;}
+  } finally {Outbox.promoteHeldForGeneration = original;}
 });
 
 test("disconnect, new-port absence, native deadline and zero freshness preserve existing authority rules", async () => {
@@ -104,8 +104,8 @@ test("disconnect, new-port absence, native deadline and zero freshness preserve 
 
 test("receipt deadline and revision fences exclude obsolete asynchronous completions", async () => {
   const f = await fixture(); await f.ports[0].receive(state("hello_ack"));
-  const original = Outbox.retireStaleGeneration; const releases = [];
-  Outbox.retireStaleGeneration = () => new Promise(resolve => releases.push(resolve));
+  const original = Outbox.promoteHeldForGeneration; const releases = [];
+  Outbox.promoteHeldForGeneration = (_generation, _authorize) => new Promise(resolve => releases.push(resolve));
   try {
     const older = f.ports[0].receive(state("state", facts, "fixture-a", 10));
     f.now = 111;
@@ -117,7 +117,7 @@ test("receipt deadline and revision fences exclude obsolete asynchronous complet
     releases[0]({count: 0}); await pending;
     assert.equal(f.controller.getStatus().about.journal_line, "journal unknown");
     assert.equal(f.controller.getStatus().about.journal_seen_at_epoch_secs, null);
-  } finally {Outbox.retireStaleGeneration = original;}
+  } finally {Outbox.promoteHeldForGeneration = original;}
 });
 
 test("display rendering projects only public facts, normalizes aliases and never invents age", async () => {

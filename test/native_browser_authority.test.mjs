@@ -23,7 +23,7 @@ test("authority and schema digest match pinned hash", () => {
   const authority = JSON.parse(readFileSync(join(ROOT, "contracts/native-browser/authority.json"), "utf8"));
   assert.equal(authority.journal.sha256, PINNED_JOURNAL_SHA256);
   assert.equal(authority.journal.id, "solstone-journal-format:browser-jsonl");
-  assert.equal(authority.bundle_version, "1.1.0");
+  assert.equal(authority.bundle_version, "1.2.0");
   assert.equal(authority.wire_protocol, 1);
 });
 
@@ -50,15 +50,15 @@ test("adoption schema required names and consts", () => {
   assert.deepEqual(adoption.required, expectedRequired);
   assert.equal(adoption.additionalProperties, false);
   assert.equal(adoption.properties.bundle_path.const, "contracts/native-browser");
-  assert.equal(adoption.properties.bundle_version.const, "1.1.0");
+  assert.equal(adoption.properties.bundle_version.const, "1.2.0");
   assert.equal(adoption.properties.wire_protocol.const, 1);
   assert.equal(adoption.properties.journal_schema_sha256.const, PINNED_JOURNAL_SHA256);
 });
 
 test("manifest wire and bundle fields", () => {
   const manifest = JSON.parse(readFileSync(join(ROOT, "contracts/native-browser/manifest.json"), "utf8"));
-  assert.deepEqual(manifest.generator, { name: "solstone-native-browser-gen", version: "1.1.0" });
-  assert.equal(manifest.bundle_version, "1.1.0");
+  assert.deepEqual(manifest.generator, { name: "solstone-native-browser-gen", version: "1.2.0" });
+  assert.equal(manifest.bundle_version, "1.2.0");
   assert.equal(manifest.wire_protocol, 1);
   assert.equal(manifest.journal.sha256, PINNED_JOURNAL_SHA256);
   assert.equal(manifest.swift_check, "swift test --filter SolstoneNativeBrowserContract");

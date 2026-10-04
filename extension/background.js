@@ -503,7 +503,6 @@ async function doInit() {
   }
   if (!permissionsSettled) throw new Error("permissions_changed_during_init");
 
-  await Outbox.retireExpired(port.now(), Date.now());
   port.lossNotice = (await DB.get("meta", "lossNotice")) || null;
   const cap = await Outbox.getCapacityStatus();
   port.pressure = cap.pressure;

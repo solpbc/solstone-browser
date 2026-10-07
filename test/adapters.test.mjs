@@ -2,7 +2,7 @@
 // Copyright (c) 2026 sol pbc
 //
 // Tests for the adapter stable-id guard — the fix for the Gmail delta-churn
-// found in the founder dogfood (volatile `:xxx` render-ids were used as keys).
+// caused by volatile `:xxx` render-ids being used as keys.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

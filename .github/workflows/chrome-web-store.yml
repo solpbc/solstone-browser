@@ -86,7 +86,7 @@ jobs:
         if: inputs.action == 'stage-release'
         run: make cws
 
-      - name: Run the founder-approved Store operation
+      - name: Run the operator-approved Store operation
         env:
           CWS_ACCESS_TOKEN: ${{ steps.google-auth.outputs.access_token }}
           CWS_ACTION: ${{ inputs.action }}

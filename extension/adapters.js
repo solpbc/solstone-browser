@@ -63,7 +63,7 @@
   // colon-prefixed (`:mk`, `:my`, `:1vxl9at`) and get reassigned on every
   // re-render, so keying on them turns each render into remove-old + add-new
   // churn. Reject those; the walker falls back to content-hash keying, which is
-  // stable while the text is stable. (Real-data finding, founder dogfood 2026-06-30.)
+  // stable while the text is stable.
   function isVolatileId(v) {
     return !v || v.startsWith(":");
   }

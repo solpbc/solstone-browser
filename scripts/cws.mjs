@@ -141,7 +141,7 @@ export function describeGcloudTokenFailure(error) {
         ? error.stderr.toString("utf8").trim()
         : "";
   if (/Reauthentication failed|cannot prompt during non-interactive execution/i.test(detail)) {
-    return `local Chrome Web Store access is intentionally human-backed and cannot refresh in this process. A human operator may run "gcloud auth login ${GCLOUD_ACCOUNT}" interactively and retry. Autonomous sessions must not request reauthentication: use the public listing for published-version checks (${PUBLIC_LISTING}), or use the founder-approved Chrome Web Store workflow for private Store state. No service-account-key fallback exists by design`;
+    return `local Chrome Web Store access is intentionally human-backed and cannot refresh in this process. A human operator may run "gcloud auth login ${GCLOUD_ACCOUNT}" interactively and retry. Autonomous sessions must not request reauthentication: use the public listing for published-version checks (${PUBLIC_LISTING}), or use the operator-approved Chrome Web Store workflow for private Store state. No service-account-key fallback exists by design`;
   }
   return `could not mint a short-lived Store token with gcloud: ${detail || error.message}`;
 }
@@ -360,7 +360,7 @@ function usage() {
 status is read-only. Every mutating command requires the exact version as an
 explicit confirmation. "stage" uploads and submits for review using
 STAGED_PUBLISH, so approval never makes the release live without a separate
-founder-approved publish-staged command.`);
+operator-approved publish-staged command.`);
 }
 
 async function main(argv) {

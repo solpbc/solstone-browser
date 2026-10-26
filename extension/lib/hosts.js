@@ -30,9 +30,76 @@
     return splitHost(host).hostname;
   }
 
-  // A valid match pattern for a host, port stripped.
+  // A site an owner names covers that name and every name under it: bank.com
+  // is bank.com, www.bank.com, login.bank.com and so on. A local name (a
+  // machine, a router) has nothing under it, so it stays exact.
+  function coversSubdomains(hostname) {
+    const host = String(hostname || "").toLowerCase();
+    return host.includes(".") && !isLocalHostname(host) && isPlainHostname(host.replace(/_/g, "-"));
+  }
+
+  // The pattern this site is granted and registered under, port stripped:
+  // `*://*.bank.com/*` matches bank.com itself and every subdomain.
   function matchPatternFor(host) {
+    const hostname = matchHostFor(host);
+    return coversSubdomains(hostname) ? `*://*.${hostname}/*` : `*://${hostname}/*`;
+  }
+
+  // The exact-host pattern a site added before sites covered their subdomains
+  // was granted under. It still counts for that host alone.
+  function exactPatternFor(host) {
     return `*://${matchHostFor(host)}/*`;
+  }
+
+  function sitePatternsFor(host) {
+    return [...new Set([matchPatternFor(host), exactPatternFor(host)])];
+  }
+
+  // What the browser grants a chosen site: "site" (it and its subdomains),
+  // "exact" (an older grant for the host alone), or null.
+  function grantLevel(host, livePatterns) {
+    const live = new Set(livePatterns || []);
+    // An explicit exact grant outranks a broad one, so a site added before
+    // sites covered subdomains never widens because "*://*/*" is live.
+    if (live.has(matchPatternFor(host))) return "site";
+    if (live.has(exactPatternFor(host))) return "exact";
+    if (live.has("*://*/*")) return "site";
+    return null;
+  }
+
+  // The host a site pattern covers (`*://*.bank.com/*` → bank.com), if any.
+  function patternSiteHost(pattern) {
+    const match = /^\*:\/\/\*\.([^/]+)\/\*$/.exec(String(pattern || ""));
+    return match ? match[1].toLowerCase() : null;
+  }
+
+  // Whether `hostname` falls under the site named `siteHost`.
+  function hostCovers(siteHost, hostname) {
+    const site = String(siteHost || "").toLowerCase();
+    const host = String(hostname || "").toLowerCase();
+    if (!site || !host) return false;
+    return host === site || (coversSubdomains(site) && host.endsWith(`.${site}`));
+  }
+
+  // Whether a page origin falls under a chosen site origin: same scheme and
+  // port, and the site's host or a name under it. `exactOnly` limits an older
+  // grant to the host alone.
+  function originCoveredBy(siteOrigin, origin, exactOnly = false) {
+    try {
+      const site = new URL(siteOrigin);
+      const page = new URL(origin);
+      if (site.protocol !== page.protocol || site.port !== page.port) return false;
+      return exactOnly ? site.hostname === page.hostname : hostCovers(site.hostname, page.hostname);
+    } catch (_e) { return false; }
+  }
+
+  // The chosen site a page belongs to, if any. A site under an older
+  // exact-host grant covers its own address alone.
+  function siteForOrigin(chosen, origin, exactOnly = []) {
+    const entries = Array.from(chosen || []);
+    const exact = new Set(exactOnly || []);
+    return entries.find((entry) => entry === origin) ||
+      entries.find((entry) => originCoveredBy(entry, origin, exact.has(entry))) || null;
   }
 
   function permissionOriginForUrl(input) {
@@ -107,8 +174,9 @@
       /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host);
   }
 
-  // The other half of a bare/www pair: bank.com <-> www.bank.com. Only for a
-  // registrable-looking name, so mail.google.com has no twin.
+  // A name an owner types with www in front means the site itself: www.bank.com
+  // is bank.com. Only for a registrable-looking name, so www.mail.google.com
+  // stays as typed.
   const SECOND_LEVELS = new Set(["co", "com", "org", "net", "ac", "gov", "edu", "ne", "or", "go"]);
   function registrableLooking(host) {
     const labels = host.split(".");
@@ -116,15 +184,10 @@
     return labels.length === 3 && labels.every(Boolean) && labels[2].length === 2 && SECOND_LEVELS.has(labels[1]);
   }
 
-  // Symmetric by construction: X and www.X pair only when X looks registrable.
-  function wwwTwin(hostname) {
-    const host = String(hostname || "").toLowerCase();
-    if (!host || isLocalHostname(host) || !isPlainHostname(host)) return null;
-    if (host.startsWith("www.")) {
-      const bare = host.slice(4);
-      return registrableLooking(bare) ? bare : null;
-    }
-    return registrableLooking(host) ? `www.${host}` : null;
+  function siteHostname(hostname) {
+    const host = String(hostname || "").toLowerCase().replace(/^\*\./, "").replace(/^\.+/, "").replace(/\.+$/, "");
+    if (host.startsWith("www.") && registrableLooking(host.slice(4))) return host.slice(4);
+    return host;
   }
 
   // How a chosen origin is named on screen: its host and port, with http://
@@ -137,12 +200,13 @@
   }
 
   function excludedHostname(input) {
-    const raw = String(input || "").trim();
+    // `*.bank.com` says what leaving out bank.com already does.
+    const raw = String(input || "").trim().replace(/^(https?:\/\/)?(?:\*|%2a)\./i, "$1");
     if (!raw || /\s/.test(raw)) return null;
     try {
       const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
       if (!/^https?:$/.test(url.protocol) || url.username || url.password) return null;
-      const host = url.hostname.toLowerCase().replace(/^\.+/, "").replace(/\.+$/, "");
+      const host = siteHostname(url.hostname);
       if (/^\[[0-9a-f:.]+\]$/.test(host)) return host;
       // Browsers open hosts with an underscore, so one can be left out.
       return isPlainHostname(host.replace(/_/g, "-")) ? host : null;
@@ -160,11 +224,6 @@
     return raw.replace(/^\.+/, "").replace(/\.+$/, "") || null;
   }
 
-  // A `*` asks for every subdomain, which a left-out site can't mean.
-  function isWildcardInput(input) {
-    return String(input || "").includes("*");
-  }
-
   // Owner scope and the browser's broad grant are separate facts. Effective
   // document access is additionally enforced by each browser-mediated read.
   function originGranted(state, origin) {
@@ -173,10 +232,12 @@
     try { url = new URL(origin); } catch (_e) { return false; }
     if (url.protocol !== "http:" && url.protocol !== "https:") return false;
     if (state.siteMode === "all") {
+      const hostname = url.hostname.toLowerCase();
       return state.allSitesConsent === ALL_SITES_CONSENT_VERSION && state.broadGranted === true &&
-        !(state.excludedHosts || []).includes(url.hostname.toLowerCase());
+        !(state.excludedHosts || []).some((site) => hostCovers(site, hostname));
     }
-    return Array.from(state.grantedOrigins || []).includes(url.origin);
+    const exactOnly = new Set(state.exactOnlyOrigins || []);
+    return Array.from(state.grantedOrigins || []).some((entry) => originCoveredBy(entry, url.origin, exactOnly.has(entry)));
   }
 
   function isValidHostInput(input) {
@@ -187,18 +248,19 @@
     return /^[a-z0-9-]+(?:\.[a-z0-9-]+)*$/.test(host);
   }
 
-  // A site the owner adds is one origin. A pasted http(s) address keeps its
-  // scheme and port; a typed one means https, or http for a local name such as
-  // localhost or a router's address. Any path is dropped either way.
+  // A site the owner adds is one origin, which covers its subdomains. A pasted
+  // http(s) address keeps its scheme and port; a typed one means https, or http
+  // for a local name such as localhost or a router's address. Any path is
+  // dropped, and a leading www. or *. names the site itself.
   function chosenOrigin(input) {
-    const raw = String(input || "").trim();
+    const raw = String(input || "").trim().replace(/^(https?:\/\/)?(?:\*|%2a)\./i, "$1");
     if (!raw || /\s/.test(raw)) return null;
     const pasted = /^https?:\/\//i.test(raw);
     if (!pasted && /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) return null;
     try {
       let url = new URL(pasted ? raw : `https://${raw}`);
       if (url.username || url.password) return null;
-      const hostname = url.hostname.toLowerCase().replace(/\.+$/, "");
+      const hostname = siteHostname(url.hostname);
       if (!isPlainHostname(hostname)) return null;
       const scheme = pasted ? url.protocol : (isLocalHostname(hostname) ? "http:" : "https:");
       url = new URL(`${scheme}//${hostname}${url.port ? `:${url.port}` : ""}`);
@@ -220,9 +282,16 @@
     isValidHostInput,
     chosenOrigin,
     isLocalHostname,
-    wwwTwin,
     displayOrigin,
-    isWildcardInput,
     storedExcludedHostname,
+    coversSubdomains,
+    exactPatternFor,
+    sitePatternsFor,
+    grantLevel,
+    hostCovers,
+    originCoveredBy,
+    siteForOrigin,
+    siteHostname,
+    patternSiteHost,
   };
 })();

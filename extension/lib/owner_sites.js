@@ -15,6 +15,15 @@
     return hosts?.matchPatternFor ? hosts.matchPatternFor(host) : `*://${host.replace(/:\d+$/, "")}/*`;
   }
 
+  function grantLevelFor(origin, livePatterns) {
+    const host = originHost(origin);
+    const hosts = globalThis.SolstoneHosts;
+    if (!host) return null;
+    if (hosts?.grantLevel) return hosts.grantLevel(host, livePatterns);
+    const live = new Set(livePatterns || []);
+    return live.has("*://*/*") || live.has(matchPatternFor(origin)) ? "site" : null;
+  }
+
   function patternMatches(pattern, origin) {
     try {
       const url = new URL(origin);
@@ -51,12 +60,14 @@
         state.grantEpoch++;
         state.chosen = state.chosen.filter((item) => item !== origin);
         state.granted = state.granted.filter((item) => item !== origin);
+        state.exactOnly = (state.exactOnly || []).filter((item) => item !== origin);
         if (state.reservation?.origin === origin) state.reservation = null;
         effects.push("publish-closed");
         break;
       case "browser-removed":
         state.permissionEpoch++;
         state.granted = state.granted.filter((item) => !event.patterns.some((pattern) => patternMatches(pattern, item)));
+        state.exactOnly = (state.exactOnly || []).filter((item) => state.granted.includes(item));
         effects.push("publish-closed");
         break;
       case "browser-added-sync": {
@@ -71,11 +82,11 @@
           effects.push("stale");
           result = { ok: false, stale: true };
         } else {
-          const live = new Set(event.livePatterns || []);
-          state.granted = state.chosen.filter((chosenOrigin) => {
-            const pattern = matchPatternFor(chosenOrigin);
-            return live.has(pattern) || live.has("*://*/*");
-          });
+          // A site is granted under its own pattern (it and its subdomains) or,
+          // from before sites covered subdomains, under its exact host alone.
+          const levels = new Map(state.chosen.map((chosenOrigin) => [chosenOrigin, grantLevelFor(chosenOrigin, event.livePatterns)]));
+          state.granted = state.chosen.filter((chosenOrigin) => levels.get(chosenOrigin));
+          state.exactOnly = state.chosen.filter((chosenOrigin) => levels.get(chosenOrigin) === "exact");
         }
         break;
       case "begin-add":

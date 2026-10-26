@@ -10,13 +10,15 @@ import assert from "node:assert/strict";
 await import(new URL("../extension/lib/hosts.js", import.meta.url));
 const H = globalThis.SolstoneHosts;
 
-test("all-sites requires explicit scope agreement and live broad access, with exact-host exclusions", () => {
+test("all-sites requires explicit scope agreement and live broad access; a left-out site covers its subdomains", () => {
   const state = {siteMode:"all", allSitesConsent:H.ALL_SITES_CONSENT_VERSION, broadGranted:true,
     excludedHosts:["example.com"], chosenOrigins:[], grantedOrigins:[]};
   assert.equal(H.originGranted(state, "https://new.example"), true);
   assert.equal(H.originGranted(state, "https://example.com:8443/path"), false);
   assert.equal(H.originGranted(state, "http://example.com"), false);
-  assert.equal(H.originGranted(state, "https://mail.example.com"), true);
+  assert.equal(H.originGranted(state, "https://mail.example.com"), false);
+  assert.equal(H.originGranted(state, "https://notexample.com"), true);
+  assert.equal(H.originGranted(state, "https://example.com.evil.net"), true);
   for (const patch of [{allSitesConsent:0},{broadGranted:false},{sitePolicyPending:true}]) {
     assert.equal(H.originGranted({...state,...patch}, "https://new.example"), false);
   }
@@ -24,11 +26,25 @@ test("all-sites requires explicit scope agreement and live broad access, with ex
     assert.equal(H.originGranted(state, origin), false);
   }
   assert.equal(H.excludedHostname("https://EXAMPLE.com:8443/path"), "example.com");
-  assert.equal(H.excludedHostname("*.example.com"), null);
+  assert.equal(H.excludedHostname("*.example.com"), "example.com");
   assert.equal(H.excludedHostname("https://person:secret@example.com"), null);
   const selected = {...state,siteMode:"selected",grantedOrigins:["https://chosen.example"]};
   assert.equal(H.originGranted(selected, "https://new.example"), false);
   assert.equal(H.originGranted(selected, "https://chosen.example"), true);
+  // A chosen site covers its subdomains on the same scheme and port, and
+  // nothing that merely ends with its name.
+  assert.equal(H.originGranted(selected, "https://login.chosen.example"), true);
+  assert.equal(H.originGranted(selected, "https://notchosen.example"), false);
+  assert.equal(H.originGranted(selected, "http://login.chosen.example"), false);
+  assert.equal(H.originGranted(selected, "https://login.chosen.example:8443"), false);
+  // An older exact-host grant covers its host alone until it's widened.
+  const older = {...selected, exactOnlyOrigins:["https://chosen.example"]};
+  assert.equal(H.originGranted(older, "https://chosen.example"), true);
+  assert.equal(H.originGranted(older, "https://login.chosen.example"), false);
+  // A local name has nothing under it.
+  const local = {...selected, grantedOrigins:["http://localhost:3000"]};
+  assert.equal(H.originGranted(local, "http://localhost:3000"), true);
+  assert.equal(H.originGranted(local, "http://app.localhost:3000"), false);
 });
 
 test("splitHost separates a trailing numeric port", () => {
@@ -60,7 +76,15 @@ test("hostObservable combines port-safe membership with browser-paused host stat
 test("matchPatternFor builds a VALID (port-less) match pattern", () => {
   // the bug: '*://localhost:5015/*' is an invalid Chrome match pattern
   assert.equal(H.matchPatternFor("localhost:5015"), "*://localhost/*");
-  assert.equal(H.matchPatternFor("mail.google.com"), "*://mail.google.com/*");
+  assert.equal(H.matchPatternFor("mail.google.com"), "*://*.mail.google.com/*");
+  assert.equal(H.matchPatternFor("example.com:8443"), "*://*.example.com/*");
+  assert.equal(H.exactPatternFor("mail.google.com"), "*://mail.google.com/*");
+  assert.deepEqual(H.sitePatternsFor("localhost:5015"), ["*://localhost/*"]);
+  assert.deepEqual(H.sitePatternsFor("bank.com"), ["*://*.bank.com/*", "*://bank.com/*"]);
+  assert.equal(H.grantLevel("bank.com", ["*://*.bank.com/*"]), "site");
+  assert.equal(H.grantLevel("bank.com", ["*://*/*"]), "site");
+  assert.equal(H.grantLevel("bank.com", ["*://bank.com/*"]), "exact");
+  assert.equal(H.grantLevel("bank.com", ["*://*.other.com/*"]), null);
   // a valid pattern never contains a ':' in the host segment
   for (const h of ["localhost:5015", "mail.google.com", "example.com:8443"]) {
     const host = H.matchPatternFor(h).slice("*://".length).replace(/\/\*$/, "");
@@ -131,6 +155,13 @@ test("chosenOrigin takes a typed host or a pasted address to one origin", () => 
     "example.com/path": "https://example.com",
     "github.com/solpbc/solstone": "https://github.com",
     "mail.google.com/mail/u/0/#inbox": "https://mail.google.com",
+    // www. and *. in front name the site itself, which covers its subdomains.
+    "www.example.com": "https://example.com",
+    "https://www.example.com/login": "https://example.com",
+    "*.example.com": "https://example.com",
+    "https://*.example.com/": "https://example.com",
+    "%2a.example.com": "https://example.com",
+    "www.mail.google.com": "https://www.mail.google.com",
     "example.com.": "https://example.com",
     "bücher.de": "https://xn--bcher-kva.de",
     // A typed local name means http, where home servers and dev servers are.
@@ -143,33 +174,32 @@ test("chosenOrigin takes a typed host or a pasted address to one origin", () => 
   for (const [input, origin] of Object.entries(cases)) assert.equal(H.chosenOrigin(input), origin, input);
   for (const input of ["", "   ", "bad_host.example", "localhost:99999", "ftp://example.com",
     "https://", "https://exa mple.com", "https://example.com/a b", "https://person:secret@example.com",
-    "https://*.example.com", "*.example.com", "%2a.example.com", "https://bad_host.example", "http://[::1]:8080",
+    "https://bad_host.example", "http://[::1]:8080", "*.", "a.*.example.com",
     "example.com\nother.com"]) {
     assert.equal(H.chosenOrigin(input), null, input);
   }
 });
 
-test("a left-out host is a plain name: odd input never saves an entry that matches nothing", () => {
+test("a left-out site is a plain name; www. and *. in front name the site itself", () => {
   assert.equal(H.excludedHostname("BANK.com "), "bank.com");
-  assert.equal(H.excludedHostname("www.bank.com."), "www.bank.com");
+  assert.equal(H.excludedHostname("www.bank.com."), "bank.com");
   assert.equal(H.excludedHostname(".bank.com"), "bank.com");
   assert.equal(H.excludedHostname("https://secure.bank.com/login"), "secure.bank.com");
-  // Chromium's parser keeps a typed * as %2a; neither form may become an entry.
-  for (const input of ["*.bank.com", "%2a.bank.com", "https://%2A.bank.com", "bank .com", ""]) {
-    assert.equal(H.excludedHostname(input), null, input);
+  // Chromium's parser keeps a typed * as %2a; both mean the site itself.
+  for (const input of ["*.bank.com", "%2a.bank.com", "https://%2A.bank.com", "https://*.bank.com/x"]) {
+    assert.equal(H.excludedHostname(input), "bank.com", input);
   }
-  assert.equal(H.isWildcardInput("*.bank.com"), true);
-  assert.equal(H.isWildcardInput("bank.com"), false);
+  for (const input of ["bank .com", "", "a.*.bank.com"]) assert.equal(H.excludedHostname(input), null, input);
 });
 
-test("bank.com and www.bank.com are twins; other subdomains and local names are not", () => {
-  assert.equal(H.wwwTwin("bank.com"), "www.bank.com");
-  assert.equal(H.wwwTwin("www.bank.com"), "bank.com");
-  assert.equal(H.wwwTwin("bank.co.uk"), "www.bank.co.uk");
-  assert.equal(H.wwwTwin("www.bank.co.uk"), "bank.co.uk");
-  for (const host of ["mail.google.com", "www.mail.google.com", "login.mybank.com", "localhost", "nas.local", "10.0.0.1", "www.com", ""]) {
-    assert.equal(H.wwwTwin(host), null, host);
-  }
+test("a named site covers every address under it; a local name stays exact", () => {
+  for (const [site, host, covered] of [
+    ["bank.com", "bank.com", true], ["bank.com", "www.bank.com", true], ["bank.com", "a.b.bank.com", true],
+    ["bank.com", "notbank.com", false], ["bank.com", "bank.com.evil.net", false],
+    ["mail.google.com", "docs.google.com", false], ["localhost", "app.localhost", false], ["10.0.0.1", "10.0.0.1", true],
+  ]) assert.equal(H.hostCovers(site, host), covered, `${site} ${host}`);
+  assert.equal(H.siteForOrigin(["https://bank.com", "https://other.com"], "https://login.bank.com"), "https://bank.com");
+  assert.equal(H.siteForOrigin(["https://bank.com"], "https://other.com"), null);
 });
 
 test("an origin is shown with its port, and with http:// when it isn't https", () => {

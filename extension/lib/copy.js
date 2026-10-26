@@ -89,10 +89,15 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     chooseSelected: "switch to sites you add",
   };
 
-  const LEAVE_OUT_HELP = "a site you leave out isn't taken in, even inside another page. other sites shown inside its pages are still shared, unless you leave them out too. leave out each exact address, like mail.google.com: google.com and mail.google.com are separate sites, but google.com and www.google.com go together.";
-  const ADD_HELP = "add each exact address, like mail.google.com: google.com, www.google.com and mail.google.com are separate sites.";
+  // A named site covers every address under it (see hosts.js coversSubdomains).
+  const LEAVE_OUT_HELP = "leaving out bank.com leaves out all bank.com sites and pages, like www.bank.com and login.bank.com, even inside another page. other sites shown inside its pages are still shared, unless you leave them out too.";
+  const ADD_HELP = "adding bank.com shares all bank.com sites and pages, like www.bank.com and login.bank.com. to share only part, add that address, like mail.google.com.";
   const FIELD_ERROR = "enter a website address, like mail.google.com.";
-  const WILDCARD_ERROR = "leave out one address at a time, like bank.com or login.bank.com.";
+
+  function wholeSite(host) {
+    const H = globalThis.SolstoneHosts;
+    return !!H?.coversSubdomains?.(H.matchHostFor(String(host || "").replace(/^https?:\/\//i, "")));
+  }
   const ADD_DENIED = "permission declined. nothing added.";
   const ADD_NOT_NOW = "can't add a site right now. the status above says why.";
 
@@ -104,9 +109,35 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     return `${escapeToken(host)} removed. nothing new comes from it; what's already in your journal stays there.`;
   }
 
-  function includedAnnouncement(host, twin) {
-    const named = twin ? `${escapeToken(host)} and ${escapeToken(twin)}` : escapeToken(host);
-    return `${named} included again.`;
+  function includedAnnouncement(host) {
+    return wholeSite(host)
+      ? `all ${escapeToken(host)} sites and pages are included again.`
+      : `${escapeToken(host)} included again.`;
+  }
+
+  function addedAnnouncement(host, onNow) {
+    const named = wholeSite(host) ? `all ${escapeToken(host)} sites and pages added.` : `${escapeToken(host)} added.`;
+    return onNow ? `${named} what you share there now goes into your journal.` : named;
+  }
+
+  // A site added before sites covered their subdomains, which the browser still
+  // allows on its exact address alone.
+  function exactOnlyCopy(brand, hosts) {
+    const bName = browserName(brand);
+    const list = Array.from(hosts || []);
+    if (list.length === 1) {
+      const host = escapeToken(list[0]);
+      return {
+        line: `${host} covers only that address. to include all ${host} sites and pages, allow them in ${bName}.`,
+        label: `allow all ${host} sites`,
+        declined: `permission declined. ${host} keeps its exact address only.`,
+      };
+    }
+    return {
+      line: `${list.length} of your sites cover only their exact address. to include all their sites and pages, allow them in ${bName}.`,
+      label: "allow them",
+      declined: "permission declined. those sites keep their exact address only.",
+    };
   }
 
 
@@ -118,9 +149,10 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       : plural(count, "the site you left out stays left out if you choose all sites again.", "the {n} sites you left out stay left out if you choose all sites again.");
   }
 
-  function leftOutAnnouncement(host, twin) {
-    const named = twin ? `${escapeToken(host)} and ${escapeToken(twin)}` : escapeToken(host);
-    return `${named} left out. other subdomains, and other sites shown inside its pages, are still shared.`;
+  function leftOutAnnouncement(host) {
+    return wholeSite(host)
+      ? `all ${escapeToken(host)} sites and pages left out. other sites shown inside them are still shared.`
+      : `${escapeToken(host)} left out. other sites shown inside its pages are still shared.`;
   }
 
   // What the settings page says about the browser's own grant in all-sites mode.
@@ -168,7 +200,9 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       unknownNote: safari ? "if it's set to Deny in Safari's website settings, it isn't taken in." : "",
       deniedState: `${bName} is denying this site`,
       deniedNote: safari ? "to include it, set it to Allow in Safari's website settings." : "",
-      leaveOutNote: (host, twin) => `leaving it out covers ${escapeToken(host)}${twin ? ` and ${escapeToken(twin)}` : ""} only. other subdomains, and other sites shown inside its pages, are still shared.`,
+      leaveOutNote: (host) => wholeSite(host)
+        ? `leaving it out covers all ${escapeToken(host)} sites and pages. other sites shown inside them are still shared.`
+        : `leaving it out covers ${escapeToken(host)}. other sites shown inside its pages are still shared.`,
     };
   }
 
@@ -209,9 +243,10 @@ no analytics. no telemetry. no phone home. nobody counted.`;
   function sheetCopy(hostInput, brandInput) {
     const host = escapeToken(hostInput);
     const bName = browserName(brandInput);
+    const whole = wholeSite(hostInput);
     return {
-      title: `add ${host}?`,
-      what: `on ${host}, the solstone extension takes in the page's text and rough layout whenever a tab is open, and all of it goes into your journal: what you can see, what you'd see by scrolling, background tabs, some labels meant for screen readers, text the page has but doesn't show you, each page's address, title and time, and the sites its links point to. never pixels.`,
+      title: whole ? `add all ${host} sites and pages?` : `add ${host}?`,
+      what: `${whole ? `on every ${host} site and page` : `on ${host}`}, the solstone extension takes in the page's text and rough layout whenever a tab is open, and all of it goes into your journal: what you can see, what you'd see by scrolling, background tabs, some labels meant for screen readers, text the page has but doesn't show you, each page's address, title and time, and the sites its links point to. never pixels.`,
       unsent: `that can include words you've typed but haven't sent, and anything the site shows, even something you'd consider secret.`,
       destinationLabel: `it goes to`,
       destination: `your journal, through the solstone app on this computer`,
@@ -267,12 +302,13 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     STEP2_PENDING,
     ADD_HELP,
     FIELD_ERROR,
-    WILDCARD_ERROR,
     ADD_DENIED,
     ADD_NOT_NOW,
     alreadyAdded,
     removedAnnouncement,
     includedAnnouncement,
+    addedAnnouncement,
+    exactOnlyCopy,
     actionFailure,
     STEP1_NOT_PAIRED_BODY,
     STEP1_INTAKE_OFF_BODY,

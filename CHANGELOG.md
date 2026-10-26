@@ -6,10 +6,14 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ## [Unreleased]
 
+### Changed
+
+- adding bank.com now shares all bank.com sites and pages, like www.bank.com and login.bank.com, and the confirmation says so before anything is shared. to share only part of a site, add that address, like mail.google.com. a site you added before this update keeps covering only its exact address until you allow the rest in settings.
+- in all sites mode, leaving out bank.com now leaves out all bank.com sites and pages, like www.bank.com and login.bank.com, including sites you left out before this update. typing `www.bank.com` or `*.bank.com` means bank.com. before, Chrome and Edge saved a typed `*.bank.com` as left out, though it left nothing out; that entry now covers bank.com, as you meant.
+
 ### Fixed
 
 - in settings, you can now add a site by pasting its whole address, like `https://example.com/some/page`. before, pasting an address showed "enter a website address" instead. the extension adds the site, not the page, and a site you paste with `http://` stays `http://`. reported and fixed by ha-ye.
-- in all sites mode, leaving out a site like bank.com now leaves out www.bank.com too, and you see both on the list. a site you left out before this update gets its www address added as well. typing `*.bank.com` is refused with a note; before, Chrome and Edge saved it as left out, though it left nothing out, and that entry now comes off your list.
 - the optional on-page mark shows "on" only while the page is taken in. before, it could keep saying "on" after you left the site out, after the solstone app closed, or after you paused and resumed.
 - settings, the popup and the toolbar icon no longer flash "can't reach the solstone app" for a moment while the solstone app is running and connected. reported by ha-ye.
 - a typed address with a path, like `github.com/solpbc`, now adds its site too. a typed local address, like `localhost:3000` or `192.168.1.1`, is added as `http://`, and your list shows a site's port when it has one, so two addresses on one computer never look alike.

@@ -125,6 +125,7 @@
       this.paused = false;
       this.chosenOrigins = new Set();
       this.grantedOrigins = new Set();
+      this.exactOnlyOrigins = new Set();
       this.siteMode = "selected";
       this.excludedHosts = [];
       this.allSitesConsent = 0;
@@ -150,7 +151,8 @@
 
     syncCaptureAuthority() {
       const signature = JSON.stringify([this.connectionToken, this.stateRevision, this.paused,
-        this.consentVersion, [...this.chosenOrigins].sort(), [...this.grantedOrigins].sort(), this.pressure.active,
+        this.consentVersion, [...this.chosenOrigins].sort(), [...this.grantedOrigins].sort(),
+        [...(this.exactOnlyOrigins || [])].sort(), this.pressure.active,
         this.siteMode, this.excludedHosts, this.allSitesConsent, this.broadGranted, this.sitePolicyPending, this.permissionEpoch,
         this.capturePermitted, this.hostCapture, this.lease]);
       if (signature !== this.captureSignature) {
@@ -432,6 +434,7 @@
         consentVersion: this.consentVersion,
         chosenOrigins: chosenList,
         grantedOrigins: grantedList,
+        exactOnlyOrigins: Array.from(this.exactOnlyOrigins || []).filter((o) => this.grantedOrigins.has(o)).sort(),
         siteMode: this.siteMode,
         excludedHosts: [...this.excludedHosts],
         allSitesConsent: this.allSitesConsent,

@@ -565,14 +565,18 @@
     const tabsKnown = typeof extras.tabsKnown === "boolean" ? extras.tabsKnown : tabs.known === true;
     let host = "";
     try { host = new URL(entry).hostname; } catch (_e) {}
-    const isTabOpen = openTabOrigins.includes(entry);
+    // An open tab anywhere under the site counts (bank.com covers login.bank.com),
+    // except under an older exact-host grant, which covers its host alone.
+    const exactOnly = (status.exactOnlyOrigins || []).includes(entry);
+    const isTabOpen = openTabOrigins.some((origin) => origin === entry ||
+      (status.siteMode !== "all" && globalThis.SolstoneHosts?.originCoveredBy?.(entry, origin, exactOnly)));
     const leaseOpen = !!status.lease && Number(status.lease.freshnessMs) > 0;
     const gateOpenFor = (granted) => granted && status.capturePermitted === true && leaseOpen && status.consentVersion === 1 &&
       !status.paused && !status.pressure?.active && status.hostCapture === "permitted" && status.custody?.full !== true;
     if (status.siteMode === "all") {
       // In all-sites mode a site isn't added or granted on its own: it is left
       // out, refused by the browser, or covered by the one broad grant.
-      if ((status.excludedHosts || []).includes(host)) return { kind: "excluded", label: "left out", action: null };
+      if ((status.excludedHosts || []).some((site) => globalThis.SolstoneHosts.hostCovers(site, host))) return { kind: "excluded", label: "left out", action: null };
       if ((status.browserDeniedOrigins || []).includes(entry)) {
         return { kind: "denied-by-browser", label: `${bName} is denying this site`, action: null };
       }
@@ -643,9 +647,8 @@
       } catch (_e) {}
     }
     const openOrigins = Array.from(origins).sort();
-    const grants = new Set(options.grantedOrigins || []);
     return { known: true, openOrigins, anyGrantedTabOpen: openOrigins.some((origin) =>
-      options.siteMode === "all" ? globalThis.SolstoneHosts.originGranted(options, origin) : grants.has(origin)) };
+      globalThis.SolstoneHosts.originGranted({ ...options, sitePolicyPending: false }, origin)) };
   }
 
   function welcomeHold(status) {

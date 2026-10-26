@@ -146,7 +146,7 @@ test("addSite confirms before intent and permission in exact order", async () =>
   assert.deepEqual(calls, [
     ["disclose", "mail.google.com"],
     ["intendAddOrigin", "https://mail.google.com"],
-    ["permission", "*://mail.google.com/*"],
+    ["permission", "*://*.mail.google.com/*"],
     ["getState", undefined],
     ["addGrantedOrigin", "https://mail.google.com"],
   ]);
@@ -168,7 +168,7 @@ test("addSite from a page origin names the host on the sheet and grants the orig
   assert.deepEqual(calls, [
     ["disclose", "httpbin.org"],
     ["intendAddOrigin", "https://httpbin.org"],
-    ["permission", "*://httpbin.org/*"],
+    ["permission", "*://*.httpbin.org/*"],
     ["getState", undefined],
     ["addGrantedOrigin", "https://httpbin.org"],
   ]);
@@ -291,4 +291,41 @@ test("grantChosenSites asks once for chosen sites only", async () => {
     status: { siteMode: "all", chosenOrigins: ["https://mail.google.com"] }, cmd: async () => ({}), requestPermission: async () => true,
   });
   assert.equal(wrongMode.error, "wrong_site_mode");
+});
+
+test("a page under a chosen site shows that site's state and names it on remove", () => {
+  const site = "https://bank.com";
+  const st = state({ consentVersion: 1, chosenOrigins: [site], grantedOrigins: [site], capturePermitted: true,
+    openTabs: { known: true, openOrigins: ["https://login.bank.com"], anyGrantedTabOpen: true } });
+  const page = View.arrange(derived(st), st, { origin: "https://login.bank.com", host: "login.bank.com", ok: true, kind: "web" })
+    .find((section) => section.id === "page");
+  assert.equal(page.state, "on now");
+  assert.equal(page.siteAction.id, "remove-site");
+  assert.equal(page.siteAction.origin, site);
+  assert.equal(page.siteAction.label, "remove bank.com");
+  // Under an older exact-host grant the subdomain page isn't covered, so it says so.
+  const older = { ...st, exactOnlyOrigins: [site] };
+  const olderPage = View.arrange(derived(older), older, { origin: "https://login.bank.com", host: "login.bank.com", ok: true, kind: "web" })
+    .find((section) => section.id === "page");
+  assert.equal(olderPage.state, "not added");
+  // On the site's own address the label stays as it was.
+  const own = View.arrange(derived(st), st, { origin: site, host: "bank.com", ok: true, kind: "web" }).find((section) => section.id === "page");
+  assert.equal(own.siteAction.label, "remove this site");
+});
+
+test("in all sites a page under a left-out site is left out, and leaving a www page out names the site", () => {
+  const base = { consentVersion: 1, siteMode: "all", allSitesConsent: 1, broadGranted: true, capturePermitted: true };
+  const left = state({ ...base, excludedHosts: ["bank.com"] });
+  const leftPage = View.arrange(derived(left), left, { origin: "https://login.bank.com", host: "login.bank.com", ok: true, kind: "web" })
+    .find((section) => section.id === "page");
+  assert.equal(leftPage.state, "left out");
+  assert.equal(leftPage.siteAction.id, "include-site");
+  assert.equal(leftPage.siteAction.site, "bank.com");
+  assert.equal(leftPage.siteAction.label, "include bank.com");
+  const open = state({ ...base, excludedHosts: [] });
+  const wwwPage = View.arrange(derived(open), open, { origin: "https://www.bank.com", host: "www.bank.com", ok: true, kind: "web" })
+    .find((section) => section.id === "page");
+  assert.equal(wwwPage.siteAction.id, "exclude-site");
+  assert.equal(wwwPage.siteAction.site, "bank.com");
+  assert.equal(wwwPage.note, "leaving it out covers all bank.com sites and pages. other sites shown inside them are still shared.");
 });

@@ -79,7 +79,7 @@ test("the empty loss block and its competing predicates are gone", () => {
 test("the page add binding routes through the disclosure-gated add flow", () => {
   assert.match(
     popupSource,
-    /View\.addSite\((?:page\.origin \|\| )?page\.host,\s*Object\.assign\(siteEffects\(\),\s*\{\s*disclose:\s*presentDisclosure,?/s,
+    /View\.addSite\((?:Hosts\.chosenOrigin\(page\.origin\) \|\| )?(?:page\.origin \|\| )?page\.host,\s*Object\.assign\(siteEffects\(\),\s*\{\s*disclose:\s*presentDisclosure,?/s,
   );
 });
 

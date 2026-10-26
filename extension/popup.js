@@ -172,25 +172,23 @@
     const Copy = globalThis.SolstoneCopy;
     const Hosts = globalThis.SolstoneHosts;
     if (action.id === "exclude-site" || action.id === "include-site") {
-      const twin = Hosts.wwwTwin(page.host);
-      const twinListed = twin && (state?.excludedHosts || []).includes(twin);
-      await runAction({ ...action, host: page.host, origin: page.origin });
+      // The site this page belongs to: www.bank.com leaves out all of bank.com.
+      const site = action.site || Hosts.siteHostname(page.host);
+      await runAction({ ...action, host: site, origin: page.origin });
       if (!$("actionMessage").textContent) {
-        showActionMessage(action.id === "exclude-site"
-          ? Copy.leftOutAnnouncement(page.host, twin)
-          : Copy.includedAnnouncement(page.host, twinListed ? twin : null));
+        showActionMessage(action.id === "exclude-site" ? Copy.leftOutAnnouncement(site) : Copy.includedAnnouncement(site));
       }
       return;
     }
     if (action.id === "remove-site") {
-      const origin = page.origin || `https://${page.host}`;
+      const origin = action.origin || page.origin || `https://${page.host}`;
       const result = await cmd({ cmd: "removeGrantedOrigin", origin });
       await refresh();
       if (result.error || result.ok === false) showActionError(result.error || "storage_error");
       else showActionMessage(Copy.removedAnnouncement(Hosts.displayOrigin(origin)));
       return;
     }
-    const result = await View.addSite(page.origin || page.host, Object.assign(siteEffects(), {
+    const result = await View.addSite(Hosts.chosenOrigin(page.origin) || page.origin || page.host, Object.assign(siteEffects(), {
       disclose: presentDisclosure,
     }));
     if (result.cancelled) return;

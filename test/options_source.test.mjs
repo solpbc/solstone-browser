@@ -167,7 +167,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
     "modeAll", "modeAllTitle", "modeAllCurrent", "modeAllBody", "modeAllBtn",
     "accessPanel", "accessGranted", "accessMissing", "accessTitle", "accessBody", "accessSteps", "accessReturn",
     "accessAllow", "accessCheck", "accessChecking", "accessDenied", "accessDeniedTitle", "accessDeniedList", "accessDeniedHelp",
-    "listHeading", "regrant", "regrantLine", "regrantBtn", "siteInputError", "keptNote", "siteDisclosureLeaveOut",
+    "listHeading", "regrant", "regrantLine", "regrantBtn", "exactOnly", "exactOnlyLine", "exactOnlyBtn", "siteInputError", "keptNote", "siteDisclosureLeaveOut",
     "sitesMain", "addForm", "newHost", "addBtn", "siteList", "siteDisclosure",
     "siteDisclosureTitle", "siteDisclosureWhat", "siteDisclosureUnsent", "siteDisclosureDestination",
     "siteDisclosureDestinationDetail", "siteDisclosureChrome", "siteDisclosureConfirm",
@@ -448,13 +448,16 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   let pending = nodes.addForm.listeners.submit({ preventDefault() {} });
   nodes.siteDisclosureConfirm.listeners.click();
   await pending;
-  assert.equal(nodes.actionMessage.textContent, "mail.google.com added.");
+  assert.equal(nodes.actionMessage.textContent, "all mail.google.com sites and pages added.");
+  // The sheet says the whole site before anything is asked of the browser.
+  assert.equal(globalThis.SolstoneCopy.sheetCopy("mail.google.com", "chrome").title, "add all mail.google.com sites and pages?");
 
   // A pasted address adds its origin, keeping an http scheme and port.
   for (const [typed, origin, announced] of [
-    ["https://example.com/some/page", "https://example.com", "example.com added."],
+    ["https://example.com/some/page", "https://example.com", "all example.com sites and pages added."],
     ["http://localhost:5015/", "http://localhost:5015", "http://localhost:5015 added."],
-    ["httpbin.org", "https://httpbin.org", "httpbin.org added."],
+    ["httpbin.org", "https://httpbin.org", "all httpbin.org sites and pages added."],
+    ["https://www.example.org/login", "https://example.org", "all example.org sites and pages added."],
   ]) {
     nodes.newHost.value = typed;
     pending = nodes.addForm.listeners.submit({ preventDefault() {} });
@@ -520,16 +523,34 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   await nodes.siteList.children[0].children[1].children.at(-1).listeners.click();
   assert.equal(nodes.actionMessage.textContent, C.removedAnnouncement("mail.google.com"));
 
-  // Putting a site back names its www twin only when the twin was left out too.
+  // Leaving out and putting back name the whole site, except a local name.
   for (const [excludedHosts, said] of [
-    [["bank.com", "www.bank.com"], "bank.com and www.bank.com included again."],
-    [["bank.com"], "bank.com included again."],
+    [["bank.com"], "all bank.com sites and pages are included again."],
+    [["localhost"], "localhost included again."],
   ]) {
     liveState = optionsState({ consentVersion: 1, siteMode: "all", allSitesConsent: 1, broadGranted: true, excludedHosts });
     await globalThis.SolstoneOptions.refresh();
     await nodes.siteList.children[0].children[1].children.at(-1).listeners.click();
     assert.equal(nodes.actionMessage.textContent, said);
   }
+  liveState = optionsState({ consentVersion: 1, siteMode: "all", allSitesConsent: 1, broadGranted: true, excludedHosts: [] });
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.siteModeHelp.textContent, C.LEAVE_OUT_HELP);
+  nodes.newHost.value = "*.bank.com";
+  await nodes.addForm.listeners.submit({ preventDefault() {} });
+  assert.deepEqual(sentMessages.findLast((message) => message.cmd === "setExcludedHost"), { cmd: "setExcludedHost", host: "bank.com", excluded: true });
+  assert.equal(nodes.actionMessage.textContent, "all bank.com sites and pages left out. other sites shown inside them are still shared.");
+
+  // A site added before sites covered their subdomains is offered the rest.
+  liveState = optionsState({ consentVersion: 1, chosenOrigins: ["https://old.example"], grantedOrigins: ["https://old.example"],
+    exactOnlyOrigins: ["https://old.example"] });
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.exactOnly.hidden, false);
+  assert.equal(nodes.exactOnlyLine.textContent, "old.example covers only that address. to include all old.example sites and pages, allow them in Chrome.");
+  assert.equal(nodes.exactOnlyBtn.textContent, "allow all old.example sites");
+  before = sentMessages.length;
+  await nodes.exactOnlyBtn.listeners.click();
+  assert.ok(sentMessages.slice(before).some((message) => message.cmd === "refreshSiteAccess"));
 
   // When on-now (extras activeSites has origin)
   liveState = optionsState({

@@ -25,7 +25,7 @@
     const actions = [];
     for (const matchHost of [...groups.keys()].sort()) {
       const entries = groups.get(matchHost);
-      const hasGrant = grantedSet.has(H.matchPatternFor(matchHost));
+      const hasGrant = H.sitePatternsFor(matchHost).some((pattern) => grantedSet.has(pattern)) || grantedSet.has("*://*/*");
       if (hasGrant && paused[matchHost]) actions.push({ op: "resume", matchHost, entries });
       else if (!hasGrant && !paused[matchHost]) actions.push({ op: "pause", matchHost, entries });
     }
@@ -34,7 +34,7 @@
       ...(manifestOrigins || []),
       ...(exemptOrigins || []),
       ...(exemptPatterns || []),
-      ...[...groups.keys()].map((matchHost) => H.matchPatternFor(matchHost)),
+      ...[...groups.keys()].flatMap((matchHost) => H.sitePatternsFor(matchHost)),
     ]);
     for (const origin of [...grantedSet].sort()) {
       if (!claimedOrigins.has(origin)) actions.push({ op: "release", origin });

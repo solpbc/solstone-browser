@@ -139,12 +139,12 @@
     if (state?.siteMode === "all") {
       const host = Hosts.excludedHostname(raw.trim());
       if (!host) {
-        if (raw.trim()) { fieldError(Hosts.isWildcardInput(raw) ? Copy.WILDCARD_ERROR : Copy.FIELD_ERROR); focus(inputElement); }
+        if (raw.trim()) { fieldError(Copy.FIELD_ERROR); focus(inputElement); }
         return;
       }
       const result = await cmd({ cmd: "setExcludedHost", host, excluded: true });
       if (result.error) showActionError(result.error);
-      else { inputElement.value = ""; announce(Copy.leftOutAnnouncement(host, Hosts.wwwTwin(host)), "ok"); }
+      else { inputElement.value = ""; announce(Copy.leftOutAnnouncement(host), "ok"); }
       await refresh();
       return;
     }
@@ -178,18 +178,12 @@
       showActionError(result.error);
     } else if (result.ok) {
       const row = Status.siteRow(origin, state);
-      if (row.kind === "on-now") {
-        announce(`${displayHost} added. what you share there now goes into your journal.`, "ok");
-      } else {
-        announce(`${displayHost} added.`, "ok");
-      }
+      announce(Copy.addedAnnouncement(displayHost, row.kind === "on-now"), "ok");
     }
   }
 
   async function runSiteAction(action) {
     clearAnnouncement();
-    const twin = action.id === "include-site" ? Hosts.wwwTwin(action.host) : null;
-    const twinListed = twin && (state?.excludedHosts || []).includes(twin);
     let failed = false;
     const effects = sharedActionEffects();
     const showError = effects.showError;
@@ -201,7 +195,7 @@
       announce(Copy.removedAnnouncement(action.label || action.host), "ok");
       focus("newHost");
     } else if (action.id === "include-site") {
-      announce(Copy.includedAnnouncement(action.host, twinListed ? twin : null), "ok");
+      announce(Copy.includedAnnouncement(action.host), "ok");
       focus("newHost");
     }
   }
@@ -545,6 +539,18 @@
       $("regrantBtn").textContent = words.label;
     }
 
+    // Sites added before a site covered its subdomains: one prompt widens them.
+    const exactOnly = !allSites && regrant.hidden ? (state?.exactOnlyOrigins || []).filter((origin) => chosen.includes(origin)) : [];
+    const exactBar = $("exactOnly");
+    if (exactBar) {
+      exactBar.hidden = exactOnly.length === 0;
+      if (!exactBar.hidden) {
+        const words = Copy.exactOnlyCopy(state?.brand, exactOnly.map((origin) => Hosts.displayOrigin(origin)));
+        $("exactOnlyLine").textContent = words.line;
+        $("exactOnlyBtn").textContent = words.label;
+      }
+    }
+
     renderSiteRowsInto("siteList", allSites ? excluded : chosen);
     const kept = Copy.keptNote(allSites ? "all" : "selected", allSites ? chosen.length : excluded.length);
     $("keptNote").textContent = kept;
@@ -739,6 +745,14 @@
       if (document.visibilityState === "visible") onReturn();
     });
   }
+  if ($("exactOnlyBtn")) $("exactOnlyBtn").addEventListener("click", async () => {
+    clearAnnouncement();
+    const exactOnly = state?.exactOnlyOrigins || [];
+    const result = await View.grantChosenSites(exactOnly, siteEffects());
+    if (result.denied) announce(Copy.exactOnlyCopy(state?.brand, exactOnly.map((origin) => Hosts.displayOrigin(origin))).declined, "bad");
+    else if (result.error) showActionError(result.error);
+    await refresh();
+  });
   $("regrantBtn").addEventListener("click", async () => {
     clearAnnouncement();
     const result = await View.grantChosenSites(state?.inactiveOrigins || [], siteEffects());

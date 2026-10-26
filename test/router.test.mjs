@@ -777,3 +777,23 @@ test("router: the app renewing its grant mid-write is not the site's error", asy
   assert.equal(result.ok, false);
   assert.equal(port.getStatus().enqueue[origin], undefined);
 });
+
+test("router: a subdomain page's error is kept on its chosen site, where the owner sees it", async () => {
+  await resetDB();
+  const port = makePort();
+  const site = "https://bank.test";
+  port.chosenOrigins.add(site);
+  port.grantedOrigins.add(site);
+  const pageSender = { id: EXT_ID, tab: { id: 72 }, frameId: 0, url: "https://login.bank.test/page", origin: "https://login.bank.test" };
+  assert.equal((await Router.route({ kind: "hello", realmToken: "r-sub" }, pageSender, { runtimeId: EXT_ID, port, confirmRealm })).ok, true);
+  const original = port.enqueueObservedSkim;
+  port.enqueueObservedSkim = async () => { const err = new Error("outbox-full"); err.code = "outbox-full"; throw err; };
+  await Router.route({
+    kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration,
+    destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token, realmToken: "r-sub",
+    blocks: [{ id: "1", type: "heading", depth: 0, text: "Page" }],
+  }, pageSender, { runtimeId: EXT_ID, port, confirmRealm });
+  port.enqueueObservedSkim = original;
+  assert.equal(port.getStatus().enqueue[site], "outbox-full");
+  assert.equal(port.getStatus().enqueue["https://login.bank.test"], undefined);
+});

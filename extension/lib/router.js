@@ -21,6 +21,11 @@
     return H.originGranted(port, origin);
   }
 
+  function siteKeyFor(port, origin) {
+    if (port.siteMode === "all") return origin;
+    return H.siteForOrigin(port.chosenOrigins, origin, port.exactOnlyOrigins) || origin;
+  }
+
   function ownerStateFor(port) {
     const current = port.ownerSites || {};
     return {
@@ -28,6 +33,7 @@
       permissionEpoch: Number.isSafeInteger(port.permissionEpoch) ? port.permissionEpoch : 0,
       chosen: Array.from(port.chosenOrigins || []),
       granted: Array.from(port.grantedOrigins || []),
+      exactOnly: Array.from(port.exactOnlyOrigins || []),
       reservation: current.reservation || null,
       registration: { ...(port.registration || current.registration || {}) },
       enqueue: { ...(port.enqueue || current.enqueue || {}) },
@@ -47,6 +53,7 @@
     port.permissionEpoch = state.permissionEpoch;
     port.chosenOrigins = new Set(state.chosen);
     port.grantedOrigins = new Set(state.granted);
+    port.exactOnlyOrigins = new Set(state.exactOnly || []);
     port.registration = state.registration;
     port.enqueue = state.enqueue;
     return transition;
@@ -138,14 +145,18 @@
         return { ok: false, error: "invalid_origin" };
       }
 
-      const pat = H && H.matchPatternFor ? H.matchPatternFor(host) : `*://${host}/*`;
+      // The site's own pattern, or an older exact-host grant the browser still
+      // holds (the site then covers that host alone until it's widened).
+      const patterns = H && H.sitePatternsFor ? H.sitePatternsFor(host) : [`*://${host}/*`];
       let hasPerm = false;
       try {
         if (typeof chrome !== "undefined" && chrome.permissions?.contains) {
-          hasPerm = await chrome.permissions.contains({ origins: [pat] });
+          for (const pat of patterns) {
+            if (await chrome.permissions.contains({ origins: [pat] })) { hasPerm = true; break; }
+          }
         } else if (typeof chrome !== "undefined" && chrome.permissions?.getAll) {
           const perms = await chrome.permissions.getAll();
-          hasPerm = Array.isArray(perms?.origins) && (perms.origins.includes(pat) || perms.origins.includes("*://*/*"));
+          hasPerm = Array.isArray(perms?.origins) && (patterns.some((pat) => perms.origins.includes(pat)) || perms.origins.includes("*://*/*"));
         } else {
           hasPerm = false;
         }
@@ -572,6 +583,7 @@
           paused: port.paused,
           showPageIndicator: port.showPageIndicator,
           grantedOrigins: Array.from(port.grantedOrigins),
+          exactOnlyOrigins: Array.from(port.exactOnlyOrigins || []),
           siteMode: port.siteMode || "selected",
           excludedHosts: [...(port.excludedHosts || [])],
           allSitesConsent: port.allSitesConsent || 0,
@@ -700,17 +712,20 @@
 
           if (!authorize()) return { ok: false, error: "authority_mismatch" };
 
+          // Errors and notes are kept on the chosen site the page belongs to
+          // (bank.com for login.bank.com), where the owner sees its row.
+          const siteKey = siteKeyFor(port, senderOrigin);
           // A page from this site was just read, so "reload this tab" is over.
-          if (port.registration?.[senderOrigin] === "reload" && port.clearSiteError) {
-            await port.clearSiteError("registration", senderOrigin);
+          if (port.registration?.[siteKey] === "reload" && port.clearSiteError) {
+            await port.clearSiteError("registration", siteKey);
           }
           if (result && result.enqueued) {
             if (result.pressure) port.pressure = result.pressure;
-            if (port.clearSiteError) await port.clearSiteError("enqueue", senderOrigin);
+            if (port.clearSiteError) await port.clearSiteError("enqueue", siteKey);
             port.notify();
             port.drain();
           } else if (port.clearSiteError) {
-            await port.clearSiteError("enqueue", senderOrigin);
+            await port.clearSiteError("enqueue", siteKey);
           }
 
           return {
@@ -737,7 +752,7 @@
             } catch (_e) {}
           }
           // The owner may have removed or left out the site while this failed.
-          if (port.setEnqueueError && originGranted(port, senderOrigin)) await port.setEnqueueError(senderOrigin, noticeBound);
+          if (port.setEnqueueError && originGranted(port, senderOrigin)) await port.setEnqueueError(siteKeyFor(port, senderOrigin), noticeBound);
           port.notify();
           return { ok: false, error: err.code || "enqueue_failed" };
         }

@@ -91,10 +91,10 @@ async function getCfg() {
     showPageIndicator: !!stored.showPageIndicator,
     chosenOrigins,
     siteMode: stored.siteMode === "all" ? "all" : "selected",
-    // A left-out site and its www twin go together, including ones left out
-    // before the pair existed, so an older bank.com entry covers www.bank.com.
+    // A stored left-out site covers its subdomains too, and www.bank.com means
+    // bank.com, so older entries now leave out at least as much as before.
     excludedHosts: Array.isArray(stored.excludedHosts)
-      ? [...new Set(stored.excludedHosts.map(H.storedExcludedHostname).filter(Boolean).flatMap((host) => [host, H.wwwTwin(host)]).filter(Boolean))].sort()
+      ? [...new Set(stored.excludedHosts.map(H.storedExcludedHostname).filter(Boolean))].sort()
       : [],
     allSitesConsent: stored.allSitesConsent === H.ALL_SITES_CONSENT_VERSION ? stored.allSitesConsent : 0,
   };
@@ -200,7 +200,8 @@ function broadcastLeaseUpdate(status, epoch = badgeEpoch) {
   const message = {
     kind: "leaseUpdate", captureEpoch: status.captureEpoch, lease: status.lease,
     paused: status.paused, consentVersion: status.consentVersion,
-    grantedOrigins: status.grantedOrigins || [], showIndicator: status.showPageIndicator,
+    grantedOrigins: status.grantedOrigins || [], exactOnlyOrigins: status.exactOnlyOrigins || [],
+    showIndicator: status.showPageIndicator,
     siteMode: status.siteMode, excludedHosts: status.excludedHosts || [],
     allSitesConsent: status.allSitesConsent, broadGranted: status.broadGranted,
     sitePolicyPending: status.sitePolicyPending,
@@ -270,13 +271,31 @@ async function removePermission(pattern) {
 async function settlePermissionEffects() {
   while (permissionEffects.size) await Promise.allSettled([...permissionEffects]);
 }
+// Chrome removes every grant a removed pattern contains, so a site pattern
+// stays while a chosen site sits under it (bank.com while login.bank.com is
+// chosen). It only keeps the browser grant; nothing is registered or read for
+// the parent once it isn't chosen.
+function patternHeld(pattern) {
+  if (patternNeeded(pattern)) return true;
+  const siteHost = H.patternSiteHost(pattern);
+  if (!siteHost || !port) return false;
+  return [...port.chosenOrigins].some((origin) => {
+    try {
+      const hostname = new URL(origin).hostname;
+      return hostname !== siteHost && H.hostCovers(siteHost, hostname);
+    } catch (_e) { return false; }
+  });
+}
+
 function patternNeeded(pattern) {
   if (!port) return false;
   const reservation = port.ownerSites?.reservation;
   if (reservation?.pattern === pattern && port.now() < reservation.expiresAt) return true;
   if (pattern === "*://*/*" && port.siteMode === "all" && port.allSitesConsent === H.ALL_SITES_CONSENT_VERSION) return true;
+  // A chosen site needs its own pattern and, if the browser still holds one
+  // from before sites covered subdomains, its exact-host pattern.
   return [...port.chosenOrigins].some(origin => {
-    try { return H.matchPatternFor(new URL(origin).host) === pattern; }
+    try { return H.sitePatternsFor(new URL(origin).host).includes(pattern); }
     catch (_e) { return false; }
   });
 }
@@ -380,7 +399,10 @@ async function unregisterSite(host) {
     const tabs = await chrome.tabs.query({ url: pattern });
     for (const tab of tabs) {
       if (patternNeeded(pattern)) { await registerSite(host); return; }
-      if (tab.id != null) {
+      // A tab another chosen site still covers keeps going.
+      let stillShared = false;
+      try { stillShared = !!port && H.originGranted(port, new URL(tab.url).origin); } catch (_e) {}
+      if (tab.id != null && !stillShared) {
         chrome.tabs.sendMessage(tab.id, { kind: "stop" }, () => void chrome.runtime.lastError);
         Router.destroyBinding(tab.id);
       }
@@ -391,9 +413,18 @@ async function unregisterSite(host) {
 
   try {
     if (patternNeeded(pattern)) { await registerSite(host); return; }
-    await removePermission(pattern);
+    if (!patternHeld(pattern)) await removePermission(pattern);
   } catch (_e) {
     /* ignore */
+  }
+  // A site added before sites covered subdomains may still hold its older
+  // exact-host grant; it goes with the site.
+  const exact = H.exactPatternFor(matchHost);
+  if (exact !== pattern) {
+    try {
+      if (patternHeld(exact)) return;
+      await removePermission(exact);
+    } catch (_e) { /* ignore */ }
   }
 }
 
@@ -428,7 +459,7 @@ async function runReconcile() {
   for (const action of actions) {
     if (action.op === "release") {
       try {
-        if (patternNeeded(action.origin)) continue;
+        if (patternHeld(action.origin)) continue;
         await removePermission(action.origin);
       } catch (_e) {
         /* ignore */
@@ -489,7 +520,7 @@ async function pruneOrphanSiteErrors() {
   const chosen = new Set(port.chosenOrigins || []);
   const excluded = new Set(port.excludedHosts || []);
   await port.clearSiteErrorsWhere((origin) => port.siteMode === "all"
-    ? excluded.has(new URL(origin).hostname)
+    ? [...excluded].some((site) => H.hostCovers(site, new URL(origin).hostname))
     : !chosen.has(origin));
 }
 
@@ -511,11 +542,9 @@ function updateSitePolicy(msg) {
       if (port.siteMode !== "all" || typeof msg.excluded !== "boolean") return { ok: false, error: "wrong_site_mode" };
       const host = H.excludedHostname(msg.host);
       if (!host) return { ok: false, error: "invalid_host" };
-      // bank.com and www.bank.com are one site to an owner, so they are left
-      // out and put back together, as two exact hosts.
-      const pair = [host, H.wwwTwin(host)].filter(Boolean);
+      // A left-out site covers its subdomains (bank.com covers login.bank.com).
       const hosts = new Set(port.excludedHosts);
-      for (const name of pair) { if (msg.excluded) hosts.add(name); else hosts.delete(name); }
+      if (msg.excluded) hosts.add(host); else hosts.delete(host);
       patch = { excludedHosts: [...hosts].sort() };
     }
     try {
@@ -672,13 +701,16 @@ async function doInit() {
     if (epoch !== permissionEpoch) continue;
     port.broadGranted = (perms.origins || []).includes("*://*/*");
     const liveGranted = new Set();
+    const exactOnly = new Set();
     const missingPatterns = [];
     for (const origin of latestCfg.chosenOrigins) {
       try {
         const u = new URL(origin);
         const pattern = H.matchPatternFor(u.host);
-        if (perms.origins?.includes(pattern) || perms.origins?.includes("*://*/*")) {
+        const level = H.grantLevel(u.host, perms.origins);
+        if (level) {
           liveGranted.add(origin);
+          if (level === "exact") exactOnly.add(origin);
           if (port.siteMode === "selected") {
             const regRes = await registerSite(u.host);
             await port.setRegistration(origin, regRes);
@@ -692,6 +724,7 @@ async function doInit() {
     if (epoch !== permissionEpoch) continue;
     port.chosenOrigins = new Set(latestCfg.chosenOrigins);
     port.grantedOrigins = liveGranted;
+    port.exactOnlyOrigins = exactOnly;
     port.ownerSites.registration = port.registration;
     port.ownerSites.enqueue = port.enqueue;
     port.drift = missingPatterns.length ? { patterns: Array.from(new Set(missingPatterns)).sort() } : null;
@@ -810,10 +843,8 @@ chrome.permissions.onRemoved.addListener(async (details) => {
     const missing = [];
     for (const o of port.chosenOrigins) {
       try {
-        const pat = H.matchPatternFor(new URL(o).host);
-        if (!perms.origins.includes(pat) && !perms.origins.includes("*://*/*")) {
-          missing.push(pat);
-        }
+        const host = new URL(o).host;
+        if (!H.grantLevel(host, perms.origins)) missing.push(H.matchPatternFor(host));
       } catch (_e) {}
     }
     port.drift = missing.length ? { patterns: Array.from(new Set(missing)).sort() } : null;
@@ -842,10 +873,8 @@ chrome.permissions.onAdded.addListener(async (details) => {
     const missing = [];
     for (const o of port.chosenOrigins) {
       try {
-        const pat = H.matchPatternFor(new URL(o).host);
-        if (!perms.origins.includes(pat) && !perms.origins.includes("*://*/*")) {
-          missing.push(pat);
-        }
+        const host = new URL(o).host;
+        if (!H.grantLevel(host, perms.origins)) missing.push(H.matchPatternFor(host));
       } catch (_e) {}
     }
     port.drift = missing.length ? { patterns: Array.from(new Set(missing)).sort() } : null;

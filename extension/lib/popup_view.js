@@ -78,7 +78,12 @@
       }
     }
 
-    const isPageChosen = chosenOrigins.includes(page.origin);
+    // The chosen site this page falls under: bank.com for login.bank.com.
+    const H = globalThis.SolstoneHosts;
+    const pageSite = page.origin && H?.siteForOrigin
+      ? H.siteForOrigin(chosenOrigins, page.origin, state.exactOnlyOrigins)
+      : (chosenOrigins.includes(page.origin) ? page.origin : null);
+    const isPageChosen = !!pageSite;
     const pageWords = Copy ? Copy.pageCopy(state.brand) : null;
 
     let pageState;
@@ -104,22 +109,30 @@
       pageState = "this page can't be added";
       siteAction = { id: "add-site", label: "add this site", disabled: true, primary: true };
     } else if (allSites) {
-      const excluded = (state.excludedHosts || []).includes(page.host);
+      // A left-out site covers its subdomains, so the page may be left out
+      // under bank.com; leaving it out leaves out the site it belongs to.
+      const excludedSite = (state.excludedHosts || []).find((site) => H.hostCovers(site, page.host)) || null;
+      const excluded = !!excludedSite;
+      const site = excludedSite || H.siteHostname(page.host);
       const row = globalThis.SolstoneStatus.siteRow(page.origin, state, extras);
       pageState = row.label;
       if (row.kind === "denied-by-browser" && pageWords) pageNote = pageWords.deniedNote;
-      else if (!excluded && pageWords && state.broadGranted === true) pageNote = pageWords.leaveOutNote(page.host, globalThis.SolstoneHosts?.wwwTwin?.(page.host));
-      siteAction = { id: excluded ? "include-site" : "exclude-site", label: excluded ? "include this site" : "leave this site out", disabled: false, primary: false };
+      else if (!excluded && pageWords && state.broadGranted === true) pageNote = pageWords.leaveOutNote(site);
+      // Putting a page back puts back the whole left-out site, so name it.
+      const includeLabel = site === H.siteHostname(page.host) ? "include this site" : `include ${site}`;
+      siteAction = { id: excluded ? "include-site" : "exclude-site", site, label: excluded ? includeLabel : "leave this site out", disabled: false, primary: false };
     } else if (!isPageChosen) {
       pageState = "not added";
       const canAdd = state.addSiteEligible === true && state.consentVersion === 1;
       siteAction = { id: "add-site", label: "add this site", disabled: !canAdd, primary: true };
     } else {
-      const pageRow = siteRows.find((r) => r.origin === page.origin) || (globalThis.SolstoneStatus
-        ? globalThis.SolstoneStatus.siteRow(page.origin, state, extras)
+      const pageRow = siteRows.find((r) => r.origin === pageSite) || (globalThis.SolstoneStatus
+        ? globalThis.SolstoneStatus.siteRow(pageSite, state, extras)
         : { label: "" });
       pageState = pageRow.label;
-      siteAction = { id: "remove-site", label: "remove this site", disabled: false, primary: false };
+      // Removing it removes the whole site the page belongs to, so say which.
+      const siteName = H?.displayOrigin ? H.displayOrigin(pageSite) : pageSite;
+      siteAction = { id: "remove-site", origin: pageSite, label: pageSite === page.origin ? "remove this site" : `remove ${siteName}`, disabled: false, primary: false };
     }
 
     const tone = derived.mark === "healthy"

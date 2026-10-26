@@ -4,6 +4,12 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 `make set-version` keeps `manifest.json` / `package.json` / `package-lock.json` /
 `background.js` in lockstep, and `make dist` refuses to build if they drift.
 
+## [Unreleased]
+
+### Fixed
+
+- in settings, you can now add a site by pasting its whole address, like `https://example.com/some/page`. before, pasting an address showed "enter a website address" instead. the extension adds the site, not the page, and a site you paste with `http://` stays `http://`. reported and fixed by ha-ye.
+
 ## [0.4.0] (2026-10-25)
 
 ### Added

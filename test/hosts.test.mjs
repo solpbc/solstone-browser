@@ -114,3 +114,24 @@ test("isValidHostInput rejects empty, spaces, and non-host-shaped input", () => 
     assert.equal(H.isValidHostInput(h), false, h);
   }
 });
+
+test("chosenOrigin takes a typed host or a pasted address to one origin", () => {
+  const cases = {
+    "example.com": "https://example.com",
+    "EXAMPLE.com": "https://example.com",
+    "localhost:5015": "https://localhost:5015",
+    "httpbin.org": "https://httpbin.org",
+    "https://example.com": "https://example.com",
+    "http://example.com": "http://example.com",
+    "https://example.com/": "https://example.com",
+    " HTTPS://Example.com/some/page?q=1#top ": "https://example.com",
+    "http://localhost:5015/": "http://localhost:5015",
+    "https://example.com:443": "https://example.com",
+  };
+  for (const [input, origin] of Object.entries(cases)) assert.equal(H.chosenOrigin(input), origin, input);
+  for (const input of ["", "   ", "example.com/path", "bad_host.example", "localhost:99999", "ftp://example.com",
+    "https://", "https://exa mple.com", "https://example.com/a b", "https://person:secret@example.com",
+    "https://*.example.com", "https://bad_host.example", "http://[::1]:8080"]) {
+    assert.equal(H.chosenOrigin(input), null, input);
+  }
+});

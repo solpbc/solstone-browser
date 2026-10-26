@@ -427,6 +427,22 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   await pending;
   assert.equal(nodes.actionMessage.textContent, "mail.google.com added.");
 
+  // A pasted address adds its origin, keeping an http scheme and port.
+  for (const [typed, origin, announced] of [
+    ["https://example.com/some/page", "https://example.com", "example.com added."],
+    ["http://localhost:5015/", "http://localhost:5015", "localhost:5015 added."],
+    ["httpbin.org", "https://httpbin.org", "httpbin.org added."],
+  ]) {
+    nodes.newHost.value = typed;
+    pending = nodes.addForm.listeners.submit({ preventDefault() {} });
+    nodes.siteDisclosureConfirm.listeners.click();
+    await pending;
+    assert.equal(nodes.siteInputError.hidden, true, typed);
+    assert.equal(sentMessages.findLast((message) => message.cmd === "intendAddOrigin").origin, origin);
+    assert.equal(sentMessages.findLast((message) => message.cmd === "addGrantedOrigin").origin, origin);
+    assert.equal(nodes.actionMessage.textContent, announced);
+  }
+
   // When on-now (extras activeSites has origin)
   liveState = optionsState({
     consentVersion: 1,

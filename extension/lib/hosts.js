@@ -123,6 +123,19 @@
     return /^[a-z0-9-]+(?:\.[a-z0-9-]+)*$/.test(host);
   }
 
+  // A site the owner adds is one origin. A typed host means https; a pasted
+  // http(s) address keeps its scheme and port, and its path is dropped.
+  function chosenOrigin(input) {
+    const raw = String(input || "").trim();
+    const pasted = /^https?:\/\//i.test(raw);
+    if (!pasted && !isValidHostInput(raw)) return null;
+    try {
+      const url = new URL(pasted ? raw : `https://${raw}`);
+      if (/\s/.test(raw) || url.username || url.password || !isValidHostInput(url.host)) return null;
+      return url.origin;
+    } catch (_e) { return null; }
+  }
+
   globalThis.SolstoneHosts = {
     splitHost,
     matchHostFor,
@@ -135,5 +148,6 @@
     excludedHostname,
     originGranted,
     isValidHostInput,
+    chosenOrigin,
   };
 })();

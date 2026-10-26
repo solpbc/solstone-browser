@@ -49,16 +49,6 @@
   let paintSequence = 0;
   let appliedCaptureEpoch = -1;
 
-  function normHost(input) {
-    let host = input.trim();
-    try {
-      if (/^https?:\/\//.test(host)) host = new URL(host).host;
-    } catch (_error) {
-      /* leave as typed */
-    }
-    return host.replace(/\/.*$/, "").toLowerCase();
-  }
-
   function announce(message, tone = "") {
     const region = $("actionMessage");
     if (!region) return;
@@ -155,16 +145,13 @@
       await refresh();
       return;
     }
-    if (!Hosts.isValidHostInput(raw)) {
+    const origin = Hosts.chosenOrigin(raw);
+    if (!origin) {
       if (raw.trim()) { fieldError("enter a website address, like mail.google.com."); focus(inputElement); }
       return;
     }
-    let input = normHost(raw);
-    try {
-      if (/^https?:\/\//i.test(raw.trim())) input = new URL(raw.trim()).origin;
-    } catch (_e) {}
-    const displayHost = input.startsWith("http") ? new URL(input).hostname : input;
-    const result = await View.addSite(input, Object.assign(siteEffects(), { disclose: presentDisclosure }));
+    const displayHost = new URL(origin).host;
+    const result = await View.addSite(origin, Object.assign(siteEffects(), { disclose: presentDisclosure }));
     if (result.cancelled) return;
     if (result.ok && inputElement) inputElement.value = "";
     await refresh();
@@ -172,7 +159,6 @@
     if (result.error) {
       showActionError(result.error);
     } else if (result.ok) {
-      const origin = input.startsWith("http") ? input : `https://${input}`;
       const row = Status.siteRow(origin, state);
       if (row.kind === "on-now") {
         announce(`${displayHost} added. what you share there now goes into your journal.`, "ok");

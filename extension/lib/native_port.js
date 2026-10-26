@@ -88,6 +88,7 @@
       this.captureSignature = null;
       this.hostStateDeadline = null;
       this.stateRevision = 0;
+      this.settlingRevision = null;
       this.opEpoch = 0;
       this.connectionGeneration = 0;
       this.connectionToken = null;
@@ -385,6 +386,10 @@
         lease: fresh && this.lease ? { ...this.lease } : null,
         connectionGeneration: this.connectionGeneration,
         connectionToken: this.connectionToken,
+        // Between withdrawing and re-granting authority for a host state. The
+        // withdrawal is real for capture, but not news for the owner's surfaces.
+        hostSettling: this.settlingRevision != null && this.settlingRevision === this.stateRevision &&
+          this.livePort != null && this.handshake === "ready",
         behind: this.behind,
         pressure: { ...this.pressure },
         truncationByOrigin: this.truncationByOrigin || {},
@@ -558,6 +563,7 @@
         const deliveryContinues = this.destinationGeneration === val.destination_generation &&
           ["permitted", "paused", "intake_off"].includes(val.capture);
         const revision = ++this.stateRevision;
+        this.settlingRevision = revision;
         const current = () => this.opEpoch === epoch && this.connectionGeneration === gen &&
           this.connectionToken === token && this.stateRevision === revision && this.handshake === "ready";
         // Withdraw old authority before any durable transition. A newer state
@@ -589,8 +595,16 @@
             if (!current()) return;
             this.everConnected = true;
           }
-        } catch (_e) { return; }
+        } catch (_e) {
+          // The transition failed: the withdrawn state is the true one now.
+          if (current()) {
+            this.settlingRevision = null;
+            this.notify();
+          }
+          return;
+        }
         if (!current()) return;
+        this.settlingRevision = null;
         this.hostCapture = val.capture;
         this.hostDelivery = val.delivery || null;
         this.hostFailure = val.failure || null;

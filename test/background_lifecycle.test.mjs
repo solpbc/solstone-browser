@@ -1421,3 +1421,21 @@ test("chrome: the database is not tied to a storage.local mirror", async () => {
   vm.runInNewContext(readExtFile("background.js"), again);
   assert.equal((await again.SolstoneBackground.ensureInit()).inst, port.inst);
 });
+
+test("lifecycle: a settling status reaches content scripts but not the owner's surfaces", async () => {
+  const {mock,bg}=await startWorker();
+  const posted=[]; let icons=0;
+  mock.chrome.action.setIcon=async()=>{icons++;};
+  for (const fn of mock.listeners.onConnect) fn({name:"status",
+    sender:{id:"fgfnkcefedeheoeamppkiiloncfekakf",url:"chrome-extension://fgfnkcefedeheoeamppkiiloncfekakf/options.html"},
+    disconnect(){}, postMessage:m=>posted.push(m), onDisconnect:{addListener(){}}});
+  const {permitted,closed}=states(bg);
+  await bg.updateBadge(permitted);
+  const before={posted:posted.length, icons, tabs:mock.sentTabMessages.length};
+  await bg.updateBadge({...closed, connected:true, handshake:"ready", hostSettling:true});
+  assert.equal(posted.length,before.posted);
+  assert.equal(icons,before.icons);
+  assert.equal(mock.sentTabMessages.at(-1).msg.capturePermitted,false);
+  await bg.updateBadge(permitted);
+  assert.equal(posted.length,before.posted+1);
+});

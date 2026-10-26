@@ -128,12 +128,20 @@ async function updateBadge(status) {
   const badge = iconInfo.badge || "";
   const title = iconInfo.title || "solstone";
 
+  // A routine host state renewal withdraws authority and re-grants it a moment
+  // later. Content scripts hear the withdrawal; the owner's surfaces wait for
+  // the settled state rather than flash "can't reach the solstone app".
+  const settling = status.hostSettling === true;
+
   // Authority publication never waits for browser action painting.
-  for (const sp of statusPorts) {
-    try { sp.postMessage({ type: "status", status }); }
-    catch (_e) { statusPorts.delete(sp); }
+  if (!settling) {
+    for (const sp of statusPorts) {
+      try { sp.postMessage({ type: "status", status }); }
+      catch (_e) { statusPorts.delete(sp); }
+    }
   }
   broadcastLeaseUpdate(status, currentBadgeEpoch);
+  if (settling) return;
   badgeChain = badgeChain.catch(() => {}).then(async () => {
     if (badgeEpoch !== currentBadgeEpoch) return;
     await chrome.action.setIcon({ path: ICON_SET(prefix) });

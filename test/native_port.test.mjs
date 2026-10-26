@@ -1708,3 +1708,77 @@ test("failed reach persistence stays closed and a later live state retries", asy
   assert.equal(await DB.get("meta", "everConnected"), true);
   assert.equal(controller.getStatus().capturePermitted, true);
 });
+
+function renewalController(statusUpdates) {
+  const mockPort = new MockPort();
+  const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+    connectNative: () => mockPort,
+    onStatusChange: (s) => statusUpdates.push(s),
+  });
+  controller.connect();
+  const state = (type) => ({
+    type, capture: "permitted", delivery: "idle", freshness_ms: 15000,
+    destination_generation: "gen-alpha", period_id: "period-1",
+  });
+  return { controller, mockPort, state };
+}
+
+test("port: a routine state renewal marks its withdrawal as settling, then settles", async () => {
+  await resetDB();
+  const statusUpdates = [];
+  const { controller, mockPort, state } = renewalController(statusUpdates);
+  await mockPort.receive(state("hello_ack"));
+  assert.equal(controller.getStatus().hostSettling, false);
+  const before = statusUpdates.length;
+  await mockPort.receive(state("state"));
+  const renewal = statusUpdates.slice(before);
+  // Every status published with authority withdrawn is marked settling, and
+  // the renewal ends on a settled, permitted status.
+  for (const s of renewal) {
+    if (s.hostCapture == null) assert.equal(s.hostSettling, true);
+  }
+  assert.ok(renewal.some((s) => s.hostSettling === true));
+  assert.equal(renewal.at(-1).hostSettling, false);
+  assert.equal(renewal.at(-1).hostCapture, "permitted");
+});
+
+test("port: a failed state transition publishes the withdrawn state as settled", async () => {
+  await resetDB();
+  const statusUpdates = [];
+  const { controller, mockPort, state } = renewalController(statusUpdates);
+  await mockPort.receive(state("hello_ack"));
+  const original = Outbox.promoteHeldForGeneration;
+  Outbox.promoteHeldForGeneration = async () => { throw new Error("fixture storage failure"); };
+  try {
+    await mockPort.receive(state("state"));
+  } finally {
+    Outbox.promoteHeldForGeneration = original;
+  }
+  const last = statusUpdates.at(-1);
+  assert.equal(last.hostSettling, false);
+  assert.equal(last.hostCapture, null);
+  assert.equal(controller.getStatus().hostSettling, false);
+});
+
+test("port: a dropped connection is never reported as settling", async () => {
+  await resetDB();
+  const statusUpdates = [];
+  const { controller, mockPort, state } = renewalController(statusUpdates);
+  await mockPort.receive(state("hello_ack"));
+  let release;
+  const original = Outbox.promoteHeldForGeneration;
+  Outbox.promoteHeldForGeneration = () => new Promise((resolve) => { release = resolve; });
+  try {
+    const pending = mockPort.receive(state("state"));
+    assert.equal(controller.getStatus().hostSettling, true);
+    mockPort.disconnect();
+    assert.equal(controller.getStatus().hostSettling, false);
+    release({ count: 0 });
+    await pending;
+  } finally {
+    Outbox.promoteHeldForGeneration = original;
+  }
+  assert.equal(controller.getStatus().hostSettling, false);
+});

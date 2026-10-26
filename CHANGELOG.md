@@ -9,6 +9,7 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 ### Fixed
 
 - in settings, you can now add a site by pasting its whole address, like `https://example.com/some/page`. before, pasting an address showed "enter a website address" instead. the extension adds the site, not the page, and a site you paste with `http://` stays `http://`. reported and fixed by ha-ye.
+- settings, the popup and the toolbar icon no longer flash "can't reach the solstone app" for a moment while the solstone app is running and connected. reported by ha-ye.
 
 ## [0.4.0] (2026-10-25)
 

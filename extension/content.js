@@ -185,6 +185,16 @@
     doSkim("initial");
   }
 
+  // The marker's word is a promise about this page: "on" only while it is
+  // read, "paused" only on a shared page during a pause, and gone otherwise,
+  // so a left-out page or a lost app never shows "on".
+  function syncIndicator() {
+    if (!showIndicator) { Indicator.remove(); return; }
+    if (paused && originGranted) { Indicator.show(true); return; }
+    if (getDecision().open) { Indicator.show(false); return; }
+    Indicator.remove();
+  }
+
   function stopObserving() {
     grantEpoch++;
     readSequence++;
@@ -245,13 +255,13 @@
         if (lease !== grantedLease) return;
         lease = null;
         stopObserving();
+        syncIndicator();
       }, Math.max(0, lease.receivedAt + lease.freshnessMs - now()));
       if (!observer && !rootEl) waitForRoot();
       else if (!observer && rootEl) startObserving();
     } else {
       stopObserving();
-      if (showIndicator && paused) Indicator.show(true);
-      else if (!showIndicator) Indicator.remove();
+      syncIndicator();
     }
   }
 
@@ -272,8 +282,7 @@
     if (isClosed) {
       lease = null;
       stopObserving();
-      if (showIndicator && paused) Indicator.show(true);
-      else if (!showIndicator) Indicator.remove();
+      syncIndicator();
       return;
     }
 
@@ -394,7 +403,7 @@
       const decision = getDecision();
       if (decision.open) startObserving();
       else stopObserving();
-      if (showIndicator) Indicator.show(paused);
+      syncIndicator();
     } else if (msg.kind === "resnapshot") {
       if (!getDecision().open) requestGrant();
       else doSkim("change");
@@ -404,8 +413,7 @@
       Indicator.remove();
     } else if (msg.kind === "setIndicator") {
       showIndicator = !!msg.show;
-      if (showIndicator) Indicator.show(paused);
-      else Indicator.remove();
+      syncIndicator();
     } else if (msg.kind === "ping") {
       sendResponse({ ok: true });
     }

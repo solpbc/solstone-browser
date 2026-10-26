@@ -70,7 +70,7 @@ test("settings preserves secondary loss action and names each truncation origin"
  assert(h.messages.some(m=>m.cmd==="dismissLoss"));
  h.status({...base,truncationByOrigin:{[origin]:{count:2,newestId:"x"},"https://two.example":{count:1,newestId:"y"}}});await tick();
  const labels=h.node("siteList").children.filter(n=>n.className==="site-issue").map(n=>n.children[0].textContent);
- assert.deepEqual(labels,[origin,"https://two.example"]);
+ assert.deepEqual(labels,[new URL(origin).host,"two.example"]);
 });
 test("tab-dependent rows and welcome use their own projections",async()=>{
  const h=harness("options");await tick();const S=h.context.SolstoneStatus,C=h.context.SolstoneCopy;

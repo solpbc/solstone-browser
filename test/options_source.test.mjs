@@ -193,6 +193,8 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   let holdNextState = false;
   let reloadCount = 0;
   let dismissResponse = {ok:true};
+  let permissionAnswer = true;
+  let removeResponse = { ok: true };
   const sentMessages = [];
   const appTabs = [];
   globalThis.chrome = {
@@ -225,12 +227,14 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
           }));
           callback({ ok: true, origin: message.origin, registration: "ready" });
         } else if (message.cmd === "removeGrantedOrigin") {
-          liveState = optionsState(Object.assign({}, liveState, {
-            consentVersion: 1,
-            chosenOrigins: [],
-            grantedOrigins: [],
-          }));
-          callback({ ok: true });
+          if (removeResponse.ok) {
+            liveState = optionsState(Object.assign({}, liveState, {
+              consentVersion: 1,
+              chosenOrigins: [],
+              grantedOrigins: [],
+            }));
+          }
+          callback(removeResponse);
         } else if (message.cmd === "dismissTruncation") {
           callback(dismissResponse);
         } else callback({ ok: true });
@@ -247,7 +251,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
     },
     tabs: { create: (info) => appTabs.push(info) },
     permissions: {
-      request: async () => true,
+      request: async () => permissionAnswer,
     },
   };
 
@@ -287,6 +291,17 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   assert.equal(nodes.step1ActionBtn.textContent, "get the solstone app");
   assert.equal(nodes.step1Check.hidden, true);
 
+  // 2b. The app's helper answered (the app is installed), or this is Safari,
+  // where the extension comes inside the app: open it, never download it again.
+  for (const patch of [{ appAnswered: true }, { brand: "safari" }]) {
+    liveState = optionsState(Object.assign({ connected: false, everConnected: false }, patch));
+    await globalThis.SolstoneOptions.refresh();
+    assert.equal(nodes.step1Heading.textContent, "can't reach the solstone app");
+    assert.equal(nodes.step1Body.textContent, C.STEP1_OPEN_APP_BODY);
+    assert.equal(nodes.step1ActionBtn.hidden, true);
+    assert.equal(nodes.step2PendingText.textContent, C.STEP2_PENDING);
+  }
+
   // 3. Live permitted host with consent unset and no sites (app-first)
   liveState = optionsState({ hostCapture: "permitted", consentVersion: 0, chosenOrigins: [] });
   await globalThis.SolstoneOptions.refresh();
@@ -308,10 +323,18 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   await nodes.agreeDisclosureBtn.listeners.click();
   assert.equal(nodes.step2Completed.hidden, true);
   assert.equal(nodes.agreeDisclosureBtn.hidden, false);
+  // The failure shows on the welcome page, where the owner pressed the button.
+  assert.equal(nodes.step2PendingText.hidden, false);
+  assert.equal(nodes.step2PendingText.textContent, "couldn't save that. try again.");
 
   // 6. acknowledgeDisclosure returning { ok: true } reveals read it again with DISCLOSURE_BODY
   ackResponse = { ok: true, consentVersion: 1 };
+  const newHostFocus = nodes.newHost.focusCount;
   await nodes.agreeDisclosureBtn.listeners.click();
+  // Settings replaces the welcome page, and the owner lands on the first site.
+  assert.equal(nodes.newHost.focusCount, newHostFocus + 1);
+  assert.equal(nodes.siteModeHelp.hidden, false);
+  assert.equal(nodes.siteModeHelp.textContent, C.ADD_HELP);
   assert.equal(nodes.welcomeView.hidden, true);
   assert.equal(nodes.settingsView.hidden, false);
   assert.match(nodes.modeSelected.className, /\bcurrent\b/);
@@ -430,7 +453,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   // A pasted address adds its origin, keeping an http scheme and port.
   for (const [typed, origin, announced] of [
     ["https://example.com/some/page", "https://example.com", "example.com added."],
-    ["http://localhost:5015/", "http://localhost:5015", "localhost:5015 added."],
+    ["http://localhost:5015/", "http://localhost:5015", "http://localhost:5015 added."],
     ["httpbin.org", "https://httpbin.org", "httpbin.org added."],
   ]) {
     nodes.newHost.value = typed;
@@ -441,6 +464,71 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
     assert.equal(sentMessages.findLast((message) => message.cmd === "intendAddOrigin").origin, origin);
     assert.equal(sentMessages.findLast((message) => message.cmd === "addGrantedOrigin").origin, origin);
     assert.equal(nodes.actionMessage.textContent, announced);
+  }
+
+  // Typed with a path and no scheme, the address still adds its site.
+  nodes.newHost.value = "github.com/solpbc/solstone";
+  pending = nodes.addForm.listeners.submit({ preventDefault() {} });
+  nodes.siteDisclosureConfirm.listeners.click();
+  await pending;
+  assert.equal(nodes.siteInputError.hidden, true);
+  assert.equal(sentMessages.findLast((message) => message.cmd === "addGrantedOrigin").origin, "https://github.com");
+
+  // A site already on the list is named as such, with no sheet and no prompt.
+  liveState = optionsState({ consentVersion: 1, chosenOrigins: ["https://mail.google.com"], grantedOrigins: ["https://mail.google.com"] });
+  await globalThis.SolstoneOptions.refresh();
+  let before = sentMessages.length;
+  nodes.newHost.value = "https://mail.google.com/mail/u/0/";
+  await nodes.addForm.listeners.submit({ preventDefault() {} });
+  assert.equal(nodes.actionMessage.textContent, "mail.google.com is already on your list.");
+  assert.equal(nodes.siteDisclosure.hidden, true);
+  assert.equal(sentMessages.slice(before).some((message) => message.cmd === "intendAddOrigin"), false);
+
+  // Adding while it can't happen (paused, app away) says so instead of nothing.
+  liveState = optionsState({ consentVersion: 1, paused: true, addSiteEligible: false });
+  await globalThis.SolstoneOptions.refresh();
+  nodes.newHost.value = "example.org";
+  await nodes.addForm.listeners.submit({ preventDefault() {} });
+  assert.equal(nodes.actionMessage.textContent, C.ADD_NOT_NOW);
+  assert.equal(nodes.newHost.value, "example.org");
+  // ...and a paused settings page carries its own resume.
+  const resume = nodes.statusActions.children.find((node) => node.textContent === "resume");
+  assert.ok(resume, "settings offers resume while paused");
+  before = sentMessages.length;
+  await resume.listeners.click();
+  assert.deepEqual(sentMessages.slice(before).find((message) => message.cmd === "setPaused"), { cmd: "setPaused", paused: false });
+
+  // The browser's prompt declined: said, not silent.
+  liveState = optionsState({ consentVersion: 1 });
+  await globalThis.SolstoneOptions.refresh();
+  permissionAnswer = false;
+  nodes.newHost.value = "example.org";
+  pending = nodes.addForm.listeners.submit({ preventDefault() {} });
+  nodes.siteDisclosureConfirm.listeners.click();
+  await pending;
+  permissionAnswer = true;
+  assert.equal(nodes.actionMessage.textContent, C.ADD_DENIED);
+
+  // Removing a site says what happened to it.
+  liveState = optionsState({ consentVersion: 1, chosenOrigins: ["https://mail.google.com"], grantedOrigins: ["https://mail.google.com"] });
+  await globalThis.SolstoneOptions.refresh();
+  // A removal that wasn't saved is never announced as done.
+  removeResponse = { ok: false, saved: false, origin: "https://mail.google.com" };
+  await nodes.siteList.children[0].children[1].children.at(-1).listeners.click();
+  assert.equal(nodes.actionMessage.textContent, "couldn't save that. try again.");
+  removeResponse = { ok: true };
+  await nodes.siteList.children[0].children[1].children.at(-1).listeners.click();
+  assert.equal(nodes.actionMessage.textContent, C.removedAnnouncement("mail.google.com"));
+
+  // Putting a site back names its www twin only when the twin was left out too.
+  for (const [excludedHosts, said] of [
+    [["bank.com", "www.bank.com"], "bank.com and www.bank.com included again."],
+    [["bank.com"], "bank.com included again."],
+  ]) {
+    liveState = optionsState({ consentVersion: 1, siteMode: "all", allSitesConsent: 1, broadGranted: true, excludedHosts });
+    await globalThis.SolstoneOptions.refresh();
+    await nodes.siteList.children[0].children[1].children.at(-1).listeners.click();
+    assert.equal(nodes.actionMessage.textContent, said);
   }
 
   // When on-now (extras activeSites has origin)
@@ -471,8 +559,9 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   });
   await globalThis.SolstoneOptions.refresh();
   assert.equal(nodes.siteList.children.length, 2);
+  // Each row names its port, so the two entries never look the same.
   assert.equal(nodes.siteList.children[0].children[0].children[0].textContent, "same.example");
-  assert.equal(nodes.siteList.children[1].children[0].children[0].textContent, "same.example");
+  assert.equal(nodes.siteList.children[1].children[0].children[0].textContent, "same.example:8443");
   await nodes.siteList.children[1].children[1].children.at(-1).listeners.click();
   assert.equal(sentMessages.findLast((message) => message.cmd === "removeGrantedOrigin").origin, secondOrigin);
 
@@ -488,9 +577,13 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
     },
   });
   await globalThis.SolstoneOptions.refresh();
+  // "allow again" gives the browser's access back to an already-chosen site
+  // directly, so it works even while adding new sites can't.
+  assert.equal(nodes.siteList.children[0].children[0].children[0].textContent, "http://same.example");
+  before = sentMessages.length;
   await nodes.siteList.children[0].children[1].children[0].listeners.click();
-  assert.equal(sentMessages.findLast((message) => message.cmd === "intendAddOrigin").origin, httpOrigin);
-  assert.equal(sentMessages.findLast((message) => message.cmd === "addGrantedOrigin").origin, httpOrigin);
+  assert.ok(sentMessages.slice(before).some((message) => message.cmd === "refreshSiteAccess"));
+  assert.equal(sentMessages.slice(before).some((message) => message.cmd === "intendAddOrigin"), false);
   liveState = optionsState({
     consentVersion:1,
     chosenOrigins:[httpOrigin],

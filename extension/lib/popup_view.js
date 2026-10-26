@@ -32,10 +32,8 @@
     const allSites = state.siteMode === "all";
     const Copy = globalThis.SolstoneCopy;
     const siteRows = (allSites ? [] : chosenOrigins).map((entry) => {
-      let host = entry;
-      try {
-        if (entry.startsWith("http")) host = new URL(entry).hostname;
-      } catch (_e) {}
+      const host = entry.startsWith("http") && globalThis.SolstoneHosts?.displayOrigin
+        ? globalThis.SolstoneHosts.displayOrigin(entry) : entry;
       const row = globalThis.SolstoneStatus
         ? globalThis.SolstoneStatus.siteRow(entry, state, extras)
         : { kind: "added-idle", label: "added", action: null };
@@ -110,7 +108,7 @@
       const row = globalThis.SolstoneStatus.siteRow(page.origin, state, extras);
       pageState = row.label;
       if (row.kind === "denied-by-browser" && pageWords) pageNote = pageWords.deniedNote;
-      else if (!excluded && pageWords && state.broadGranted === true) pageNote = pageWords.leaveOutNote(page.host);
+      else if (!excluded && pageWords && state.broadGranted === true) pageNote = pageWords.leaveOutNote(page.host, globalThis.SolstoneHosts?.wwwTwin?.(page.host));
       siteAction = { id: excluded ? "include-site" : "exclude-site", label: excluded ? "include this site" : "leave this site out", disabled: false, primary: false };
     } else if (!isPageChosen) {
       pageState = "not added";

@@ -286,13 +286,16 @@ test("all-sites mode preserves selected intent, retains its grant and registers 
   assert.ok(mock.registeredScripts.has("cs-all-sites"));
   assert.equal((await send({cmd:"setExcludedHost",host:"https://private.example:8443/path",excluded:true})).ok,true);
   assert.equal(sandbox.SolstoneHosts.originGranted(port,"https://private.example"),false);
+  // Its www twin goes with it, as a second exact host.
+  assert.equal(sandbox.SolstoneHosts.originGranted(port,"https://www.private.example"),false);
+  assert.equal(sandbox.SolstoneHosts.originGranted(port,"https://mail.private.example"),true);
   assert.equal(sandbox.SolstoneHosts.originGranted(port,"https://new.example"),true);
-  assert.deepEqual(Array.from(mock.registeredScripts.get("cs-all-sites").excludeMatches),["*://private.example/*"]);
+  assert.deepEqual(Array.from(mock.registeredScripts.get("cs-all-sites").excludeMatches),["*://private.example/*","*://www.private.example/*"]);
   assert.equal((await send({cmd:"setSiteMode",mode:"selected"})).ok,true);
   assert.equal(mock.registeredScripts.has("cs-all-sites"),false);
   assert.equal(mock.grantedPermissions.has("*://*/*"),false);
   assert.deepEqual(Array.from(port.chosenOrigins),["https://one.example"]);
-  assert.deepEqual(Array.from(mock.storageData.cfg.excludedHosts),["private.example"]);
+  assert.deepEqual(Array.from(mock.storageData.cfg.excludedHosts),["private.example","www.private.example"]);
   assert.equal(sandbox.SolstoneHosts.originGranted(port,"https://new.example"),false);
 });
 
@@ -571,8 +574,10 @@ test("lifecycle: init does not connect if inst DB.put fails", async () => {
 });
 
 
-async function startWorker() {
+async function startWorker(cfg, { noGrants = false } = {}) {
   const mock = createMockChrome();
+  if (cfg) mock.storageData.cfg = cfg;
+  if (noGrants) mock.grantedPermissions.clear();
   const sandbox = createSandbox(mock);
   vm.runInNewContext(readExtFile("background.js"), sandbox);
   const bg = sandbox.SolstoneBackground;
@@ -692,7 +697,9 @@ test("lifecycle: worker restart reloads truncation occurrences and exact-origin 
   await first.bg.port.setRegistration(origin, "failed");
   await first.bg.port.setEnqueueError(origin, "outbox-full");
 
-  const second = await startWorker();
+  // The site is still the owner's (chosen, its grant not yet back), so its
+  // errors survive the restart; only an error on a site nobody shares is pruned.
+  const second = await startWorker({ chosenOrigins: [origin], paused: false, showPageIndicator: false }, { noGrants: true });
   const status = second.bg.port.getStatus();
   assert.equal(status.truncationByOrigin[origin].count, 0);
   assert.equal(status.truncationByOrigin[origin].newestId, "trunc-2");
@@ -1438,4 +1445,33 @@ test("lifecycle: a settling status reaches content scripts but not the owner's s
   assert.equal(mock.sentTabMessages.at(-1).msg.capturePermitted,false);
   await bg.updateBadge(permitted);
   assert.equal(posted.length,before.posted+1);
+});
+
+test("a site left out before www pairing existed covers its www twin on load", async () => {
+  const mock=createMockChrome();
+  mock.storageData.cfg={chosenOrigins:[],paused:false,showPageIndicator:false,siteMode:"all",allSitesConsent:1,
+    excludedHosts:["bank.example","%2a.junk.example","mail.google.com","foo_bar.example.com"]};
+  const sandbox=createSandbox(mock,true);
+  vm.runInNewContext(readExtFile("background.js"),sandbox);
+  const port=await sandbox.SolstoneBackground.ensureInit();
+  // The old exact entry gains its twin; an entry that matched nothing is gone;
+  // a subdomain keeps no twin.
+  // An unusual but real name saved by an earlier version is never dropped:
+  // dropping a left-out entry would start reading that site.
+  assert.deepEqual(Array.from(port.excludedHosts),["bank.example","foo_bar.example.com","mail.google.com","www.bank.example"]);
+  assert.equal(sandbox.SolstoneHosts.originGranted(port,"https://foo_bar.example.com"),false);
+});
+
+test("an error left on a site nobody shares any more is cleared at start", async () => {
+  const mock=createMockChrome();
+  mock.storageData.cfg={chosenOrigins:["https://kept.example"],paused:false,showPageIndicator:false};
+  mock.grantedPermissions.add("*://kept.example/*");
+  const sandbox=createSandbox(mock,true);
+  vm.runInNewContext(readExtFile("background.js"),sandbox);
+  await sandbox.SolstoneDB.put("meta",{registration:{"https://gone.example":"failed"},
+    enqueue:{"https://gone.example":"enqueue_failed","https://kept.example":"enqueue_failed"}},"siteErrors");
+  const port=await sandbox.SolstoneBackground.ensureInit();
+  const status=port.getStatus();
+  assert.deepEqual(Object.keys(status.registration),[]);
+  assert.deepEqual(Object.keys(status.enqueue),["https://kept.example"]);
 });

@@ -348,6 +348,7 @@
           if (!origin) return { ok: false, error: "invalid_origin" };
 
           applyOwnerEvent(port, { type: "owner-remove", origin });
+          if (port.clearSiteErrorsWhere) await port.clearSiteErrorsWhere((item) => item === origin);
           port.notify();
           deps.refreshOpenTabs?.();
           let saved = true;
@@ -699,6 +700,10 @@
 
           if (!authorize()) return { ok: false, error: "authority_mismatch" };
 
+          // A page from this site was just read, so "reload this tab" is over.
+          if (port.registration?.[senderOrigin] === "reload" && port.clearSiteError) {
+            await port.clearSiteError("registration", senderOrigin);
+          }
           if (result && result.enqueued) {
             if (result.pressure) port.pressure = result.pressure;
             if (port.clearSiteError) await port.clearSiteError("enqueue", senderOrigin);
@@ -718,6 +723,9 @@
             },
           };
         } catch (err) {
+          // The app renewed its grant while this page was being written. The
+          // next grant brings a fresh read, so this is not the site's fault.
+          if (err?.code === "authorization_failed") return { ok: false, error: "authorization_failed" };
           let noticeBound = "enqueue_failed";
           if (err.disposition === "batch-oversize" || err.code === "batch-oversize") noticeBound = "batch-oversize";
           else if (err.disposition === "schema-refuse" || err.code === "schema-refuse") noticeBound = "schema-refuse";
@@ -728,7 +736,8 @@
               port.pressure = { active: true, blockedAtBytes: cap.totalBytes };
             } catch (_e) {}
           }
-          if (port.setEnqueueError) await port.setEnqueueError(senderOrigin, noticeBound);
+          // The owner may have removed or left out the site while this failed.
+          if (port.setEnqueueError && originGranted(port, senderOrigin)) await port.setEnqueueError(senderOrigin, noticeBound);
           port.notify();
           return { ok: false, error: err.code || "enqueue_failed" };
         }

@@ -126,14 +126,21 @@
         let reason = "";
         let action = null;
         let mark = "offline";
-        if (!everConnected) {
+        // The helper answering at all means the app is installed; in Safari the
+        // extension comes inside the app. Either way the owner opens it, never
+        // downloads it again.
+        const appInstalled = status.appAnswered === true || brand === "safari";
+        if (!everConnected && !appInstalled) {
           mark = "paused";
           reason = "the solstone extension works with the solstone app on this computer. if the solstone app isn't on this computer yet, get it at solstone.app.";
           action = { id: "get-app", label: "get the solstone app" };
-        } else if (connected) {
+        } else if (!everConnected || connected) {
+          if (!everConnected) mark = "paused";
           reason = "the solstone app on this computer isn't answering. open it to go on.";
         } else if (platform !== "linux") {
           reason = "open the solstone app on this computer. if it's already open, look under sources in its settings.";
+        } else if (C) {
+          reason = C.linuxCantReachAppReason();
         }
         items.push({
           layer: 2,
@@ -387,7 +394,8 @@
           headline,
           sub: "",
           reason: `${bName} took back this extension's access. allow it again to go on.`,
-          action: null,
+          // One prompt for all of them; a single site has its own row button.
+          action: n > 1 && C ? { id: "allow-again-all", label: C.regrantCopy(brand, n).label } : null,
           connecting: null,
         });
       }
@@ -646,8 +654,9 @@
       candidate.kind === "not-paired" || candidate.kind === "intake-off");
     if (item) {
       const C = globalThis.SolstoneCopy;
+      const appInstalled = status.appAnswered === true || status.brand === "safari";
       const bodies = {
-        "cant-reach-app": C?.STEP1_CANT_REACH_BODY,
+        "cant-reach-app": appInstalled ? C?.STEP1_OPEN_APP_BODY : C?.STEP1_CANT_REACH_BODY,
         "not-paired": C?.STEP1_NOT_PAIRED_BODY,
         "intake-off": status.platform === "linux" ? item.reason : C?.STEP1_INTAKE_OFF_BODY,
       };

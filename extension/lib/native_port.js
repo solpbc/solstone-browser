@@ -118,6 +118,9 @@
       this.retryNotBefore = 0;
 
       this.everConnected = false;
+      // The helper answered a hello this session, even if only to say the app
+      // isn't running: the app is installed, so the owner is told to open it.
+      this.appAnswered = false;
       this.updateCheck = "pending";
       this.paused = false;
       this.chosenOrigins = new Set();
@@ -195,6 +198,28 @@
       const saved = await this.persistSiteMaps();
       if (!saved) this.enqueue = previous;
       else if (this.ownerSites) this.ownerSites.enqueue = this.enqueue;
+      return saved;
+    }
+
+    // A removed or left-out site keeps no error behind: nothing would ever
+    // clear it, and the owner would see an alarm with nothing to act on.
+    async clearSiteErrorsWhere(matches) {
+      const pick = (map) => Object.keys(map || {}).filter((origin) => { try { return matches(origin); } catch (_e) { return false; } });
+      const regGone = pick(this.registration);
+      const enqGone = pick(this.enqueue);
+      if (regGone.length === 0 && enqGone.length === 0) return true;
+      const previous = { registration: { ...this.registration }, enqueue: { ...this.enqueue } };
+      for (const origin of regGone) delete this.registration[origin];
+      for (const origin of enqGone) delete this.enqueue[origin];
+      const saved = await this.persistSiteMaps();
+      if (!saved) {
+        this.registration = previous.registration;
+        this.enqueue = previous.enqueue;
+      } else if (this.ownerSites) {
+        this.ownerSites.registration = this.registration;
+        this.ownerSites.enqueue = this.enqueue;
+      }
+      this.notify();
       return saved;
     }
 
@@ -371,6 +396,7 @@
         inst: this.inst,
         captureEpoch: this.captureEpoch,
         everConnected: !!this.everConnected,
+        appAnswered: !!this.appAnswered,
         connected: this.livePort != null,
         handshake: this.handshake,
         brand: this.brand,
@@ -551,6 +577,7 @@
         if (val.type === "hello_ack") {
           if (this.handshake !== "pending" || codec.handshakeExpired(this.handshakeStartedAt, nowMs, getConsts().HANDSHAKE_MS_BUDGET)) return;
           this.handshake = "ready";
+          this.appAnswered = true;
         } else if (this.handshake !== "ready") return;
         // Clear the old destination before the first status or any await,
         // including a new destination with absent or malformed optional facts.

@@ -728,3 +728,52 @@ test("router: failed truncation dismissal reports storage_error and keeps the ro
     DB.put = originalPut;
   }
 });
+
+test("router: a removed site leaves no error behind, and a read ends 'reload this tab'", async () => {
+  await resetDB();
+  const port = makePort();
+  const origin = "https://example.test";
+  port.chosenOrigins.add(origin);
+  port.grantedOrigins.add(origin);
+  const extSender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/options.html` };
+  const pageSender = { id: EXT_ID, tab: { id: 70 }, frameId: 0, url: "https://example.test/page", origin };
+
+  // A site the owner was told to reload: the first read clears the hint.
+  await port.setRegistration(origin, "reload");
+  assert.equal((await Router.route({ kind: "hello", realmToken: "r-reload" }, pageSender, { runtimeId: EXT_ID, port, confirmRealm })).ok, true);
+  const skim = await Router.route({
+    kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration,
+    destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token, realmToken: "r-reload",
+    blocks: [{ id: "1", type: "heading", depth: 0, text: "Page" }],
+  }, pageSender, { runtimeId: EXT_ID, port, confirmRealm });
+  assert.equal(skim.ok, true);
+  assert.equal(port.getStatus().registration[origin], undefined);
+
+  // Errors on a site go with the site.
+  await port.setRegistration(origin, "failed");
+  await port.setEnqueueError(origin, "enqueue_failed");
+  await Router.route({ cmd: "removeGrantedOrigin", origin }, extSender, { runtimeId: EXT_ID, port, confirmRealm });
+  const status = port.getStatus();
+  assert.equal(status.registration[origin], undefined);
+  assert.equal(status.enqueue[origin], undefined);
+  assert.deepEqual((await DB.get("meta", "siteErrors")).enqueue, {});
+});
+
+test("router: the app renewing its grant mid-write is not the site's error", async () => {
+  await resetDB();
+  const port = makePort();
+  const origin = "https://example.test";
+  port.grantedOrigins.add(origin);
+  const pageSender = { id: EXT_ID, tab: { id: 71 }, frameId: 0, url: "https://example.test/page", origin };
+  assert.equal((await Router.route({ kind: "hello", realmToken: "r-race" }, pageSender, { runtimeId: EXT_ID, port, confirmRealm })).ok, true);
+  const original = port.enqueueObservedSkim;
+  port.enqueueObservedSkim = async () => { const err = new Error("authorization_failed"); err.code = "authorization_failed"; throw err; };
+  const result = await Router.route({
+    kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration,
+    destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token, realmToken: "r-race",
+    blocks: [{ id: "1", type: "heading", depth: 0, text: "Page" }],
+  }, pageSender, { runtimeId: EXT_ID, port, confirmRealm });
+  port.enqueueObservedSkim = original;
+  assert.equal(result.ok, false);
+  assert.equal(port.getStatus().enqueue[origin], undefined);
+});

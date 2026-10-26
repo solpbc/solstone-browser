@@ -91,7 +91,11 @@ async function getCfg() {
     showPageIndicator: !!stored.showPageIndicator,
     chosenOrigins,
     siteMode: stored.siteMode === "all" ? "all" : "selected",
-    excludedHosts: Array.isArray(stored.excludedHosts) ? [...new Set(stored.excludedHosts.map(H.excludedHostname).filter(Boolean))].sort() : [],
+    // A left-out site and its www twin go together, including ones left out
+    // before the pair existed, so an older bank.com entry covers www.bank.com.
+    excludedHosts: Array.isArray(stored.excludedHosts)
+      ? [...new Set(stored.excludedHosts.map(H.storedExcludedHostname).filter(Boolean).flatMap((host) => [host, H.wwwTwin(host)]).filter(Boolean))].sort()
+      : [],
     allSitesConsent: stored.allSitesConsent === H.ALL_SITES_CONSENT_VERSION ? stored.allSitesConsent : 0,
   };
 }
@@ -477,6 +481,18 @@ function syncSiteRegistrations() {
 
 let sitePolicyChain = Promise.resolve();
 let sitePolicyPendingCount = 0;
+// An error is only shown on a site the owner shares. One left on a site that
+// was removed, left out, or belonged to the other mode has no row to act on and
+// would hold the toolbar's attention mark forever.
+async function pruneOrphanSiteErrors() {
+  if (!port?.clearSiteErrorsWhere) return;
+  const chosen = new Set(port.chosenOrigins || []);
+  const excluded = new Set(port.excludedHosts || []);
+  await port.clearSiteErrorsWhere((origin) => port.siteMode === "all"
+    ? excluded.has(new URL(origin).hostname)
+    : !chosen.has(origin));
+}
+
 function updateSitePolicy(msg) {
   // Admission withdraws immediately, including while earlier browser work waits.
   sitePolicyPendingCount++;
@@ -495,8 +511,11 @@ function updateSitePolicy(msg) {
       if (port.siteMode !== "all" || typeof msg.excluded !== "boolean") return { ok: false, error: "wrong_site_mode" };
       const host = H.excludedHostname(msg.host);
       if (!host) return { ok: false, error: "invalid_host" };
+      // bank.com and www.bank.com are one site to an owner, so they are left
+      // out and put back together, as two exact hosts.
+      const pair = [host, H.wwwTwin(host)].filter(Boolean);
       const hosts = new Set(port.excludedHosts);
-      if (msg.excluded) hosts.add(host); else hosts.delete(host);
+      for (const name of pair) { if (msg.excluded) hosts.add(name); else hosts.delete(name); }
       patch = { excludedHosts: [...hosts].sort() };
     }
     try {
@@ -510,6 +529,7 @@ function updateSitePolicy(msg) {
       return { ok: false, error: "storage_error" };
     }
     port.ownerSites.reservation = null;
+    await pruneOrphanSiteErrors();
     port.browserDeniedOrigins.clear();
     // Do not borrow grants from the previous mode if browser effects or the
     // permission snapshot fail (Safari may omit a removal event).
@@ -680,6 +700,7 @@ async function doInit() {
   }
   if (!permissionsSettled) throw new Error("permissions_changed_during_init");
 
+  await pruneOrphanSiteErrors();
   port.lossNotice = (await DB.get("meta", "lossNotice")) || null;
   const cap = await Outbox.getCapacityStatus();
   port.pressure = cap.pressure;
@@ -710,6 +731,10 @@ chrome.runtime.onConnect.addListener((p) => {
     }
     statusPorts.add(p);
     ensureInit().then(() => {
+      // Opening the popup or settings is when an owner who just opened the
+      // solstone app looks again, so try the app now rather than at the next
+      // minute's poll.
+      if (port && !port.livePort) port.connect();
       if (port) p.postMessage({ type: "status", status: port.getStatus() });
     }).catch(() => {});
     p.onDisconnect.addListener(() => {

@@ -47,6 +47,8 @@ pause any time in the solstone extension, or pause the solstone app to stop ever
 no analytics. no telemetry. no phone home. nobody counted.`;
 
   const STEP1_CANT_REACH_BODY = "the solstone extension works with the solstone app on this computer, and nothing is taken in without it. if the solstone app isn't on this computer yet, get it at solstone.app. this page moves on by itself once the solstone app answers.";
+  const STEP1_OPEN_APP_BODY = "the solstone extension works with the solstone app on this computer, and nothing is taken in without it. open the solstone app to go on. this page moves on by itself once it answers.";
+  const STEP2_PENDING = "you'll agree to this once the step above is done.";
   const STEP1_NOT_PAIRED_BODY = "pair the solstone app on this computer with your journal. this page moves on by itself once it is.";
   const STEP1_INTAKE_OFF_BODY = "turn them on under sources in the solstone app's settings. this page moves on by itself.";
   const TRUNCATION_ATTENTION = "part of what you shared on this site was too long to keep";
@@ -87,7 +89,27 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     chooseSelected: "switch to sites you add",
   };
 
-  const LEAVE_OUT_HELP = "a site you leave out isn't taken in, even inside another page. other sites shown inside its pages are still shared, unless you leave them out too. leave out each exact address, like mail.google.com: google.com and mail.google.com are separate sites.";
+  const LEAVE_OUT_HELP = "a site you leave out isn't taken in, even inside another page. other sites shown inside its pages are still shared, unless you leave them out too. leave out each exact address, like mail.google.com: google.com and mail.google.com are separate sites, but google.com and www.google.com go together.";
+  const ADD_HELP = "add each exact address, like mail.google.com: google.com, www.google.com and mail.google.com are separate sites.";
+  const FIELD_ERROR = "enter a website address, like mail.google.com.";
+  const WILDCARD_ERROR = "leave out one address at a time, like bank.com or login.bank.com.";
+  const ADD_DENIED = "permission declined. nothing added.";
+  const ADD_NOT_NOW = "can't add a site right now. the status above says why.";
+
+  function alreadyAdded(host) {
+    return `${escapeToken(host)} is already on your list.`;
+  }
+
+  function removedAnnouncement(host) {
+    return `${escapeToken(host)} removed. nothing new comes from it; what's already in your journal stays there.`;
+  }
+
+  function includedAnnouncement(host, twin) {
+    const named = twin ? `${escapeToken(host)} and ${escapeToken(twin)}` : escapeToken(host);
+    return `${named} included again.`;
+  }
+
+
 
   function keptNote(mode, count) {
     if (!(count > 0)) return "";
@@ -96,8 +118,9 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       : plural(count, "the site you left out stays left out if you choose all sites again.", "the {n} sites you left out stay left out if you choose all sites again.");
   }
 
-  function leftOutAnnouncement(host) {
-    return `${escapeToken(host)} left out. other subdomains, and other sites shown inside its pages, are still shared.`;
+  function leftOutAnnouncement(host, twin) {
+    const named = twin ? `${escapeToken(host)} and ${escapeToken(twin)}` : escapeToken(host);
+    return `${named} left out. other subdomains, and other sites shown inside its pages, are still shared.`;
   }
 
   // What the settings page says about the browser's own grant in all-sites mode.
@@ -145,7 +168,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       unknownNote: safari ? "if it's set to Deny in Safari's website settings, it isn't taken in." : "",
       deniedState: `${bName} is denying this site`,
       deniedNote: safari ? "to include it, set it to Allow in Safari's website settings." : "",
-      leaveOutNote: (host) => `leaving it out covers ${escapeToken(host)} only. other subdomains, and other sites shown inside its pages, are still shared.`,
+      leaveOutNote: (host, twin) => `leaving it out covers ${escapeToken(host)}${twin ? ` and ${escapeToken(twin)}` : ""} only. other subdomains, and other sites shown inside its pages, are still shared.`,
     };
   }
 
@@ -165,7 +188,8 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     return `open a site you want to share, open solstone from your browser's toolbar or extensions menu, and choose add this site. ${browserName(brand)} will ask you to allow it.`;
   }
 
-  // Linux pure functions (not called in production derivation or UI)
+  // Linux reasons. Only the can't-reach one is called: the others wait on
+  // command names the Linux app doesn't have yet.
   function linuxUpdateAppReason(cmd) {
     return `this extension needs a newer version of the solstone app on this computer. run ${escapeToken(cmd)} to get it.`;
   }
@@ -198,15 +222,30 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     };
   }
 
+  const RESTRICTED = /Cannot access|chrome:\/\/|moz-extension:\/\/|about:|Web Store|match pattern/i;
+
+  // What a site's row says when something went wrong there. Internal codes
+  // never reach the owner; each line says what happened and what follows.
   function classifyFailure(raw, brandInput) {
-    const bName = browserName(brandInput);
     const s = raw == null ? "" : String(raw);
-    if (/Cannot access|chrome:\/\/|moz-extension:\/\/|about:|Web Store|match pattern/i.test(s)) {
-      return `${bName} doesn't let extensions work on this page`;
-    }
-    let short = s.replace(/\s+/g, " ").trim();
-    if (short.length > 80) short = short.slice(0, 80) + "\u2026";
-    return `something went wrong on this site: ${escapeToken(short)}`;
+    if (RESTRICTED.test(s)) return `${browserName(brandInput)} doesn't let extensions work on this page`;
+    if (s === "failed" || s === "registration_failed") return "couldn't start on this site. remove it and add it again.";
+    if (s === "enqueue_failed" || s === "storage_error") return "a page from this site couldn't be kept. the extension tries again when the page changes.";
+    if (s === "outbox-full") return "no room for more from this site right now";
+    if (s === "batch-oversize" || s === "schema-refuse") return "a page from this site couldn't be kept";
+    return "something went wrong on this site";
+  }
+
+  // What a button says when its action didn't work.
+  function actionFailure(raw, brandInput) {
+    const s = raw == null ? "" : String(raw);
+    if (RESTRICTED.test(s)) return `${browserName(brandInput)} doesn't let extensions work on this page`;
+    if (s === "storage_error") return "couldn't save that. try again.";
+    if (s === "permissions_changed") return `${browserName(brandInput)}'s permissions changed while saving. try again.`;
+    if (["capture_unavailable", "permission_not_granted", "registration_failed", "invalid_phase"].includes(s)) return "couldn't add the site. try again.";
+    if (s === "missing_consent") return "finish setting up first.";
+    if (s === "invalid_host" || s === "invalid_origin") return FIELD_ERROR;
+    return "something went wrong. try again.";
   }
 
   globalThis.SolstoneCopy = {
@@ -224,6 +263,17 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     regrantCopy,
     sharingSummary,
     STEP1_CANT_REACH_BODY,
+    STEP1_OPEN_APP_BODY,
+    STEP2_PENDING,
+    ADD_HELP,
+    FIELD_ERROR,
+    WILDCARD_ERROR,
+    ADD_DENIED,
+    ADD_NOT_NOW,
+    alreadyAdded,
+    removedAnnouncement,
+    includedAnnouncement,
+    actionFailure,
     STEP1_NOT_PAIRED_BODY,
     STEP1_INTAKE_OFF_BODY,
     TRUNCATION_ATTENTION,

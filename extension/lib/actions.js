@@ -33,8 +33,11 @@
       else await refresh();
       return true;
     }
-    if (action.id === "allow-again") {
-      const result = await effects.grantSite(action.origin);
+    if (action.id === "allow-again" || action.id === "allow-again-all") {
+      // Giving the browser's access back to a site the owner already chose
+      // needs no app or pause check, so it asks the browser straight away.
+      const origins = action.id === "allow-again-all" ? (effects.inactiveOrigins?.() || []) : [action.origin];
+      const result = effects.grantChosen ? await effects.grantChosen(origins) : await effects.grantSite(action.origin);
       if (result?.denied) effects.showDenied(action);
       else if (result?.error) effects.showError(result.error);
       await refresh();
@@ -42,7 +45,7 @@
     }
     if (action.id === "remove-site") {
       const result = await cmd({ cmd: "removeGrantedOrigin", origin: action.origin });
-      if (result?.error) effects.showError(result.error);
+      if (result?.error || result?.ok === false) effects.showError(result.error || "storage_error");
       await refresh();
       return true;
     }
@@ -61,7 +64,7 @@
     }
     if (action.id === "exclude-site" || action.id === "include-site") {
       const result = await cmd({ cmd: "setExcludedHost", host: action.host || action.origin, excluded: action.id === "exclude-site" });
-      if (result?.error) effects.showError(result.error);
+      if (result?.error || result?.ok === false) effects.showError(result.error || "storage_error");
       await refresh();
       return true;
     }

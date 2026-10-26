@@ -119,7 +119,6 @@ test("chosenOrigin takes a typed host or a pasted address to one origin", () => 
   const cases = {
     "example.com": "https://example.com",
     "EXAMPLE.com": "https://example.com",
-    "localhost:5015": "https://localhost:5015",
     "httpbin.org": "https://httpbin.org",
     "https://example.com": "https://example.com",
     "http://example.com": "http://example.com",
@@ -127,11 +126,54 @@ test("chosenOrigin takes a typed host or a pasted address to one origin", () => 
     " HTTPS://Example.com/some/page?q=1#top ": "https://example.com",
     "http://localhost:5015/": "http://localhost:5015",
     "https://example.com:443": "https://example.com",
+    // A typed address keeps working with a path, a trailing slash or dot.
+    "example.com/": "https://example.com",
+    "example.com/path": "https://example.com",
+    "github.com/solpbc/solstone": "https://github.com",
+    "mail.google.com/mail/u/0/#inbox": "https://mail.google.com",
+    "example.com.": "https://example.com",
+    "bücher.de": "https://xn--bcher-kva.de",
+    // A typed local name means http, where home servers and dev servers are.
+    "localhost:5015": "http://localhost:5015",
+    "localhost:3000": "http://localhost:3000",
+    "192.168.1.1": "http://192.168.1.1",
+    "nas.local": "http://nas.local",
+    "https://192.168.1.1": "https://192.168.1.1",
   };
   for (const [input, origin] of Object.entries(cases)) assert.equal(H.chosenOrigin(input), origin, input);
-  for (const input of ["", "   ", "example.com/path", "bad_host.example", "localhost:99999", "ftp://example.com",
+  for (const input of ["", "   ", "bad_host.example", "localhost:99999", "ftp://example.com",
     "https://", "https://exa mple.com", "https://example.com/a b", "https://person:secret@example.com",
-    "https://*.example.com", "https://bad_host.example", "http://[::1]:8080"]) {
+    "https://*.example.com", "*.example.com", "%2a.example.com", "https://bad_host.example", "http://[::1]:8080",
+    "example.com\nother.com"]) {
     assert.equal(H.chosenOrigin(input), null, input);
   }
+});
+
+test("a left-out host is a plain name: odd input never saves an entry that matches nothing", () => {
+  assert.equal(H.excludedHostname("BANK.com "), "bank.com");
+  assert.equal(H.excludedHostname("www.bank.com."), "www.bank.com");
+  assert.equal(H.excludedHostname(".bank.com"), "bank.com");
+  assert.equal(H.excludedHostname("https://secure.bank.com/login"), "secure.bank.com");
+  // Chromium's parser keeps a typed * as %2a; neither form may become an entry.
+  for (const input of ["*.bank.com", "%2a.bank.com", "https://%2A.bank.com", "bank .com", ""]) {
+    assert.equal(H.excludedHostname(input), null, input);
+  }
+  assert.equal(H.isWildcardInput("*.bank.com"), true);
+  assert.equal(H.isWildcardInput("bank.com"), false);
+});
+
+test("bank.com and www.bank.com are twins; other subdomains and local names are not", () => {
+  assert.equal(H.wwwTwin("bank.com"), "www.bank.com");
+  assert.equal(H.wwwTwin("www.bank.com"), "bank.com");
+  assert.equal(H.wwwTwin("bank.co.uk"), "www.bank.co.uk");
+  assert.equal(H.wwwTwin("www.bank.co.uk"), "bank.co.uk");
+  for (const host of ["mail.google.com", "www.mail.google.com", "login.mybank.com", "localhost", "nas.local", "10.0.0.1", "www.com", ""]) {
+    assert.equal(H.wwwTwin(host), null, host);
+  }
+});
+
+test("an origin is shown with its port, and with http:// when it isn't https", () => {
+  assert.equal(H.displayOrigin("https://example.com"), "example.com");
+  assert.equal(H.displayOrigin("https://localhost:5015"), "localhost:5015");
+  assert.equal(H.displayOrigin("http://localhost:3000"), "http://localhost:3000");
 });

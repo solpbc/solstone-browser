@@ -346,3 +346,43 @@ test("missing all-sites access asks in the browser that can answer", () => {
   assert.equal(failed.kind, "all-sites-registration");
   assert.equal(failed.action.id, "retry-all-sites");
 });
+
+test("an installed app that isn't open is opened, never downloaded again", () => {
+  const C = globalThis.SolstoneCopy;
+  const fresh = mockStatus({ everConnected: false, connected: false, hostCapture: null });
+  const unknown = S.derive(fresh);
+  assert.equal(unknown.kind, "cant-reach-app");
+  assert.equal(unknown.action.id, "get-app");
+  for (const patch of [{ appAnswered: true }, { brand: "safari" }]) {
+    const derived = S.derive({ ...fresh, ...patch });
+    assert.equal(derived.kind, "cant-reach-app");
+    assert.equal(derived.mark, "paused");
+    assert.equal(derived.reason, "the solstone app on this computer isn't answering. open it to go on.");
+    assert.equal(derived.action, null);
+    assert.equal(S.welcomeHold({ ...fresh, ...patch }).body, C.STEP1_OPEN_APP_BODY);
+    assert.equal(S.welcomeHold({ ...fresh, ...patch }).action, null);
+  }
+});
+
+test("on Linux a lost app names its next step", () => {
+  const derived = S.derive(mockStatus({ platform: "linux", connected: false, hostCapture: null }));
+  assert.equal(derived.kind, "cant-reach-app");
+  assert.equal(derived.reason, globalThis.SolstoneCopy.linuxCantReachAppReason());
+});
+
+test("several sites the browser took back are allowed again with one prompt", () => {
+  const two = S.derive(mockStatus({ consentVersion: 1, chosenOrigins: ["https://a.example", "https://b.example"],
+    grantedOrigins: [], inactiveOrigins: ["https://a.example", "https://b.example"] }));
+  const item = two.items.find((it) => it.kind === "sites-paused-by-browser");
+  assert.deepEqual(item.action, { id: "allow-again-all", label: "allow them again" });
+  const one = S.derive(mockStatus({ consentVersion: 1, chosenOrigins: ["https://a.example"],
+    grantedOrigins: [], inactiveOrigins: ["https://a.example"] }));
+  assert.equal(one.items.find((it) => it.kind === "sites-paused-by-browser").action, null);
+});
+
+test("a site's error row never shows an internal code", () => {
+  const row = S.siteRow("https://a.example", mockStatus({ consentVersion: 1, chosenOrigins: ["https://a.example"],
+    grantedOrigins: ["https://a.example"], registration: { "https://a.example": "failed" } }));
+  assert.equal(row.kind, "error");
+  assert.equal(row.label, "couldn't start on this site. remove it and add it again.");
+});

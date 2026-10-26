@@ -38,7 +38,7 @@
     }
   }
 
-  const SITES_CARD_ACTIONS = new Set(["open-settings", "allow-all-sites", "retry-all-sites"]);
+  const SITES_CARD_ACTIONS = new Set(["open-settings", "allow-all-sites", "retry-all-sites", "allow-again-all"]);
   let state = null;
   let disclosureResolve = null;
   let allSitesDisclosure = false;
@@ -138,25 +138,43 @@
     const raw = inputElement ? inputElement.value : "";
     if (state?.siteMode === "all") {
       const host = Hosts.excludedHostname(raw.trim());
-      if (!host) { fieldError("enter a website address, like mail.google.com."); focus(inputElement); return; }
+      if (!host) {
+        if (raw.trim()) { fieldError(Hosts.isWildcardInput(raw) ? Copy.WILDCARD_ERROR : Copy.FIELD_ERROR); focus(inputElement); }
+        return;
+      }
       const result = await cmd({ cmd: "setExcludedHost", host, excluded: true });
       if (result.error) showActionError(result.error);
-      else { inputElement.value = ""; announce(Copy.leftOutAnnouncement(host), "ok"); }
+      else { inputElement.value = ""; announce(Copy.leftOutAnnouncement(host, Hosts.wwwTwin(host)), "ok"); }
       await refresh();
       return;
     }
     const origin = Hosts.chosenOrigin(raw);
     if (!origin) {
-      if (raw.trim()) { fieldError("enter a website address, like mail.google.com."); focus(inputElement); }
+      if (raw.trim()) { fieldError(Copy.FIELD_ERROR); focus(inputElement); }
       return;
     }
-    const displayHost = new URL(origin).host;
+    const displayHost = Hosts.displayOrigin(origin);
+    if (chosenList().includes(origin)) {
+      if (inputElement) inputElement.value = "";
+      announce(Copy.alreadyAdded(displayHost), "ok");
+      focus(inputElement);
+      return;
+    }
     const result = await View.addSite(origin, Object.assign(siteEffects(), { disclose: presentDisclosure }));
+    // Adding needs the solstone app answering and nothing paused; the status
+    // card says which, and the owner is never left with a silent button.
+    if (result.ineligible) {
+      announce(Copy.ADD_NOT_NOW, "bad");
+      focus(inputElement);
+      return;
+    }
     if (result.cancelled) return;
     if (result.ok && inputElement) inputElement.value = "";
     await refresh();
     if (inputElement && typeof inputElement.focus === "function") inputElement.focus();
-    if (result.error) {
+    if (result.denied) {
+      announce(Copy.ADD_DENIED, "bad");
+    } else if (result.error) {
       showActionError(result.error);
     } else if (result.ok) {
       const row = Status.siteRow(origin, state);
@@ -170,7 +188,22 @@
 
   async function runSiteAction(action) {
     clearAnnouncement();
-    await Actions.run(action, sharedActionEffects());
+    const twin = action.id === "include-site" ? Hosts.wwwTwin(action.host) : null;
+    const twinListed = twin && (state?.excludedHosts || []).includes(twin);
+    let failed = false;
+    const effects = sharedActionEffects();
+    const showError = effects.showError;
+    effects.showError = (error) => { failed = true; showError(error); };
+    await Actions.run(action, effects);
+    if (failed) return;
+    // Say what the click did; the row it came from is gone now.
+    if (action.id === "remove-site") {
+      announce(Copy.removedAnnouncement(action.label || action.host), "ok");
+      focus("newHost");
+    } else if (action.id === "include-site") {
+      announce(Copy.includedAnnouncement(action.host, twinListed ? twin : null), "ok");
+      focus("newHost");
+    }
   }
 
   function sharedActionEffects() {
@@ -180,10 +213,13 @@
       openApp: () => chrome.tabs.create({ url: "https://solstone.app" }),
       reload: () => chrome.runtime.reload(),
       grantSite: (origin) => View.grantSite(origin, siteEffects()),
+      grantChosen: (origins) => View.grantChosenSites(origins, siteEffects()),
+      inactiveOrigins: () => state?.inactiveOrigins || [],
       allowAllSites: () => View.regrantAllSites(siteEffects()),
       showError: showActionError,
       showDenied: (action) => announce(action?.id === "allow-all-sites"
-        ? Copy.accessCopy(state?.brand).declined : "permission declined. this site stays paused.", "bad"),
+        ? Copy.accessCopy(state?.brand).declined
+        : action?.id === "allow-again-all" ? "permission declined. those sites stay paused." : "permission declined. this site stays paused.", "bad"),
       lossSeq: () => state?.lossNotice?.seq,
     };
   }
@@ -200,10 +236,11 @@
     }
 
     for (const entry of allowlist) {
-      let host = entry;
-      try {
-        if (entry.startsWith("http")) host = new URL(entry).hostname;
-      } catch (_e) {}
+      // A chosen origin shows its port and an http:// scheme, so two entries
+      // for one machine never look alike; a left-out entry is a bare host.
+      const host = entry.startsWith("http") ? Hosts.displayOrigin(entry) : entry;
+      let hostname = entry;
+      try { if (entry.startsWith("http")) hostname = new URL(entry).hostname; } catch (_e) {}
 
       const excluded = state?.siteMode === "all";
       const rowState = excluded ? { kind: "excluded", label: "left out" } : Status.siteRow(entry, state);
@@ -225,13 +262,14 @@
         const actionBtn = document.createElement("button");
         actionBtn.type = "button";
         actionBtn.textContent = rowState.action.label;
-        actionBtn.addEventListener("click", () => runSiteAction(Object.assign({ host, origin: entry }, rowState.action)));
+        actionBtn.addEventListener("click", () => runSiteAction(Object.assign({ host: hostname, origin: entry }, rowState.action)));
         actions.append(actionBtn);
       }
       const remove = document.createElement("button");
       remove.type = "button";
       remove.textContent = excluded ? "include again" : "remove";
-      remove.addEventListener("click", () => runSiteAction({ id: excluded ? "include-site" : "remove-site", host, origin: entry }));
+      if (typeof remove.setAttribute === "function") remove.setAttribute("aria-label", `${remove.textContent} ${host}`);
+      remove.addEventListener("click", () => runSiteAction({ id: excluded ? "include-site" : "remove-site", host: hostname, label: host, origin: entry }));
       actions.append(remove);
       row.append(copyEl, actions);
       list.append(row);
@@ -244,17 +282,14 @@
       const sentence = document.createElement("div");
       sentence.className = "w";
       sentence.textContent = Copy.TRUNCATION_ATTENTION;
-      const count = document.createElement("div");
-      count.className = "count";
-      count.textContent = String(notice.count);
       const dismiss = document.createElement("button");
       dismiss.type = "button";
       dismiss.textContent = "dismiss";
       dismiss.addEventListener("click", () => runSiteAction({ id: "dismiss-truncation", origin, bound: notice.newestId }));
       const site = document.createElement("div");
       site.className = "site-host";
-      site.textContent = origin;
-      attention.append(site, sentence, count, dismiss);
+      site.textContent = Hosts.displayOrigin(origin);
+      attention.append(site, sentence, dismiss);
       list.append(attention);
     }
   }
@@ -321,7 +356,7 @@
       if (!step1.met) {
         if ($("step2PendingText")) {
           $("step2PendingText").hidden = false;
-          $("step2PendingText").textContent = "you'll agree to this once step 1 is done.";
+          $("step2PendingText").textContent = Copy.STEP2_PENDING;
         }
         if ($("agreeDisclosureBtn")) $("agreeDisclosureBtn").hidden = true;
       } else {
@@ -399,6 +434,21 @@
         button.textContent = derived.action.label;
         button.addEventListener("click", () => Actions.run(derived.action, sharedActionEffects()));
         actions.append(button);
+      }
+      // The popup's pause button reads resume; settings needs its own, or an
+      // owner who comes here to turn things back on finds no way to.
+      if (state?.paused) {
+        const resume = document.createElement("button");
+        resume.type = "button";
+        resume.className = "primary";
+        resume.textContent = "resume";
+        resume.addEventListener("click", async () => {
+          clearAnnouncement();
+          const result = await cmd({ cmd: "setPaused", paused: false });
+          if (result.error) showActionError(result.error);
+          await refresh();
+        });
+        actions.append(resume);
       }
     }
 
@@ -481,8 +531,8 @@
     renderAccess(agreedAll);
 
     $("listHeading").textContent = allSites ? "sites left out" : "your sites";
-    $("siteModeHelp").textContent = allSites ? Copy.LEAVE_OUT_HELP : "";
-    $("siteModeHelp").hidden = !allSites;
+    $("siteModeHelp").textContent = allSites ? Copy.LEAVE_OUT_HELP : Copy.ADD_HELP;
+    $("siteModeHelp").hidden = false;
     $("siteInputLabel").textContent = allSites ? "leave out a site" : "add a site";
     $("addBtn").textContent = allSites ? "leave out" : "add this site";
 
@@ -562,8 +612,17 @@
     $("agreeDisclosureBtn").addEventListener("click", async () => {
       clearAnnouncement();
       const result = await cmd({ cmd: "acknowledgeDisclosure", version: 1 });
-      if (result.error) showActionError(result.error);
+      if (result.error) {
+        // The welcome view stays up, so the failure shows where the button was.
+        if ($("step2PendingText")) {
+          $("step2PendingText").hidden = false;
+          $("step2PendingText").textContent = Failures.classify(result.error, state);
+        }
+        return;
+      }
       await refresh();
+      // Settings replaces the welcome page now; put the owner at the first site.
+      focus("newHost");
     });
   }
 

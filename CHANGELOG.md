@@ -9,7 +9,15 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 ### Fixed
 
 - in settings, you can now add a site by pasting its whole address, like `https://example.com/some/page`. before, pasting an address showed "enter a website address" instead. the extension adds the site, not the page, and a site you paste with `http://` stays `http://`. reported and fixed by ha-ye.
+- in all sites mode, leaving out a site like bank.com now leaves out www.bank.com too, and you see both on the list. a site you left out before this update gets its www address added as well. typing `*.bank.com` is refused with a note; before, Chrome and Edge saved it as left out, though it left nothing out, and that entry now comes off your list.
+- the optional on-page mark shows "on" only while the page is taken in. before, it could keep saying "on" after you left the site out, after the solstone app closed, or after you paused and resumed.
 - settings, the popup and the toolbar icon no longer flash "can't reach the solstone app" for a moment while the solstone app is running and connected. reported by ha-ye.
+- a typed address with a path, like `github.com/solpbc`, now adds its site too. a typed local address, like `localhost:3000` or `192.168.1.1`, is added as `http://`, and your list shows a site's port when it has one, so two addresses on one computer never look alike.
+- adding a site in settings now always says what happened: when you decline the browser's prompt, when a site can't be added right now, or when it's already on your list. removing a site says so too.
+- a site's warning says what went wrong in plain words, and goes away when you remove the site. "reload this tab to begin" clears once the page is taken in.
+- if the solstone app is on this computer but closed, the extension asks you to open it, instead of sending you to download it again. it also looks for the app as soon as you open the extension or its settings, so you don't wait up to a minute after opening the app. on linux, it also says what to do next.
+- settings has a resume button while the extension is paused. "allow again" asks the browser straight away, even while the solstone app is closed, and the popup can allow several sites again with one prompt.
+- on browser add-on store pages, the popup says the browser doesn't let extensions work there, instead of offering to add the site.
 
 ## [0.4.0] (2026-10-25)
 

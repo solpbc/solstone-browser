@@ -92,13 +92,77 @@
 
   const ALL_SITES_CONSENT_VERSION = 1;
 
-  function excludedHostname(input) {
+  // A hostname an owner can name: letters, digits and hyphens in dotted labels,
+  // or a dotted IPv4 address. Browsers disagree on odd input (Chromium keeps a
+  // `*` as `%2a`, Node refuses it), so the parsed result is checked as text.
+  function isPlainHostname(hostname) {
+    const host = String(hostname || "");
+    if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(host)) return true;
+    return /^[a-z0-9-]+(?:\.[a-z0-9-]+)*$/.test(host);
+  }
+
+  function isLocalHostname(hostname) {
+    const host = String(hostname || "").toLowerCase();
+    return host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") ||
+      /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host);
+  }
+
+  // The other half of a bare/www pair: bank.com <-> www.bank.com. Only for a
+  // registrable-looking name, so mail.google.com has no twin.
+  const SECOND_LEVELS = new Set(["co", "com", "org", "net", "ac", "gov", "edu", "ne", "or", "go"]);
+  function registrableLooking(host) {
+    const labels = host.split(".");
+    if (labels.length === 2) return labels.every(Boolean);
+    return labels.length === 3 && labels.every(Boolean) && labels[2].length === 2 && SECOND_LEVELS.has(labels[1]);
+  }
+
+  // Symmetric by construction: X and www.X pair only when X looks registrable.
+  function wwwTwin(hostname) {
+    const host = String(hostname || "").toLowerCase();
+    if (!host || isLocalHostname(host) || !isPlainHostname(host)) return null;
+    if (host.startsWith("www.")) {
+      const bare = host.slice(4);
+      return registrableLooking(bare) ? bare : null;
+    }
+    return registrableLooking(host) ? `www.${host}` : null;
+  }
+
+  // How a chosen origin is named on screen: its host and port, with http://
+  // shown when it isn't https, so two entries never look the same.
+  function displayOrigin(origin) {
     try {
-      const url = new URL(/^https?:\/\//i.test(input) ? input : `https://${input}`);
-      if (!/^https?:$/.test(url.protocol) || url.username || url.password || !url.hostname ||
-          url.hostname.includes("*") || /\s/.test(input)) return null;
-      return url.hostname.toLowerCase();
+      const url = new URL(origin);
+      return url.protocol === "http:" ? `http://${url.host}` : url.host;
+    } catch (_e) { return String(origin || ""); }
+  }
+
+  function excludedHostname(input) {
+    const raw = String(input || "").trim();
+    if (!raw || /\s/.test(raw)) return null;
+    try {
+      const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+      if (!/^https?:$/.test(url.protocol) || url.username || url.password) return null;
+      const host = url.hostname.toLowerCase().replace(/^\.+/, "").replace(/\.+$/, "");
+      if (/^\[[0-9a-f:.]+\]$/.test(host)) return host;
+      // Browsers open hosts with an underscore, so one can be left out.
+      return isPlainHostname(host.replace(/_/g, "-")) ? host : null;
     } catch (_e) { return null; }
+  }
+
+  // A left-out entry saved by an earlier version. Leaving a site out only ever
+  // narrows reading, so a stored entry is kept unless it can match nothing (a
+  // `*` that Chromium saved as `%2a`); it is never dropped for being unusual.
+  function storedExcludedHostname(input) {
+    const strict = excludedHostname(input);
+    if (strict) return strict;
+    const raw = String(input || "").trim().toLowerCase();
+    if (!raw || /[\s*%/@]/.test(raw)) return null;
+    return raw.replace(/^\.+/, "").replace(/\.+$/, "") || null;
+  }
+
+  // A `*` asks for every subdomain, which a left-out site can't mean.
+  function isWildcardInput(input) {
+    return String(input || "").includes("*");
   }
 
   // Owner scope and the browser's broad grant are separate facts. Effective
@@ -123,15 +187,21 @@
     return /^[a-z0-9-]+(?:\.[a-z0-9-]+)*$/.test(host);
   }
 
-  // A site the owner adds is one origin. A typed host means https; a pasted
-  // http(s) address keeps its scheme and port, and its path is dropped.
+  // A site the owner adds is one origin. A pasted http(s) address keeps its
+  // scheme and port; a typed one means https, or http for a local name such as
+  // localhost or a router's address. Any path is dropped either way.
   function chosenOrigin(input) {
     const raw = String(input || "").trim();
+    if (!raw || /\s/.test(raw)) return null;
     const pasted = /^https?:\/\//i.test(raw);
-    if (!pasted && !isValidHostInput(raw)) return null;
+    if (!pasted && /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) return null;
     try {
-      const url = new URL(pasted ? raw : `https://${raw}`);
-      if (/\s/.test(raw) || url.username || url.password || !isValidHostInput(url.host)) return null;
+      let url = new URL(pasted ? raw : `https://${raw}`);
+      if (url.username || url.password) return null;
+      const hostname = url.hostname.toLowerCase().replace(/\.+$/, "");
+      if (!isPlainHostname(hostname)) return null;
+      const scheme = pasted ? url.protocol : (isLocalHostname(hostname) ? "http:" : "https:");
+      url = new URL(`${scheme}//${hostname}${url.port ? `:${url.port}` : ""}`);
       return url.origin;
     } catch (_e) { return null; }
   }
@@ -149,5 +219,10 @@
     originGranted,
     isValidHostInput,
     chosenOrigin,
+    isLocalHostname,
+    wwwTwin,
+    displayOrigin,
+    isWildcardInput,
+    storedExcludedHostname,
   };
 })();

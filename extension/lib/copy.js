@@ -247,7 +247,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     const whole = wholeSite(hostInput);
     return {
       title: whole ? `add all ${host} sites and pages?` : `add ${host}?`,
-      what: `${whole ? `on every ${host} site and page` : `on ${host}`}, the solstone extension takes in the page's text and rough layout whenever a tab is open, and all of it goes into your journal: what you can see, what you'd see by scrolling, background tabs, some labels meant for screen readers, text the page has but doesn't show you, each page's address, title and time, the sites its links point to, whether the tab was in front, whether its window had focus, whether audio or video was playing, the page's language, which browser it is, and how long the tab has been open. never pixels.`,
+      what: `${whole ? `on every ${host} site and page` : `on ${host}`}, the solstone extension takes in the page's text and rough layout whenever a tab is open, and all of it goes into your journal: what you can see, what you'd see by scrolling, background tabs, some labels meant for screen readers, text the page has but doesn't show you, each page's address, title and time, the sites its links point to. it also takes in whether the tab was in front, whether its window had focus, whether audio or video was playing, the page's language, which browser it is, and how long the tab has been open. never pixels.`,
       unsent: `that can include words you've typed but haven't sent, and anything the site shows, even something you'd consider secret.`,
       destinationLabel: `it goes to`,
       destination: `your journal, through the solstone app on this computer`,

@@ -153,6 +153,7 @@
       sub: derived.sub,
       reason: derived.reason,
       action: derived.action || null,
+      appPausedNote: derived.appPausedNote || "",
     }];
     if (attentionRows.length > 0) sections.push({ id: "siteIssues", rows: attentionRows });
     sections.push({

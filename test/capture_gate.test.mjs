@@ -652,6 +652,27 @@ test("gate: resnapshot message makes 0 discover/skim calls when closed, 1 when o
   messageListener({ kind: "resnapshot" }, { id: "fake-runtime-id" }, () => {});
   assert.equal(discoverCount, 1);
   assert.equal(skimCount, 1);
+
+  // The app's pause closes reading. A later resnapshot does not skim.
+  messageListener(
+    {
+      kind: "leaseUpdate",
+      lease: { token: "t1", generation: "gen-1", freshnessMs: 10000 },
+      paused: false,
+      consentVersion: 1,
+      grantedOrigins: ["https://mail.google.com"],
+      showIndicator: false,
+      hostCapture: "paused",
+      capturePermitted: false,
+    },
+    { id: "fake-runtime-id" },
+    () => {}
+  );
+  discoverCount = 0;
+  skimCount = 0;
+  messageListener({ kind: "resnapshot" }, { id: "fake-runtime-id" }, () => {});
+  assert.equal(discoverCount, 0);
+  assert.equal(skimCount, 0);
 });
 
 test("the page marker says on only while the page is read", async () => {

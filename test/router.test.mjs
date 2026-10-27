@@ -18,6 +18,8 @@ await import(new URL("../extension/lib/gate.js", import.meta.url));
 await import(new URL("../extension/lib/native_outbox.js", import.meta.url));
 await import(new URL("../extension/lib/native_port.js", import.meta.url));
 await import(new URL("../extension/lib/owner_sites.js", import.meta.url));
+await import(new URL("../extension/lib/tab_age.js", import.meta.url));
+await import(new URL("../extension/lib/page_facts.js", import.meta.url));
 await import(new URL("../extension/lib/router.js", import.meta.url));
 
 const DB = globalThis.SolstoneDB;
@@ -796,4 +798,225 @@ test("router: a subdomain page's error is kept on its chosen site, where the own
   port.enqueueObservedSkim = original;
   assert.equal(port.getStatus().enqueue[site], "outbox-full");
   assert.equal(port.getStatus().enqueue["https://login.bank.test"], undefined);
+});
+
+test("router: page context on segment_start and delta with tabs/windows and fallbacks", async () => {
+  await resetDB();
+  const port = makePort();
+  const frozen = port.now();
+  port.now = () => frozen;
+  const origin = "https://example.test";
+  port.grantedOrigins.add(origin);
+  const tabId = 88;
+  const pageSender = { id: EXT_ID, tab: { id: tabId }, frameId: 0, url: "https://example.test/page", origin };
+  const previous = {
+    tabs: globalThis.chrome.tabs,
+    windows: globalThis.chrome.windows,
+    runtime: globalThis.chrome.runtime,
+  };
+  let tabStub = { id: tabId, active: true, windowId: 99, audible: false, mutedInfo: { muted: false } };
+  let winStub = { id: 99, state: "normal", focused: true };
+  let rejectLookups = false;
+  globalThis.chrome.tabs = {
+    get: async (id) => {
+      if (rejectLookups) throw new Error("tab lookup failed");
+      return id === tabId ? tabStub : null;
+    },
+  };
+  globalThis.chrome.windows = {
+    get: async (id) => {
+      if (rejectLookups) throw new Error("window lookup failed");
+      return id === 99 ? winStub : null;
+    },
+  };
+  globalThis.chrome.runtime = {
+    getManifest: () => ({ version: "0.4.0" }),
+  };
+  const deps = { runtimeId: EXT_ID, port, confirmRealm };
+  const skim = (sender, realm, blocks, page) => Router.route({
+    kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration,
+    destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token, realmToken: realm,
+    blocks, page,
+  }, sender, deps);
+  try {
+
+  // 1. Initial skim: segment_start with front: true, focused: true, lang: "en-US", audible unmuted
+  tabStub.audible = true;
+  assert.equal((await Router.route({ kind: "hello", realmToken: "r-ctx1" }, pageSender, { runtimeId: EXT_ID, port, confirmRealm })).ok, true);
+  const skim1 = await Router.route({
+    kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration,
+    destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token, realmToken: "r-ctx1",
+    blocks: [{ id: "1", type: "heading", depth: 0, text: "Heading 1" }],
+    page: { lang: "en-US" },
+  }, pageSender, { runtimeId: EXT_ID, port, confirmRealm });
+  assert.equal(skim1.ok, true);
+
+  const outboxRows1 = await Outbox.getAll();
+  assert.equal(outboxRows1.length, 1);
+  const snapRec1 = outboxRows1[0].records[0];
+  assert.equal(snapRec1.t, "segment_start");
+  assert.deepEqual(snapRec1.tab, { id: tabId, age_ms: 0, front: true, focused: true });
+  assert.deepEqual(snapRec1.media, { playing: true, muted: false });
+  assert.equal(snapRec1.lang, "en-US");
+  assert.equal(snapRec1.ext, "0.4.0");
+  assert.equal(snapRec1.solstone_paused, undefined);
+
+  // 2. Second skim (delta): front: false (minimized), focused: false, media playing-muted, lang: "es", solstone_paused: true
+  winStub.state = "minimized";
+  winStub.focused = false;
+  tabStub.audible = false;
+  port.pauseWithApp = false;
+  port.lastCaptureMessage = { type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000, destination_generation: "gen-1" };
+  assert.equal(port.appReportedPaused(), true);
+
+  const skim2 = await Router.route({
+    kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration,
+    destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token, realmToken: "r-ctx1",
+    blocks: [
+      { id: "1", type: "heading", depth: 0, text: "Heading 1" },
+      { id: "2", type: "text", depth: 0, text: "New paragraph" },
+    ],
+    page: {
+      lang: "es",
+      media: { hasElement: true, playing: true, everyPlayingSilent: true },
+    },
+  }, pageSender, { runtimeId: EXT_ID, port, confirmRealm });
+  assert.equal(skim2.ok, true);
+
+  const outboxRows2 = await Outbox.getAll();
+  assert.equal(outboxRows2.length, 2);
+  const deltaRec = outboxRows2[1].records[0];
+  assert.equal(deltaRec.t, "delta");
+  assert.deepEqual(deltaRec.tab, { id: tabId, age_ms: 0, front: false, focused: false });
+  assert.deepEqual(deltaRec.media, { playing: true, muted: true });
+  assert.equal(deltaRec.lang, "es");
+  assert.equal(deltaRec.solstone_paused, true);
+  // Snapshot record on the same row also stamped
+  assert.deepEqual(outboxRows2[1].snapshotRecords[0].tab, { id: tabId, age_ms: 0, front: false, focused: false });
+  assert.equal(outboxRows2[1].snapshotRecords[0].solstone_paused, true);
+
+  // 3. Raw permitted clears solstone_paused
+  port.lastCaptureMessage = { type: "state", capture: "permitted", delivery: "idle", freshness_ms: 10000, destination_generation: "gen-1" };
+  assert.equal(port.appReportedPaused(), false);
+
+  const skim3 = await Router.route({
+    kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration,
+    destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token, realmToken: "r-ctx1",
+    blocks: [
+      { id: "1", type: "heading", depth: 0, text: "Heading 1" },
+      { id: "2", type: "text", depth: 0, text: "New paragraph" },
+      { id: "3", type: "text", depth: 0, text: "Third block" },
+    ],
+  }, pageSender, { runtimeId: EXT_ID, port, confirmRealm });
+  assert.equal(skim3.ok, true);
+  const outboxRows3 = await Outbox.getAll();
+  assert.equal(outboxRows3[1].records[0].solstone_paused, true);
+  assert.equal(outboxRows3[2].records[0].solstone_paused, undefined);
+  assert.equal(outboxRows3[2].records[0].lang, undefined);
+  assert.equal(outboxRows3[2].records[0].media, undefined);
+
+  // Playing element, tab not audible: muted follows the element, not a default.
+  winStub.state = "normal";
+  winStub.focused = true;
+  tabStub.audible = false;
+  tabStub.mutedInfo = { muted: false };
+  const skimLoud = await skim(pageSender, "r-ctx1", [
+    { id: "1", type: "heading", depth: 0, text: "Heading 1" },
+    { id: "2", type: "text", depth: 0, text: "New paragraph" },
+    { id: "3", type: "text", depth: 0, text: "Third block" },
+    { id: "4", type: "text", depth: 0, text: "Playing out loud" },
+  ], { media: { hasElement: true, playing: true, everyPlayingSilent: false } });
+  assert.equal(skimLoud.ok, true);
+  assert.deepEqual((await Outbox.getAll()).at(-1).records[0].media, { playing: true, muted: false });
+
+  // Lookups rejected: top frame uses visibility and focus, including false.
+  rejectLookups = true;
+  const skimTopOff = await skim(pageSender, "r-ctx1", [
+    { id: "1", type: "heading", depth: 0, text: "Heading 1" },
+    { id: "5", type: "text", depth: 0, text: "Top frame hidden" },
+  ], { visibilityState: "hidden", hasFocus: false });
+  assert.equal(skimTopOff.ok, true);
+  const topOff = (await Outbox.getAll()).at(-1).records[0];
+  assert.equal(topOff.tab.front, false);
+  assert.equal(topOff.tab.focused, false);
+
+  const skimTopOn = await skim(pageSender, "r-ctx1", [
+    { id: "1", type: "heading", depth: 0, text: "Heading 1" },
+    { id: "5", type: "text", depth: 0, text: "Top frame hidden" },
+    { id: "6", type: "text", depth: 0, text: "Top frame visible" },
+  ], { visibilityState: "visible", hasFocus: true });
+  assert.equal(skimTopOn.ok, true);
+  const topOn = (await Outbox.getAll()).at(-1).records[0];
+  assert.equal(topOn.tab.front, true);
+  assert.equal(topOn.tab.focused, true);
+
+  // 4. Rejected tabs.get/windows.get falls back to page visibilityState and hasFocus
+  const subframeSender = { id: EXT_ID, tab: { id: tabId }, frameId: 1, url: "https://example.test/sub", origin };
+  assert.equal((await Router.route({ kind: "hello", realmToken: "r-subfallback" }, subframeSender, { runtimeId: EXT_ID, port, confirmRealm })).ok, true);
+
+  const skimSubframe = await Router.route({
+    kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration,
+    destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token, realmToken: "r-subfallback",
+    blocks: [{ id: "s1", type: "text", depth: 0, text: "Subframe text" }],
+    page: { visibilityState: "visible", hasFocus: true },
+  }, subframeSender, { runtimeId: EXT_ID, port, confirmRealm });
+  assert.equal(skimSubframe.ok, true);
+
+  const outboxRowsSub = await Outbox.getAll();
+  const subRec = outboxRowsSub.at(-1).records[0];
+  // Subframe: front is true, but focused is omitted (not defaulted to false)
+  assert.equal(subRec.tab.front, true);
+  assert.equal(subRec.tab.focused, undefined);
+
+  // 5. Missing fallback omits front and focused completely
+  const skimNoFallback = await Router.route({
+    kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration,
+    destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token, realmToken: "r-subfallback",
+    blocks: [
+      { id: "s1", type: "text", depth: 0, text: "Subframe text" },
+      { id: "s2", type: "text", depth: 0, text: "More subframe text" },
+    ],
+    page: {},
+  }, subframeSender, { runtimeId: EXT_ID, port, confirmRealm });
+  assert.equal(skimNoFallback.ok, true);
+  const noFallbackRec = (await Outbox.getAll()).at(-1).records[0];
+  assert.equal(noFallbackRec.tab.front, undefined);
+  assert.equal(noFallbackRec.tab.focused, undefined);
+  } finally {
+    if (previous.tabs === undefined) delete globalThis.chrome.tabs;
+    else globalThis.chrome.tabs = previous.tabs;
+    if (previous.windows === undefined) delete globalThis.chrome.windows;
+    else globalThis.chrome.windows = previous.windows;
+    if (previous.runtime === undefined) delete globalThis.chrome.runtime;
+    else globalThis.chrome.runtime = previous.runtime;
+  }
+});
+
+test("router: a rewritten open pause admits a site, and a closed gate does not", async () => {
+  await resetDB();
+  const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+  const depsFor = (port) => ({ runtimeId: EXT_ID, port, setCfg: async () => {}, registerSite: async () => "ready" });
+
+  const port = makePort();
+  const frozen = port.now();
+  port.now = () => frozen;
+  port.pauseWithApp = false;
+  port.lastCaptureMessage = {
+    type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000,
+    destination_generation: "gen-1", period_id: "p-1",
+  };
+  port.hostCapture = "permitted";
+  port.capturePermitted = true;
+  port.custody = { full: false, stale: false };
+  assert.equal(port.appReportedPaused(), true);
+  const open = await Router.route({ cmd: "addGrantedOrigin", origin: "https://example.test" }, sender, depsFor(port));
+  assert.equal(open.ok, true);
+  assert.equal(port.grantedOrigins.has("https://example.test"), true);
+
+  const closed = makePort();
+  closed.hostCapture = "paused";
+  closed.capturePermitted = false;
+  const refused = await Router.route({ cmd: "addGrantedOrigin", origin: "https://other.test" }, sender, depsFor(closed));
+  assert.equal(refused.ok, false);
+  assert.equal(closed.grantedOrigins.size, 0);
 });

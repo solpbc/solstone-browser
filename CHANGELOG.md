@@ -6,6 +6,11 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ## [Unreleased]
 
+### Added
+
+- choose whether this extension pauses when the solstone app pauses. it is on by default; turn it off in settings to keep taking in your shared sites while the app is paused.
+- pages now record their tab's place, window focus, playing media, language, browser, and tab age.
+
 ### Changed
 
 - adding bank.com now shares all bank.com sites and pages, like www.bank.com and login.bank.com, and the confirmation says so before anything is shared. to share only part of a site, add that address, like mail.google.com. a site you added before this update keeps covering only its exact address until you allow the rest in settings.

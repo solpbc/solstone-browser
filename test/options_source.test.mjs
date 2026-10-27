@@ -171,7 +171,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
     "sitesMain", "addForm", "newHost", "addBtn", "siteList", "siteDisclosure",
     "siteDisclosureTitle", "siteDisclosureWhat", "siteDisclosureUnsent", "siteDisclosureDestination",
     "siteDisclosureDestinationDetail", "siteDisclosureChrome", "siteDisclosureConfirm",
-    "siteDisclosureCancel", "indicatorCard", "showPageIndicator", "disclosureCard",
+    "siteDisclosureCancel", "indicatorCard", "showPageIndicator", "pauseWithAppCard", "pauseWithApp", "disclosureCard",
     "disclosureDetails", "settingsDisclosureBody", "actionMessage", "pageFooter", "ver", "optionsMark",
   ];
   const nodes = Object.fromEntries(ids.map((id) => [id, new FakeNode(id)]));

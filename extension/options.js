@@ -451,6 +451,7 @@
 
     // Indicator Section
     if ($("showPageIndicator")) $("showPageIndicator").checked = !!(state && state.showPageIndicator);
+    if ($("pauseWithApp")) $("pauseWithApp").checked = state?.pauseWithApp !== false;
 
   }
 
@@ -658,6 +659,14 @@
   if ($("showPageIndicator")) {
     $("showPageIndicator").addEventListener("change", async () => {
       await cmd({ cmd: "setConfig", showPageIndicator: $("showPageIndicator").checked });
+      await refresh();
+    });
+  }
+
+  // Settings Pause With App Checkbox
+  if ($("pauseWithApp")) {
+    $("pauseWithApp").addEventListener("change", async () => {
+      await cmd({ cmd: "setConfig", pauseWithApp: $("pauseWithApp").checked });
       await refresh();
     });
   }

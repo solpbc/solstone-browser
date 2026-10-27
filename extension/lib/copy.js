@@ -33,6 +33,7 @@
   const DISCLOSURE_BODY = `you choose which sites to share. by default, you add sites one at a time. you can also choose all sites after a separate agreement and leave sites out. on the sites you choose, the solstone extension takes in the page's text and rough layout whenever a tab is open, and all of it goes into your journal:
 - the text you can see, the text you'd see by scrolling, text in background tabs, some labels pages provide for screen readers and tooltips, and text the page has but doesn't show you
 - each page's address, without anything after a ? or #, its title, when you were on it, and the sites its links point to
+- whether the tab was in front, whether its window had focus, whether audio or video was playing, the page's language, which browser it is, and how long the tab has been open
 - on a mail or chat site you choose, your messages
 - some words you've typed but haven't sent, and anything a site shows, even something you'd consider secret, like a code in an email
 
@@ -42,7 +43,7 @@ where it goes: nothing leaves this browser except to the solstone app on this co
 
 the solstone extension takes in nothing from private windows, even where your browser lets it run there. that covers this extension only.
 
-pause any time in the solstone extension, or pause the solstone app to stop everything at once. pausing doesn't hold back what's already taken in. if you remove a site, nothing new comes from it; what's already in your journal stays there.
+pause any time in the solstone extension. pausing the solstone app stops this extension too, unless you turn that off in settings. pausing doesn't hold back what's already taken in. if you remove a site, nothing new comes from it; what's already in your journal stays there.
 
 no analytics. no telemetry. no phone home. nobody counted.`;
 
@@ -68,7 +69,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     if (chosen > 0) kept.push(plural(chosen, "your added site is kept for when you switch back.", "your {n} added sites are kept for when you switch back."));
     return {
       title: "share all sites?",
-      what: "on every website your browser allows, including sites you visit later, the solstone extension takes in the page's text, address and rough layout whenever a tab is open, and all of it goes into your journal. this includes background tabs and text the page has but doesn't show you.",
+      what: "on every website your browser allows, including sites you visit later, the solstone extension takes in the page's text, address and rough layout whenever a tab is open, and all of it goes into your journal. this includes background tabs, text the page has but doesn't show you, whether the tab was in front, whether its window had focus, whether audio or video was playing, the page's language, which browser it is, and how long the tab has been open.",
       unsent: "that includes messages on mail and chat sites, words you've typed into a page's editor but haven't sent, and anything a site shows, even something you'd consider secret.",
       leaveOut: ["you can leave sites out at any time. private windows are still left out.", ...kept].join(" "),
       destination: "your journal, through the solstone app on this computer",
@@ -246,7 +247,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     const whole = wholeSite(hostInput);
     return {
       title: whole ? `add all ${host} sites and pages?` : `add ${host}?`,
-      what: `${whole ? `on every ${host} site and page` : `on ${host}`}, the solstone extension takes in the page's text and rough layout whenever a tab is open, and all of it goes into your journal: what you can see, what you'd see by scrolling, background tabs, some labels meant for screen readers, text the page has but doesn't show you, each page's address, title and time, and the sites its links point to. never pixels.`,
+      what: `${whole ? `on every ${host} site and page` : `on ${host}`}, the solstone extension takes in the page's text and rough layout whenever a tab is open, and all of it goes into your journal: what you can see, what you'd see by scrolling, background tabs, some labels meant for screen readers, text the page has but doesn't show you, each page's address, title and time, the sites its links point to, whether the tab was in front, whether its window had focus, whether audio or video was playing, the page's language, which browser it is, and how long the tab has been open. never pixels.`,
       unsent: `that can include words you've typed but haven't sent, and anything the site shows, even something you'd consider secret.`,
       destinationLabel: `it goes to`,
       destination: `your journal, through the solstone app on this computer`,

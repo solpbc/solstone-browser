@@ -27,6 +27,7 @@
         badge: "",
         headline: "status unavailable",
         sub: "",
+        appPausedNote: "",
         reason: "the solstone extension can't show its status right now.",
         action: { id: "open-settings", label: "open settings" },
         also: [],
@@ -507,12 +508,19 @@
         .filter((it) => it !== winner && it.kind !== "on" && it.kind !== "idle")
         .map((it) => ({ kind: it.kind, headline: it.headline, action: it.action }));
 
+      const isWinnerOnOrIdleOrDeliveryConnecting = winner.kind === "on" || winner.kind === "idle" ||
+        (winner.kind === "connecting" && winner.connecting === "delivery");
+      const appPausedNote = (status.appReportedPaused === true && isWinnerOnOrIdleOrDeliveryConnecting)
+        ? "the solstone app is paused on this computer"
+        : "";
+
       return {
         kind: winner.kind,
         mark: winner.mark,
         badge: winner.badge,
         headline: winner.headline,
         sub: winner.sub,
+        appPausedNote,
         reason: winner.reason,
         action: winner.action,
         also,
@@ -526,6 +534,7 @@
         badge: "",
         headline: "status unavailable",
         sub: "",
+        appPausedNote: "",
         reason: "the solstone extension can't show its status right now.",
         action: { id: "open-settings", label: "open settings" },
         also: [],

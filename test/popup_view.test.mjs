@@ -329,3 +329,34 @@ test("in all sites a page under a left-out site is left out, and leaving a www p
   assert.equal(wwwPage.siteAction.site, "bank.com");
   assert.equal(wwwPage.note, "leaving it out covers all bank.com sites and pages. other sites shown inside them are still shared.");
 });
+
+test("a verdict note stays off the headline when the app reports paused and reading is open", () => {
+  const open = state({
+    chosenOrigins: ["https://example.com"],
+    grantedOrigins: ["https://example.com"],
+    consentVersion: 1,
+    hostCapture: "permitted",
+    capturePermitted: true,
+    hostDelivery: "delivered",
+  });
+  const quiet = Status.derive(open, { anyGrantedTabOpen: true });
+  const quietVerdict = View.arrange(quiet, open, { host: "example.com", ok: true }).find((section) => section.id === "verdict");
+  assert.equal(quiet.kind, "on");
+  assert.equal(quietVerdict.headline, quiet.headline);
+  assert.equal(quietVerdict.sub, quiet.sub);
+  assert.equal(quietVerdict.appPausedNote, "");
+
+  const reported = state({ ...open, appReportedPaused: true });
+  const derived = Status.derive(reported, { anyGrantedTabOpen: true });
+  const verdict = View.arrange(derived, reported, { host: "example.com", ok: true }).find((section) => section.id === "verdict");
+  assert.equal(verdict.kind, "on");
+  assert.equal(verdict.mark, "healthy");
+  assert.equal(verdict.headline, derived.headline);
+  assert.equal(verdict.sub, derived.sub);
+  assert.equal(verdict.reason, derived.reason);
+  assert.equal(typeof verdict.appPausedNote, "string");
+  assert.ok(verdict.appPausedNote.length > 0);
+  assert.notEqual(verdict.appPausedNote, verdict.headline);
+  assert.notEqual(verdict.appPausedNote, verdict.sub);
+  assert.notEqual(verdict.appPausedNote, verdict.reason);
+});

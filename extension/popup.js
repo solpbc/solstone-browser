@@ -107,6 +107,11 @@
     $("verdictDot").className = `dot ${treatment.dotClass}`;
     $("verdictHeadline").textContent = section.headline;
     $("verdictSub").textContent = section.sub;
+    if ($("verdictNote")) {
+      const note = section.appPausedNote || "";
+      $("verdictNote").textContent = note;
+      $("verdictNote").hidden = !note;
+    }
     $("verdictReason").textContent = section.reason;
     $("verdictReason").hidden = !section.reason;
 

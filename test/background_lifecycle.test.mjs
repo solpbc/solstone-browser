@@ -1555,3 +1555,72 @@ test("a live all-websites grant never widens a site under an older exact grant",
   assert.deepEqual(Array.from(bg.port.exactOnlyOrigins), ["https://bank.com"]);
   assert.equal(sandbox.SolstoneHosts.originGranted(bg.port, "https://login.bank.com"), false);
 });
+
+test("pause with the solstone app defaults on when the key is absent", async () => {
+  const empty = await startWorker();
+  assert.equal((await empty.bg.getCfg()).pauseWithApp, true);
+  assert.equal(empty.bg.port.pauseWithApp, true);
+
+  const current = await startWorker({ paused: false, showPageIndicator: false, chosenOrigins: ["https://example.com"] });
+  assert.equal((await current.bg.getCfg()).pauseWithApp, true);
+
+  const legacy = await startWorker({ paused: false, showPageIndicator: true, grantedOrigins: ["https://legacy.example"] });
+  const legacyCfg = await legacy.bg.getCfg();
+  assert.equal(legacyCfg.pauseWithApp, true);
+  assert.deepEqual(legacyCfg.chosenOrigins, ["https://legacy.example"]);
+
+  const off = await startWorker({
+    paused: false, showPageIndicator: false, chosenOrigins: ["https://example.com"], pauseWithApp: false,
+  });
+  assert.equal((await off.bg.getCfg()).pauseWithApp, false);
+  assert.equal(off.bg.port.pauseWithApp, false);
+});
+
+test("turning pause with the app off updates an open tab without reloading it", async () => {
+  const mock = createMockChrome();
+  mock.storageData.cfg = { paused: false, showPageIndicator: false, chosenOrigins: ["https://example.com"] };
+  let listener = null;
+  let reloads = 0;
+  mock.chrome.runtime.connectNative = () => ({
+    postMessage() {},
+    disconnect() {},
+    onMessage: { addListener: (fn) => { listener = fn; } },
+    onDisconnect: { addListener() {} },
+  });
+  mock.chrome.tabs.reload = () => { reloads += 1; };
+  const sandbox = createSandbox(mock);
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  const bg = sandbox.SolstoneBackground;
+  await bg.ensureInit();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(typeof listener, "function");
+
+  const ack = {
+    type: "hello_ack", capture: "permitted", delivery: "idle", freshness_ms: 10000,
+    destination_generation: "gen-1", period_id: "period-1",
+  };
+  await listener(ack);
+  assert.equal(bg.port.handshake, "ready");
+  mock.sentTabMessages.length = 0;
+  await listener({
+    type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000,
+    destination_generation: "gen-1", period_id: "period-1",
+  });
+  const pausedUpdate = mock.sentTabMessages.filter((entry) => entry.msg?.kind === "leaseUpdate").at(-1);
+  assert.ok(pausedUpdate);
+  assert.equal(pausedUpdate.msg.hostCapture, "paused");
+
+  const id = mock.chrome.runtime.id;
+  mock.sentTabMessages.length = 0;
+  const result = await sandbox.SolstoneRouter.route(
+    { cmd: "setConfig", pauseWithApp: false },
+    { id, url: `chrome-extension://${id}/options.html` },
+    { runtimeId: id, port: bg.port, setCfg: bg.setCfg },
+  );
+  assert.equal(result.ok, true);
+  const openUpdate = mock.sentTabMessages.filter((entry) => entry.msg?.kind === "leaseUpdate").at(-1);
+  assert.ok(openUpdate);
+  assert.equal(openUpdate.msg.hostCapture, "permitted");
+  assert.equal(openUpdate.msg.capturePermitted, true);
+  assert.equal(reloads, 0);
+});

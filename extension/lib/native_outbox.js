@@ -109,7 +109,29 @@
     return true;
   }
 
-  async function enqueueSkim({ inst, ctx, destinationGeneration, senderUrl, site, title, adapter, blocks, nowMs, authorize, writeObservation } = {}) {
+  function stampPageContext(record, pageContext) {
+    if (!pageContext || typeof pageContext !== "object") return;
+    if (pageContext.tab && typeof pageContext.tab === "object" && Object.keys(pageContext.tab).length > 0) {
+      record.tab = { ...pageContext.tab };
+    }
+    if (pageContext.media && typeof pageContext.media === "object") {
+      record.media = { ...pageContext.media };
+    }
+    if (typeof pageContext.lang === "string" && pageContext.lang.length > 0) {
+      record.lang = pageContext.lang;
+    }
+    if (pageContext.browser && typeof pageContext.browser === "object" && pageContext.browser.vendor) {
+      record.browser = { ...pageContext.browser };
+    }
+    if (typeof pageContext.ext === "string" && pageContext.ext.length > 0) {
+      record.ext = pageContext.ext;
+    }
+    if (pageContext.solstone_paused === true) {
+      record.solstone_paused = true;
+    }
+  }
+
+  async function enqueueSkim({ inst, ctx, destinationGeneration, senderUrl, site, title, adapter, blocks, pageContext, nowMs, authorize, writeObservation } = {}) {
     const consts = getConsts();
     const clonedBlocks = structuredClone(blocks || []);
     const ts = Math.floor(Number(nowMs !== undefined ? nowMs : Date.now()));
@@ -124,6 +146,7 @@
     const snapshotRec = Seg.snapshotLine(truncatedSite, { url: originUrl, title: truncatedTitle, adapter: truncatedAdapter }, clonedBlocks, ts, 0);
     snapshotRec.ctx = ctx;
     snapshotRec.inst = inst;
+    stampPageContext(snapshotRec, pageContext);
 
     const ctxKey = contextKeyFor(inst, ctx);
     const maxStamp = { destinationGeneration: maxGeneration, queuedAtMs: maxQueuedAtMs };
@@ -200,6 +223,7 @@
             for (const d of deltas) {
               d.ctx = ctx;
               d.inst = inst;
+              stampPageContext(d, pageContext);
             }
 
             const candidateWireBatch = candidateWire(deltas);

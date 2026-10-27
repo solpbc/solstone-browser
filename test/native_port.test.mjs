@@ -1762,6 +1762,317 @@ test("port: a failed state transition publishes the withdrawn state as settled",
   assert.equal(controller.getStatus().hostSettling, false);
 });
 
+test("port/outbox: same blocks with different pageContext returns disposition empty without new row", async () => {
+  await resetDB();
+  const inst = "00000000-0000-0000-0000-000000000001";
+  const ctx = "ctx-meta-empty";
+  const blocks = [{ id: "1", text: "same text" }];
+
+  const res1 = await Outbox.enqueueSkim({
+    inst, ctx, destinationGeneration: "gen-1", senderUrl: "https://example.test/", site: "example.test",
+    title: "T", adapter: "generic", blocks,
+    pageContext: { lang: "en", tab: { id: 1, front: true } },
+  });
+  assert.equal(res1.enqueued, true);
+
+  // Second skim with identical blocks but different pageContext
+  const res2 = await Outbox.enqueueSkim({
+    inst, ctx, destinationGeneration: "gen-1", senderUrl: "https://example.test/", site: "example.test",
+    title: "T", adapter: "generic", blocks,
+    pageContext: { lang: "fr", tab: { id: 1, front: false } },
+  });
+  assert.equal(res2.enqueued, false);
+  assert.equal(res2.disposition, "empty");
+
+  const rows = await Outbox.getAll();
+  assert.equal(rows.length, 1);
+});
+
+test("port: digest material in enqueueObservedSkim ignores pageContext", async () => {
+  await resetDB();
+  const mockPort = new MockPort();
+  const inst = "00000000-0000-0000-0000-000000000001";
+  const controller = new PortController({ inst, runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", connectNative: () => mockPort });
+  const blocks = [{ id: "b1", text: "text for digest" }];
+  const origin = "https://example.test";
+  const base = {
+    inst, ctx: "ctx-digest", destinationGeneration: "gen-1", senderUrl: "https://example.test/", site: "example.test",
+    title: "Digest Test", adapter: "generic", blocks, nowMs: 1000, monotonicNow: 1000,
+  };
+  await controller.enqueueObservedSkim(
+    { ...base, pageContext: { lang: "en", tab: { id: 1, front: true } } },
+    origin, { clips: ["text"], slot: "1:0", documentId: "doc-en", omitted: true },
+  );
+  await controller.enqueueObservedSkim(
+    { ...base, pageContext: { lang: "fr", tab: { id: 1, front: false }, solstone_paused: true } },
+    origin, { clips: ["text"], slot: "1:1", documentId: "doc-fr", omitted: true },
+  );
+  const meta = controller.truncationByOrigin[origin];
+  const expectedDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([blocks, true, ["text"]])));
+  const expectedId = Array.from(new Uint8Array(expectedDigest), (b) => b.toString(16).padStart(2, "0")).join("");
+  const withContext = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([blocks, { lang: "en" }, true, ["text"]])));
+  const withContextId = Array.from(new Uint8Array(withContext), (b) => b.toString(16).padStart(2, "0")).join("");
+  assert.notEqual(expectedId, withContextId);
+  assert.equal(meta.documents["1:0"].id, expectedId);
+  assert.equal(meta.documents["1:1"].id, expectedId);
+});
+
+test("port: generation boundary sends original snapshot context saved on skim and legacy row still sends", async () => {
+  await resetDB();
+  const inst = "00000000-0000-0000-0000-000000000001";
+  const mockPort = new MockPort();
+  let tabsLookups = 0;
+  const hadChrome = !!globalThis.chrome;
+  const previousTabs = globalThis.chrome?.tabs;
+  if (!globalThis.chrome) globalThis.chrome = {};
+  const liveContext = { id: 1, active: false, audible: true };
+  globalThis.chrome.tabs = { get: async () => { tabsLookups++; return liveContext; } };
+
+  try {
+    const controller = new PortController({ inst, runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", connectNative: () => mockPort });
+    controller.connect();
+    await mockPort.receive({
+      type: "hello_ack", capture: "permitted", delivery: "idle", freshness_ms: 10000,
+      destination_generation: "gen-a", period_id: "p-a",
+    });
+
+    await Outbox.enqueueSkim({
+      inst, ctx: "ctx-recovery", destinationGeneration: "gen-a", senderUrl: "https://example.test/", site: "example.test",
+      title: "T", adapter: "generic", blocks: [{ id: "1", text: "first" }],
+      pageContext: { lang: "en", tab: { id: 7, front: true } },
+    });
+    mockPort.sent = [];
+
+    await Outbox.enqueueSkim({
+      inst, ctx: "ctx-recovery", destinationGeneration: "gen-a", senderUrl: "https://example.test/", site: "example.test",
+      title: "T", adapter: "generic",
+      blocks: [{ id: "1", text: "first" }, { id: "2", text: "second" }],
+      pageContext: { lang: "de", tab: { id: 7, front: false } },
+    });
+
+    await mockPort.receive({
+      type: "state", capture: "permitted", delivery: "idle", freshness_ms: 10000,
+      destination_generation: "gen-b", period_id: "p-b",
+    });
+
+    const batches = mockPort.sent.filter(m => m.type === "batch");
+    assert.ok(batches.length > 0);
+    const recoveryBatch = batches.find(b => b.destination_generation === "gen-b");
+    assert.ok(recoveryBatch);
+    const start = recoveryBatch.records.find((record) => record.t === "segment_start");
+    assert.ok(start);
+    assert.equal(start.lang, "en");
+    assert.equal(start.tab.front, true);
+    assert.equal(start.tab.id, 7);
+    assert.equal(start.tab.active, undefined);
+    assert.equal(start.tab.audible, undefined);
+    assert.equal(JSON.stringify(recoveryBatch.records).includes(JSON.stringify(liveContext)), false);
+    assert.equal(tabsLookups, 0);
+
+    const legacy = globalThis.SolstoneSegment.snapshotLine("legacy.test", {
+      url: "https://legacy.test/", title: "", adapter: "generic",
+    }, [{ id: "1", text: "legacy" }], 2000, 0);
+    legacy.ctx = "ctx-legacy";
+    legacy.inst = inst;
+    assert.equal(legacy.tab, undefined);
+    assert.equal(legacy.lang, undefined);
+    assert.equal(legacy.solstone_paused, undefined);
+    const legacyWire = Outbox.buildWireBatch({
+      batchId: "11112222333344445555666677778888", inst, ctx: "ctx-legacy",
+      destinationGeneration: "gen-b", queuedAtMs: 2000,
+      records: [legacy],
+    }, { destinationGeneration: "gen-b", queuedAtMs: 2000 });
+    assert.doesNotThrow(() => Outbox.validateWireBatch(legacyWire));
+  } finally {
+    if (!hadChrome) delete globalThis.chrome;
+    else if (previousTabs === undefined) delete globalThis.chrome.tabs;
+    else globalThis.chrome.tabs = previousTabs;
+  }
+});
+
+test("port: pause-with-app setting on vs off behavior, period_id requirement, and falsification twins", async () => {
+  await resetDB();
+  const inst = "00000000-0000-0000-0000-000000000001";
+  const mockPort = new MockPort();
+  const controller = new PortController({ inst, runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", connectNative: () => mockPort });
+  controller.consentVersion = 1;
+  controller.chosenOrigins.add("https://example.test");
+  controller.grantedOrigins.add("https://example.test");
+  controller.connect();
+
+  await mockPort.receive({
+    type: "hello_ack", capture: "permitted", delivery: "idle", freshness_ms: 10000,
+    destination_generation: "gen-1", period_id: "p-1",
+  });
+
+  // 1. Setting on (default) + app paused: gate closed, status is app-paused, icon-paused-
+  assert.equal(controller.pauseWithApp, true);
+  await mockPort.receive({
+    type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000,
+    destination_generation: "gen-1", period_id: "p-1",
+  });
+  assert.equal(controller.hostCapture, "paused");
+  assert.equal(controller.capturePermitted, false);
+  const statusOn = controller.getStatus();
+  const deriveOn = globalThis.SolstoneStatus.derive(statusOn);
+  assert.equal(deriveOn.kind, "app-paused");
+  assert.equal(deriveOn.headline, "the solstone app is paused");
+  assert.equal(globalThis.SolstoneStatus.iconState(statusOn).prefix, "icon-paused-");
+  assert.equal(statusOn.addSiteEligible, false);
+  assert.equal(statusOn.gate.open, false);
+  assert.equal(statusOn.gate.reason, "host-paused");
+  assert.equal((await Outbox.getAll()).length, 0);
+
+  // 2. Setting off + paused with period_id: reading stays open and the note stays off the headline
+  controller.pauseWithApp = false;
+  await controller.reapplyLastCapture();
+  assert.equal(controller.hostCapture, "permitted");
+  assert.equal(controller.capturePermitted, true);
+  assert.equal(controller.appReportedPaused(), true);
+  const statusOff = controller.getStatus();
+  assert.equal(statusOff.addSiteEligible, true);
+  assert.equal(statusOff.gate.open, true);
+  const deriveOff = globalThis.SolstoneStatus.derive(statusOff, { anyGrantedTabOpen: true });
+  assert.equal(deriveOff.kind, "on");
+  assert.equal(deriveOff.headline, "on");
+  assert.equal(deriveOff.mark, "healthy");
+  assert.equal(typeof deriveOff.appPausedNote, "string");
+  assert.ok(deriveOff.appPausedNote.length > 0);
+  assert.notEqual(deriveOff.appPausedNote, deriveOff.headline);
+  assert.notEqual(deriveOff.appPausedNote, deriveOff.sub);
+  assert.notEqual(deriveOff.appPausedNote, deriveOff.reason);
+  const iconOff = globalThis.SolstoneStatus.iconState(statusOff, { anyGrantedTabOpen: true });
+  assert.equal(iconOff.prefix, "icon");
+  assert.equal(iconOff.title.includes(deriveOff.appPausedNote), false);
+  assert.equal(globalThis.SolstoneStatus.siteRow("https://example.test", statusOff, {
+    tabsKnown: true, openTabOrigins: ["https://example.test"],
+  }).label, "on now");
+  assert.equal(globalThis.SolstoneStatus.welcomeHold(statusOff).heading.includes("it's paused right now"), false);
+
+  // 3. Paused state without period_id stays closed even with setting off
+  await mockPort.receive({
+    type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000,
+    destination_generation: "gen-1",
+  });
+  assert.equal(controller.capturePermitted, false);
+  assert.equal(controller.getStatus().gate.open, false);
+
+  // 4. Falsification twins with setting off: each closes the gate and keeps its cause headline
+  await mockPort.receive({
+    type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000,
+    destination_generation: "gen-1", period_id: "p-1", custody: { full: true, stale: false },
+  });
+  assert.equal(controller.capturePermitted, false);
+  assert.equal(controller.getStatus().gate.open, false);
+  const dCustody = globalThis.SolstoneStatus.derive(controller.getStatus());
+  assert.equal(dCustody.kind, "app-store-full");
+  assert.equal(dCustody.headline, "no room for more right now");
+  assert.equal(dCustody.appPausedNote, "");
+
+  await mockPort.receive({
+    type: "state", capture: "paused", delivery: "idle", freshness_ms: 0,
+    destination_generation: "gen-1", period_id: "p-1",
+  });
+  assert.equal(controller.capturePermitted, false);
+  assert.equal(controller.getStatus().gate.open, false);
+  const dFresh = globalThis.SolstoneStatus.derive(controller.getStatus());
+  assert.equal(dFresh.kind, "connecting");
+  assert.equal(dFresh.headline, "connecting to the solstone app");
+  assert.equal(dFresh.appPausedNote, "");
+
+  await mockPort.receive({
+    type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000,
+    destination_generation: "gen-1", period_id: "p-1",
+  });
+  controller.pressure = { active: true };
+  assert.equal(controller.getStatus().gate.open, false);
+  const dPressure = globalThis.SolstoneStatus.derive(controller.getStatus());
+  assert.equal(dPressure.kind, "pressure-here");
+  assert.equal(dPressure.headline, "no room for more right now");
+  assert.equal(dPressure.appPausedNote, "");
+  controller.pressure = { active: false };
+
+  await mockPort.receive({
+    type: "state", capture: "intake_off", delivery: "idle", freshness_ms: 10000,
+    destination_generation: "gen-1",
+  });
+  assert.equal(controller.getStatus().gate.open, false);
+  const dIntake = globalThis.SolstoneStatus.derive(controller.getStatus());
+  assert.equal(dIntake.kind, "intake-off");
+  assert.equal(dIntake.headline, "browser pages are off in the solstone app");
+  assert.equal(dIntake.appPausedNote, "");
+  assert.notEqual(dIntake.kind, "on");
+
+  await mockPort.receive({
+    type: "state", capture: "not_paired", delivery: "idle", freshness_ms: 10000,
+  });
+  assert.equal(controller.getStatus().gate.open, false);
+  const dNotPaired = globalThis.SolstoneStatus.derive(controller.getStatus());
+  assert.equal(dNotPaired.kind, "not-paired");
+  assert.equal(dNotPaired.headline, "the solstone app isn't paired yet");
+  assert.equal(dNotPaired.appPausedNote, "");
+  assert.notEqual(dNotPaired.kind, "on");
+
+  await mockPort.receive({
+    type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000,
+    destination_generation: "gen-1", period_id: "p-1",
+  });
+  controller.paused = true;
+  assert.equal(controller.getStatus().gate.open, false);
+  assert.equal(controller.getStatus().gate.reason, "extension-paused");
+  const dPaused = globalThis.SolstoneStatus.derive(controller.getStatus());
+  assert.equal(dPaused.kind, "paused-here");
+  assert.equal(dPaused.headline, "paused in this browser");
+  assert.equal(dPaused.appPausedNote, "");
+  assert.notEqual(dPaused.headline, "on");
+  assert.notEqual(dPaused.headline, "the solstone app is paused");
+});
+
+test("port: toggling pauseWithApp on during an open outbox write under app paused bumps epoch and aborts write", async () => {
+  await resetDB();
+  const inst = "00000000-0000-0000-0000-000000000001";
+  const mockPort = new MockPort();
+  const controller = new PortController({ inst, runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", connectNative: () => mockPort });
+  controller.consentVersion = 1;
+  controller.pauseWithApp = false;
+  controller.connect();
+
+  await mockPort.receive({
+    type: "hello_ack", capture: "permitted", delivery: "idle", freshness_ms: 10000,
+    destination_generation: "gen-1", period_id: "p-1",
+  });
+  await mockPort.receive({
+    type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000,
+    destination_generation: "gen-1", period_id: "p-1",
+  });
+  assert.equal(controller.capturePermitted, true);
+  const admittedEpoch = controller.captureEpoch;
+
+  let started = false;
+  let togglePromise = null;
+  const writePromise = Outbox.enqueueSkim({
+    inst, ctx: "ctx-toggle", destinationGeneration: "gen-1", senderUrl: "https://example.test/", site: "example.test",
+    title: "T", adapter: "generic", blocks: [{ id: "1", text: "will be aborted" }],
+    authorize: () => {
+      if (!started) {
+        started = true;
+        controller.pauseWithApp = true;
+        togglePromise = controller.reapplyLastCapture();
+      }
+      controller.syncCaptureAuthority();
+      return controller.captureEpoch === admittedEpoch;
+    },
+  });
+
+  try {
+    await assert.rejects(writePromise, (err) => err && (err.code === "authorization_failed" || /authorization_failed/.test(String(err.message || err))));
+    assert.notEqual(controller.captureEpoch, admittedEpoch);
+    assert.equal((await Outbox.getAll()).length, 0);
+  } finally {
+    if (togglePromise) await togglePromise.catch(() => {});
+  }
+});
+
 test("port: a dropped connection is never reported as settling", async () => {
   await resetDB();
   const statusUpdates = [];

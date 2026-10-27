@@ -116,6 +116,15 @@
     const decisionAfter = getDecision();
     if (!decisionAfter.open) return;
 
+    let pageFacts = null;
+    if (globalThis.SolstonePageFacts && typeof globalThis.SolstonePageFacts.readDomFacts === "function") {
+      try {
+        pageFacts = globalThis.SolstonePageFacts.readDomFacts(document);
+      } catch (_e) {
+        pageFacts = null;
+      }
+    }
+
     const msg = {
       kind: "skim",
       reason,
@@ -127,6 +136,7 @@
       leaseToken: lease?.token || null,
       readNonce: injectedRead?.nonce || null,
     };
+    if (pageFacts && Object.keys(pageFacts).length > 0) msg.page = pageFacts;
     if (omitted) msg.omitted = true;
     if (clips.length) msg.clips = clips;
     send(msg);

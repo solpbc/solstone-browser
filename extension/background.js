@@ -22,6 +22,8 @@ if (typeof importScripts === "function") {
     "lib/native_port.js",
     "lib/status.js",
     "lib/owner_sites.js",
+    "lib/tab_age.js",
+    "lib/page_facts.js",
     "lib/router.js"
   );
 }
@@ -50,12 +52,14 @@ const CONTENT_SCRIPT_FILES = [
   "skim.js",
   "indicator.js",
   "lib/gate.js",
+  "lib/page_facts.js",
   "content.js",
 ];
 
 const DEFAULT_CFG = {
   paused: false,
   showPageIndicator: false,
+  pauseWithApp: true,
   chosenOrigins: [],
   siteMode: "selected",
   excludedHosts: [],
@@ -72,6 +76,37 @@ const statusPorts = new Set();
 // Tabs that may hold a lease must receive withdrawal without a fresh query.
 const leaseTabs = new Set();
 
+let browserIdentityPromise = null;
+function getBrowserIdentity() {
+  if (!browserIdentityPromise) {
+    browserIdentityPromise = (async () => {
+      try {
+        let browserInfo = null;
+        if (typeof browser !== "undefined" && browser.runtime?.getBrowserInfo) {
+          try { browserInfo = await browser.runtime.getBrowserInfo(); } catch (_e) {}
+        }
+        let userAgentData = null;
+        if (typeof navigator !== "undefined" && navigator.userAgentData) {
+          userAgentData = navigator.userAgentData;
+          if (typeof userAgentData.getHighEntropyValues === "function") {
+            try {
+              const high = await userAgentData.getHighEntropyValues(["fullVersionList"]);
+              if (high && Array.isArray(high.fullVersionList)) {
+                userAgentData = { ...userAgentData, fullVersionList: high.fullVersionList };
+              }
+            } catch (_e) {}
+          }
+        }
+        const userAgent = typeof navigator !== "undefined" ? navigator.userAgent : "";
+        return globalThis.SolstonePageFacts ? globalThis.SolstonePageFacts.mapBrowser({ browserInfo, userAgentData, userAgent }) : null;
+      } catch (_e) {
+        return null;
+      }
+    })();
+  }
+  return browserIdentityPromise;
+}
+
 async function getCfg() {
   const r = await chrome.storage.local.get("cfg");
   const stored = r.cfg || {};
@@ -81,6 +116,7 @@ async function getCfg() {
     const next = {
       paused: !!stored.paused,
       showPageIndicator: !!stored.showPageIndicator,
+      pauseWithApp: stored.pauseWithApp !== false,
       chosenOrigins,
     };
     await chrome.storage.local.set({ cfg: next });
@@ -89,6 +125,7 @@ async function getCfg() {
   return {
     paused: !!stored.paused,
     showPageIndicator: !!stored.showPageIndicator,
+    pauseWithApp: stored.pauseWithApp !== false,
     chosenOrigins,
     siteMode: stored.siteMode === "all" ? "all" : "selected",
     // A stored left-out site covers its subdomains too, and www.bank.com means
@@ -682,6 +719,7 @@ async function doInit() {
   port.everConnected = everConnected;
   port.paused = cfg.paused;
   port.showPageIndicator = cfg.showPageIndicator;
+  port.pauseWithApp = cfg.pauseWithApp !== false;
   port.chosenOrigins = new Set(cfg.chosenOrigins || []);
   port.siteMode = cfg.siteMode;
   port.excludedHosts = cfg.excludedHosts;
@@ -742,6 +780,20 @@ async function doInit() {
   port.connect();
   updateBadge();
   refreshOpenTabs();
+  try {
+    const q = chrome.tabs?.query?.({}, (tabs) => {
+      if (!chrome.runtime.lastError && Array.isArray(tabs) && typeof SolstoneTabAge !== "undefined") {
+        SolstoneTabAge.start(tabs, port.now());
+      }
+    });
+    if (q && typeof q.then === "function") {
+      q.then((tabs) => {
+        if (Array.isArray(tabs) && typeof SolstoneTabAge !== "undefined") {
+          SolstoneTabAge.start(tabs, port.now());
+        }
+      }).catch(() => {});
+    }
+  } catch (_e) {}
   return port;
 }
 
@@ -792,6 +844,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       updateSitePolicy,
       executeBrowserRead,
       refreshSiteAccess,
+      getBrowserIdentity,
     };
     return Router.route(msg, sender, deps);
   }).then(sendResponse, (err) => {
@@ -804,9 +857,17 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   leaseTabs.delete(tabId);
   port?.pruneTruncationDocuments?.(slot => slot.split(":")[0] !== String(tabId));
   Router.destroyBinding(tabId);
+  if (typeof SolstoneTabAge !== "undefined") {
+    SolstoneTabAge.forget(tabId);
+  }
   refreshOpenTabs();
 });
-chrome.tabs.onCreated?.addListener(() => refreshOpenTabs());
+chrome.tabs.onCreated?.addListener((tab) => {
+  if (port && typeof SolstoneTabAge !== "undefined") {
+    SolstoneTabAge.noteCreated(tab, port.now());
+  }
+  refreshOpenTabs();
+});
 chrome.tabs.onUpdated?.addListener(() => refreshOpenTabs());
 
 chrome.alarms.onAlarm.addListener((alarm) => {

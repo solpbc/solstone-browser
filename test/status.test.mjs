@@ -7,6 +7,7 @@ import fs from "node:fs";
 
 await import(new URL("../extension/lib/copy.js", import.meta.url));
 await import(new URL("../extension/lib/hosts.js", import.meta.url));
+await import(new URL("../extension/lib/gate.js", import.meta.url));
 await import(new URL("../extension/lib/status.js", import.meta.url));
 
 const S = globalThis.SolstoneStatus;
@@ -385,4 +386,68 @@ test("a site's error row never shows an internal code", () => {
     grantedOrigins: ["https://a.example"], registration: { "https://a.example": "failed" } }));
   assert.equal(row.kind, "error");
   assert.equal(row.label, "couldn't start on this site. remove it and add it again.");
+});
+
+test("agreement versions stay at 1", () => {
+  assert.equal(globalThis.SolstoneHosts.ALL_SITES_CONSENT_VERSION, 1);
+  assert.equal(globalThis.SolstoneCaptureGate.CONSENT_VERSION, 1);
+});
+
+test("an app pause while reading stays open does not use the paused presentation", () => {
+  const open = mockStatus({ appReportedPaused: true, hostCapture: "permitted", capturePermitted: true,
+    hostDelivery: "delivered", openTabs: { known: true, openOrigins: ["https://example.com"], anyGrantedTabOpen: true } });
+  const derived = S.derive(open, { anyGrantedTabOpen: true });
+  assert.equal(derived.kind, "on");
+  assert.equal(derived.headline, "on");
+  assert.equal(derived.mark, "healthy");
+  assert.equal(typeof derived.appPausedNote, "string");
+  assert.ok(derived.appPausedNote.length > 0);
+  assert.notEqual(derived.appPausedNote, derived.headline);
+  const icon = S.iconState(open, { anyGrantedTabOpen: true });
+  assert.equal(icon.prefix, "icon");
+  assert.equal(icon.title.includes(derived.appPausedNote), false);
+  assert.equal(S.siteRow("https://example.com", open).label, "on now");
+  assert.equal(S.welcomeHold(open).heading.includes("it's paused right now"), false);
+
+  const delivering = mockStatus({ appReportedPaused: true, hostDelivery: null });
+  const delivery = S.derive(delivering, { anyGrantedTabOpen: true });
+  assert.equal(delivery.kind, "connecting");
+  assert.equal(delivery.connecting, "delivery");
+  assert.equal(delivery.headline, "on");
+  assert.ok(delivery.appPausedNote.length > 0);
+  assert.equal(S.iconState(delivering, { anyGrantedTabOpen: true }).prefix, "icon-connecting-");
+  assert.equal(S.iconState(delivering, { anyGrantedTabOpen: true }).title.includes(delivery.appPausedNote), false);
+
+  const pausedHere = mockStatus({ hostCapture: "paused", appReportedPaused: false, capturePermitted: false });
+  assert.equal(S.derive(pausedHere).kind, "app-paused");
+  assert.equal(S.derive(pausedHere).headline, "the solstone app is paused");
+  assert.equal(S.iconState(pausedHere).prefix, "icon-paused-");
+  assert.equal(S.siteRow("https://example.com", pausedHere).label, "paused");
+  assert.equal(S.welcomeHold(pausedHere).heading.includes("it's paused right now"), true);
+});
+
+test("a reported app pause still yields each closed cause", () => {
+  const cases = [
+    [mockStatus({ appReportedPaused: true, hostCapture: "permitted", capturePermitted: false, custody: { full: true, stale: false } }),
+      "app-store-full", "no room for more right now"],
+    [mockStatus({ appReportedPaused: true, hostCapture: "permitted", capturePermitted: false, custody: { full: false, stale: false }, lease: null }),
+      "connecting", "connecting to the solstone app"],
+    [mockStatus({ appReportedPaused: true, hostCapture: "permitted", capturePermitted: true, pressure: { active: true } }),
+      "pressure-here", "no room for more right now"],
+    [mockStatus({ hostCapture: "intake_off", hostFailure: null, capturePermitted: false }),
+      "intake-off", "browser pages are off in the solstone app"],
+    [mockStatus({ hostCapture: "not_paired", capturePermitted: false }),
+      "not-paired", "the solstone app isn't paired yet"],
+    [mockStatus({ paused: true, appReportedPaused: true, hostCapture: "permitted", capturePermitted: true }),
+      "paused-here", "paused in this browser"],
+  ];
+  for (const [status, kind, headline] of cases) {
+    const derived = S.derive(status, { anyGrantedTabOpen: true });
+    assert.equal(derived.kind, kind);
+    assert.equal(derived.headline, headline);
+    assert.equal(derived.appPausedNote, "");
+    assert.notEqual(derived.kind, "on");
+    assert.notEqual(derived.headline, "the solstone app is paused");
+    assert.notEqual(derived.headline, "status unavailable");
+  }
 });

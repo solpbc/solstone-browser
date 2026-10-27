@@ -5,6 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 await import(new URL("../extension/lib/copy.js", import.meta.url));
+await import(new URL("../extension/lib/gate.js", import.meta.url));
 await import(new URL("../extension/lib/disclosure.js", import.meta.url));
 
 const D = globalThis.SolstoneDisclosure;
@@ -37,6 +38,10 @@ test("disclosure helpers do not mutate caller state", () => {
   assert.deepEqual(state, {
     brand: "chrome",
   });
+});
+
+test("the disclosure consent version stays at 1", () => {
+  assert.equal(globalThis.SolstoneCaptureGate.CONSENT_VERSION, 1);
 });
 
 test("leave-out copy says other sites shown inside a left-out page are still shared", () => {

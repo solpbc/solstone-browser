@@ -143,6 +143,8 @@
       this.openTabs = { known: false, openOrigins: null, anyGrantedTabOpen: null };
       this.consentVersion = 0;
       this.showPageIndicator = false;
+      this.pauseWithApp = true;
+      this.lastCaptureMessage = null;
       this.capturePermitted = false;
       this.brand = resolveBrand();
       this.platform = options.platform || "";
@@ -445,6 +447,8 @@
         inactiveOrigins,
         openTabs: this.openTabs ? { ...this.openTabs, openOrigins: Array.isArray(this.openTabs.openOrigins) ? this.openTabs.openOrigins.slice() : null } : { known: false, openOrigins: null, anyGrantedTabOpen: null },
         showPageIndicator: !!this.showPageIndicator,
+        pauseWithApp: this.pauseWithApp !== false,
+        appReportedPaused: this.appReportedPaused() === true,
         updateCheck: this.updateCheck,
         capturePermitted,
         addSiteEligible,
@@ -582,95 +586,7 @@
           this.handshake = "ready";
           this.appAnswered = true;
         } else if (this.handshake !== "ready") return;
-        // Clear the old destination before the first status or any await,
-        // including a new destination with absent or malformed optional facts.
-        if (val.type === "hello_ack" || this.aboutDestination !== (val.destination_generation || null)) {
-          this.about = null;
-          this.aboutDestination = val.destination_generation || null;
-        }
-        this.aboutDeadline = null;
-        const about = globalThis.SolstoneAbout?.decode(val.about) || null;
-        const deliveryContinues = this.destinationGeneration === val.destination_generation &&
-          ["permitted", "paused", "intake_off"].includes(val.capture);
-        const revision = ++this.stateRevision;
-        this.settlingRevision = revision;
-        const current = () => this.opEpoch === epoch && this.connectionGeneration === gen &&
-          this.connectionToken === token && this.stateRevision === revision && this.handshake === "ready";
-        // Withdraw old authority before any durable transition. A newer state
-        // aborts this transition's still-active transaction through notify().
-        this.lease = null;
-        this.capturePermitted = false;
-        this.hostCapture = null;
-        this.hostDelivery = null;
-        this.hostFailure = null;
-        this.custody = null;
-        if (!deliveryContinues) {
-          this.destinationGeneration = null;
-          this.drainOwner = false;
-          this.inflightBatch = null;
-        }
-        this.notify();
-        try {
-          if (typeof val.destination_generation === "string" && val.destination_generation.length > 0) {
-            const promoted = await Outbox.promoteHeldForGeneration(val.destination_generation, current);
-            if (!current()) return;
-            if (promoted?.count) {
-              await this.refreshStorageStatus();
-              if (!current()) return;
-            }
-          }
-          if (!current()) return;
-          if (val.capture !== "unavailable" && !this.everConnected) {
-            await DB.put("meta", true, "everConnected");
-            if (!current()) return;
-            this.everConnected = true;
-          }
-        } catch (_e) {
-          // The transition failed: the withdrawn state is the true one now.
-          if (current()) {
-            this.settlingRevision = null;
-            this.notify();
-          }
-          return;
-        }
-        if (!current()) return;
-        this.settlingRevision = null;
-        this.hostCapture = val.capture;
-        this.hostDelivery = val.delivery || null;
-        this.hostFailure = val.failure || null;
-        this.custody = val.custody ? { ...val.custody } : null;
-        this.destinationGeneration = val.destination_generation || null;
-        this.behind = null;
-        this.capturePermitted = codec.captureIsPermitted(val);
-        this.hostStateDeadline = val.freshness_ms > 0 ? nowMs + val.freshness_ms : null;
-        if (about) {
-          this.about = about;
-          this.aboutDeadline = this.hostStateDeadline;
-        }
-        const expire = () => {
-          if (!current()) return;
-          this.lease = null;
-          this.capturePermitted = false;
-          this.hostCapture = null;
-          this.hostDelivery = null;
-          this.hostFailure = null;
-          this.custody = null;
-          this.notify();
-        };
-        if (this.hostStateDeadline != null && this.now() >= this.hostStateDeadline) {
-          expire();
-        } else {
-          if (this.capturePermitted) {
-            this.lease = { token, generation: val.destination_generation, receivedAt: nowMs, freshnessMs: val.freshness_ms };
-          }
-          if (this.hostStateDeadline != null) this.schedule(expire, this.hostStateDeadline - this.now());
-        }
-        this.notify();
-        if (typeof val.destination_generation === "string" && val.destination_generation.length > 0) {
-          this.retryAfterState = false;
-        }
-        await this.drain();
-        return;
+        return await this.applyCaptureMessage(val, epoch, gen, token);
       }
 
       if (val.type === "unsupported") {
@@ -816,6 +732,117 @@
         this.notify();
         await Outbox.markAllSnapshotRequired().catch(() => {});
       }
+    }
+
+    async applyCaptureMessage(val, epoch, gen, token) {
+      if (!val) return;
+      this.lastCaptureMessage = val;
+      const codec = globalThis.SolstoneNativeBrowser;
+      const nowMs = this.now();
+
+      // Clear the old destination before the first status or any await,
+      // including a new destination with absent or malformed optional facts.
+      if (val.type === "hello_ack" || this.aboutDestination !== (val.destination_generation || null)) {
+        this.about = null;
+        this.aboutDestination = val.destination_generation || null;
+      }
+      this.aboutDeadline = null;
+      const about = globalThis.SolstoneAbout?.decode(val.about) || null;
+      const deliveryContinues = this.destinationGeneration === val.destination_generation &&
+        ["permitted", "paused", "intake_off"].includes(val.capture);
+      const revision = ++this.stateRevision;
+      this.settlingRevision = revision;
+      const current = () => this.opEpoch === epoch && this.connectionGeneration === gen &&
+        this.connectionToken === token && this.stateRevision === revision && this.handshake === "ready";
+      // Withdraw old authority before any durable transition. A newer state
+      // aborts this transition's still-active transaction through notify().
+      this.lease = null;
+      this.capturePermitted = false;
+      this.hostCapture = null;
+      this.hostDelivery = null;
+      this.hostFailure = null;
+      this.custody = null;
+      if (!deliveryContinues) {
+        this.destinationGeneration = null;
+        this.drainOwner = false;
+        this.inflightBatch = null;
+      }
+      this.notify();
+      try {
+        if (typeof val.destination_generation === "string" && val.destination_generation.length > 0) {
+          const promoted = await Outbox.promoteHeldForGeneration(val.destination_generation, current);
+          if (!current()) return;
+          if (promoted?.count) {
+            await this.refreshStorageStatus();
+            if (!current()) return;
+          }
+        }
+        if (!current()) return;
+        if (val.capture !== "unavailable" && !this.everConnected) {
+          await DB.put("meta", true, "everConnected");
+          if (!current()) return;
+          this.everConnected = true;
+        }
+      } catch (_e) {
+        // The transition failed: the withdrawn state is the true one now.
+        if (current()) {
+          this.settlingRevision = null;
+          this.notify();
+        }
+        return;
+      }
+      if (!current()) return;
+      this.settlingRevision = null;
+
+      const stateForCapture = (this.pauseWithApp === false && val.capture === "paused")
+        ? { ...val, capture: "permitted" }
+        : val;
+
+      this.hostCapture = stateForCapture.capture;
+      this.hostDelivery = val.delivery || null;
+      this.hostFailure = val.failure || null;
+      this.custody = val.custody ? { ...val.custody } : null;
+      this.destinationGeneration = val.destination_generation || null;
+      this.behind = null;
+      this.capturePermitted = codec.captureIsPermitted(stateForCapture);
+      this.hostStateDeadline = val.freshness_ms > 0 ? nowMs + val.freshness_ms : null;
+      if (about) {
+        this.about = about;
+        this.aboutDeadline = this.hostStateDeadline;
+      }
+      const expire = () => {
+        if (!current()) return;
+        this.lease = null;
+        this.capturePermitted = false;
+        this.hostCapture = null;
+        this.hostDelivery = null;
+        this.hostFailure = null;
+        this.custody = null;
+        this.notify();
+      };
+      if (this.hostStateDeadline != null && this.now() >= this.hostStateDeadline) {
+        expire();
+      } else {
+        if (this.capturePermitted) {
+          this.lease = { token, generation: val.destination_generation, receivedAt: nowMs, freshnessMs: val.freshness_ms };
+        }
+        if (this.hostStateDeadline != null) this.schedule(expire, this.hostStateDeadline - this.now());
+      }
+      this.notify();
+      if (typeof val.destination_generation === "string" && val.destination_generation.length > 0) {
+        this.retryAfterState = false;
+      }
+      await this.drain();
+      return;
+    }
+
+    appReportedPaused() {
+      return this.pauseWithApp === false && this.lastCaptureMessage?.capture === "paused";
+    }
+
+    async reapplyLastCapture() {
+      if (!this.lastCaptureMessage || this.handshake !== "ready") return;
+      return await this.applyCaptureMessage(this.lastCaptureMessage, this.opEpoch, this.connectionGeneration, this.connectionToken);
     }
 
     handlePortDisconnect(epoch, gen, token) {

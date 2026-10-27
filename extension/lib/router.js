@@ -434,13 +434,27 @@
         }
 
         case "setConfig": {
+          let hasChange = false;
+          const patch = {};
+          const prevShowPageIndicator = port.showPageIndicator;
+          const prevPauseWithApp = port.pauseWithApp;
+
           if (typeof msg.showPageIndicator === "boolean") {
-            const prev = port.showPageIndicator;
             port.showPageIndicator = msg.showPageIndicator;
+            patch.showPageIndicator = port.showPageIndicator;
+            hasChange = true;
+          }
+          if (typeof msg.pauseWithApp === "boolean") {
+            port.pauseWithApp = msg.pauseWithApp;
+            patch.pauseWithApp = port.pauseWithApp;
+            hasChange = true;
+          }
+
+          if (hasChange) {
             let saveOk = false;
             if (deps.setCfg) {
               try {
-                await deps.setCfg({ showPageIndicator: port.showPageIndicator });
+                await deps.setCfg(patch);
                 saveOk = true;
               } catch (_e) {
                 saveOk = false;
@@ -450,13 +464,17 @@
             }
 
             if (!saveOk) {
-              port.showPageIndicator = prev;
+              port.showPageIndicator = prevShowPageIndicator;
+              port.pauseWithApp = prevPauseWithApp;
               port.notify();
               return { ok: false, error: "storage_error" };
             }
 
-            if (typeof deps.broadcastIndicator === "function") {
+            if (Object.hasOwn(patch, "showPageIndicator") && typeof deps.broadcastIndicator === "function") {
               deps.broadcastIndicator(port.showPageIndicator);
+            }
+            if (Object.hasOwn(patch, "pauseWithApp") && typeof port.reapplyLastCapture === "function") {
+              await port.reapplyLastCapture();
             }
             port.notify();
             return { ok: true };
@@ -691,6 +709,61 @@
         };
 
         const clips = Array.isArray(msg.clips) ? Array.from(new Set(msg.clips.filter((clip) => ["blocks", "text", "label"].includes(clip)))).sort() : [];
+        let tab = null;
+        let win = null;
+        try {
+          if (typeof chrome !== "undefined" && chrome.tabs?.get && Number.isInteger(tabId)) {
+            const fetchedTab = await chrome.tabs.get(tabId);
+            if (fetchedTab && fetchedTab.windowId != null && chrome.windows?.get) {
+              const fetchedWin = await chrome.windows.get(fetchedTab.windowId);
+              if (fetchedWin) {
+                tab = fetchedTab;
+                win = fetchedWin;
+              }
+            }
+          }
+        } catch (_e) {
+          tab = null;
+          win = null;
+        }
+
+        let ageMs;
+        try {
+          if (globalThis.SolstoneTabAge && typeof globalThis.SolstoneTabAge.ageMs === "function") {
+            ageMs = await globalThis.SolstoneTabAge.ageMs(tabId, port.now());
+          }
+        } catch (_e) {}
+
+        let browser = null;
+        try {
+          if (typeof deps.getBrowserIdentity === "function") {
+            browser = await deps.getBrowserIdentity();
+          } else if (globalThis.SolstonePageFacts?.mapBrowser) {
+            browser = await globalThis.SolstonePageFacts.mapBrowser({});
+          }
+        } catch (_e) {}
+
+        let ext = "";
+        try {
+          if (typeof chrome !== "undefined" && chrome.runtime?.getManifest) {
+            ext = chrome.runtime.getManifest()?.version || "";
+          }
+        } catch (_e) {}
+
+        const solstonePaused = port.appReportedPaused ? port.appReportedPaused() === true : false;
+
+        const pageContext = globalThis.SolstonePageFacts?.assemble ? globalThis.SolstonePageFacts.assemble({
+          tabId,
+          frameId,
+          page: msg.page,
+          tab,
+          window: win,
+          ageMs,
+          browser,
+          ext,
+          solstonePaused,
+        }) : undefined;
+
         try {
           const enqueueArgs = {
             inst: port.inst,
@@ -701,6 +774,7 @@
             title,
             adapter,
             blocks: blocksList,
+            pageContext,
             nowMs: Date.now(),
             monotonicNow: port.now(),
             authorize,

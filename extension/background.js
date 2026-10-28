@@ -820,7 +820,11 @@ chrome.runtime.onConnect.addListener((p) => {
       // solstone app looks again, so try the app now rather than at the next
       // minute's poll.
       if (port && !port.livePort) port.connect();
-      if (port) p.postMessage({ type: "status", status: port.getStatus() });
+      if (!port) return;
+      // Mid-renewal, the settled state reaches this surface through
+      // updateBadge, like every surface already open.
+      const status = port.getStatus();
+      if (!status.hostSettling) p.postMessage({ type: "status", status });
     }).catch(() => {});
     p.onDisconnect.addListener(() => {
       statusPorts.delete(p);

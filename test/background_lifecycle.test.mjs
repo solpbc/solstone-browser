@@ -1448,6 +1448,36 @@ test("lifecycle: a settling status reaches content scripts but not the owner's s
   assert.equal(posted.length,before.posted+1);
 });
 
+test("lifecycle: a surface opened mid-renewal shows the settled state, not \"can't reach\"", async () => {
+  const {mock,bg,sandbox}=await startWorker(); const p=bg.port;
+  const epoch=p.opEpoch,gen=p.connectionGeneration,token=p.connectionToken;
+  p.handshake="ready"; p.everConnected=true;
+  const state={type:"state",capture:"permitted",delivery:"idle",freshness_ms:15000,destination_generation:"gen-renew"};
+  await p.applyCaptureMessage(state,epoch,gen,token);
+  const held=deferred(),outbox=sandbox.SolstoneNativeOutbox,original=outbox.promoteHeldForGeneration;
+  outbox.promoteHeldForGeneration=()=>held.promise;
+  const renewal=p.applyCaptureMessage(state,epoch,gen,token);
+  const id=mock.chrome.runtime.id, sender={id,url:`chrome-extension://${id}/popup.html`};
+  const posted=[];
+  for (const fn of mock.listeners.onConnect) fn({name:"status",sender,disconnect(){},postMessage:m=>posted.push(m),onDisconnect:{addListener(){}}});
+  let answered=null;
+  mock.listeners.onMessage[0]({cmd:"getState"},sender,r=>{answered=r;});
+  await new Promise(r=>setImmediate(r));
+  try {
+    assert.equal(p.getStatus().hostSettling,true);
+    assert.equal(p.capturePermitted,false,"reading stays withdrawn while the renewal settles");
+    assert.equal(posted.length,0);
+    assert.equal(answered,null);
+  } finally { outbox.promoteHeldForGeneration=original; held.resolve({count:0}); await renewal; }
+  await new Promise(r=>setImmediate(r));
+  assert.equal(posted.length,1);
+  for (const status of [posted[0].status,answered]) {
+    assert.equal(status.hostSettling,false);
+    assert.equal(status.hostCapture,"permitted");
+    assert.notEqual(sandbox.SolstoneStatus.derive(status).kind,"cant-reach-app");
+  }
+});
+
 test("a site left out before covers every address under it on load", async () => {
   const mock=createMockChrome();
   mock.storageData.cfg={chosenOrigins:[],paused:false,showPageIndicator:false,siteMode:"all",allSitesConsent:1,

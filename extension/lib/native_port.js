@@ -89,6 +89,7 @@
       this.hostStateDeadline = null;
       this.stateRevision = 0;
       this.settlingRevision = null;
+      this.settledWaiters = [];
       this.opEpoch = 0;
       this.connectionGeneration = 0;
       this.connectionToken = null;
@@ -167,9 +168,22 @@
     notify() {
       this.syncCaptureAuthority();
       Outbox.checkAuthorization?.();
+      const status = this.getStatus();
       if (typeof this.onStatusChange === "function") {
-        this.onStatusChange(this.getStatus());
+        this.onStatusChange(status);
       }
+      if (!status.hostSettling && this.settledWaiters.length > 0) {
+        for (const resolve of this.settledWaiters.splice(0)) resolve(status);
+      }
+    }
+
+    // What the owner's surfaces show. A surface opened between withdrawing and
+    // re-granting authority for a host state waits for the settled state, as
+    // the badge does; capture authority itself never waits.
+    settledStatus() {
+      const status = this.getStatus();
+      if (!status.hostSettling) return Promise.resolve(status);
+      return new Promise((resolve) => this.settledWaiters.push(resolve));
     }
 
     async persistSiteMaps() {

@@ -285,7 +285,7 @@
 
       switch (msg.cmd) {
         case "getState": {
-          return { ok: true, ...port.getStatus() };
+          return { ok: true, ...(await port.settledStatus()) };
         }
 
         case "acknowledgeDisclosure": {

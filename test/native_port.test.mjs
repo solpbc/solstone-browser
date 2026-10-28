@@ -1908,7 +1908,7 @@ test("port: pause-with-app setting on vs off behavior, period_id requirement, an
   // 1. Setting on (default) + app paused: gate closed, status is app-paused, icon-paused-
   assert.equal(controller.pauseWithApp, true);
   await mockPort.receive({
-    type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000,
+    type: "state", capture: "paused", away: false, delivery: "idle", freshness_ms: 10000,
     destination_generation: "gen-1", period_id: "p-1",
   });
   assert.equal(controller.hostCapture, "paused");
@@ -1951,7 +1951,7 @@ test("port: pause-with-app setting on vs off behavior, period_id requirement, an
 
   // 3. Paused state without period_id stays closed even with setting off
   await mockPort.receive({
-    type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000,
+    type: "state", capture: "paused", away: false, delivery: "idle", freshness_ms: 10000,
     destination_generation: "gen-1",
   });
   assert.equal(controller.capturePermitted, false);
@@ -1959,7 +1959,7 @@ test("port: pause-with-app setting on vs off behavior, period_id requirement, an
 
   // 4. Falsification twins with setting off: each closes the gate and keeps its cause headline
   await mockPort.receive({
-    type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000,
+    type: "state", capture: "paused", away: false, delivery: "idle", freshness_ms: 10000,
     destination_generation: "gen-1", period_id: "p-1", custody: { full: true, stale: false },
   });
   assert.equal(controller.capturePermitted, false);
@@ -1970,7 +1970,7 @@ test("port: pause-with-app setting on vs off behavior, period_id requirement, an
   assert.equal(dCustody.appPausedNote, "");
 
   await mockPort.receive({
-    type: "state", capture: "paused", delivery: "idle", freshness_ms: 0,
+    type: "state", capture: "paused", away: false, delivery: "idle", freshness_ms: 0,
     destination_generation: "gen-1", period_id: "p-1",
   });
   assert.equal(controller.capturePermitted, false);
@@ -1981,7 +1981,7 @@ test("port: pause-with-app setting on vs off behavior, period_id requirement, an
   assert.equal(dFresh.appPausedNote, "");
 
   await mockPort.receive({
-    type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000,
+    type: "state", capture: "paused", away: false, delivery: "idle", freshness_ms: 10000,
     destination_generation: "gen-1", period_id: "p-1",
   });
   controller.pressure = { active: true };
@@ -2014,7 +2014,7 @@ test("port: pause-with-app setting on vs off behavior, period_id requirement, an
   assert.notEqual(dNotPaired.kind, "on");
 
   await mockPort.receive({
-    type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000,
+    type: "state", capture: "paused", away: false, delivery: "idle", freshness_ms: 10000,
     destination_generation: "gen-1", period_id: "p-1",
   });
   controller.paused = true;
@@ -2026,6 +2026,59 @@ test("port: pause-with-app setting on vs off behavior, period_id requirement, an
   assert.equal(dPaused.appPausedNote, "");
   assert.notEqual(dPaused.headline, "on");
   assert.notEqual(dPaused.headline, "the solstone app is paused");
+});
+
+test("port: with the setting off, a locked or asleep computer still closes reading, and so does an app that can't say why it paused", async () => {
+  await resetDB();
+  const inst = "00000000-0000-0000-0000-000000000001";
+  const mockPort = new MockPort();
+  const controller = new PortController({ inst, runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", connectNative: () => mockPort });
+  controller.consentVersion = 1;
+  controller.chosenOrigins.add("https://example.test");
+  controller.grantedOrigins.add("https://example.test");
+  controller.pauseWithApp = false;
+  controller.connect();
+
+  const paused = (extra) => ({
+    type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000,
+    destination_generation: "gen-1", period_id: "p-1", ...extra,
+  });
+  const closedAsAppPaused = () => {
+    assert.equal(controller.hostCapture, "paused");
+    assert.equal(controller.capturePermitted, false);
+    assert.equal(controller.lease, null);
+    assert.equal(controller.appReportedPaused(), false);
+    const status = controller.getStatus();
+    assert.equal(status.gate.open, false);
+    assert.equal(status.gate.reason, "host-paused");
+    assert.equal(globalThis.SolstoneStatus.derive(status).kind, "app-paused");
+  };
+
+  // The owner's own pause: the setting keeps reading open.
+  await mockPort.receive({ ...paused({ away: false }), type: "hello_ack" });
+  assert.equal(controller.capturePermitted, true);
+  assert.equal(controller.appReportedPaused(), true);
+
+  // Nobody at the computer: closed, whatever the setting says.
+  await mockPort.receive(paused({ away: true }));
+  closedAsAppPaused();
+
+  // An app that reports a pause without saying whether anyone is there
+  // (every app before the away fact) is treated as away.
+  await mockPort.receive(paused({}));
+  closedAsAppPaused();
+  await mockPort.receive(paused({ away: "false" }));
+  closedAsAppPaused();
+
+  // Back at the computer and still paused by the owner: open again.
+  await mockPort.receive(paused({ away: false }));
+  assert.equal(controller.capturePermitted, true);
+  assert.equal(controller.getStatus().gate.open, true);
+
+  // With the setting on, the owner's pause closes reading as before.
+  controller.pauseWithApp = true;
+  await controller.reapplyLastCapture();
+  closedAsAppPaused();
 });
 
 test("port: toggling pauseWithApp on during an open outbox write under app paused bumps epoch and aborts write", async () => {
@@ -2042,7 +2095,7 @@ test("port: toggling pauseWithApp on during an open outbox write under app pause
     destination_generation: "gen-1", period_id: "p-1",
   });
   await mockPort.receive({
-    type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000,
+    type: "state", capture: "paused", away: false, delivery: "idle", freshness_ms: 10000,
     destination_generation: "gen-1", period_id: "p-1",
   });
   assert.equal(controller.capturePermitted, true);

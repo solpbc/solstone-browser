@@ -9,7 +9,7 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 ### Added
 
 - on the sites you share, the solstone extension now also takes in whether the tab was in front, whether its window had focus, whether audio or video was playing, the page's language, which browser it is, and how long the tab has been open, and all of it goes into your journal.
-- choose whether the extension pauses when the solstone app pauses. the setting is on by default; turn it off in settings and the extension keeps taking in your shared sites while the app is paused, and all of it goes into your journal.
+- choose whether the extension pauses when you pause the solstone app. the setting is on by default; turn it off in settings and the extension keeps taking in your shared sites while you've paused the app, and all of it goes into your journal.
 
 ### Changed
 

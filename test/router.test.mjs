@@ -866,7 +866,7 @@ test("router: page context on segment_start and delta with tabs/windows and fall
   winStub.focused = false;
   tabStub.audible = false;
   port.pauseWithApp = false;
-  port.lastCaptureMessage = { type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000, destination_generation: "gen-1" };
+  port.lastCaptureMessage = { type: "state", capture: "paused", away: false, delivery: "idle", freshness_ms: 10000, destination_generation: "gen-1" };
   assert.equal(port.appReportedPaused(), true);
 
   const skim2 = await Router.route({
@@ -1002,7 +1002,7 @@ test("router: a rewritten open pause admits a site, and a closed gate does not",
   port.now = () => frozen;
   port.pauseWithApp = false;
   port.lastCaptureMessage = {
-    type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000,
+    type: "state", capture: "paused", away: false, delivery: "idle", freshness_ms: 10000,
     destination_generation: "gen-1", period_id: "p-1",
   };
   port.hostCapture = "permitted";

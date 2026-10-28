@@ -1603,7 +1603,7 @@ test("turning pause with the app off updates an open tab without reloading it", 
   assert.equal(bg.port.handshake, "ready");
   mock.sentTabMessages.length = 0;
   await listener({
-    type: "state", capture: "paused", delivery: "idle", freshness_ms: 10000,
+    type: "state", capture: "paused", away: false, delivery: "idle", freshness_ms: 10000,
     destination_generation: "gen-1", period_id: "period-1",
   });
   const pausedUpdate = mock.sentTabMessages.filter((entry) => entry.msg?.kind === "leaseUpdate").at(-1);

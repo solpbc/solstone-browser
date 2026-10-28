@@ -794,7 +794,7 @@
       if (!current()) return;
       this.settlingRevision = null;
 
-      const stateForCapture = (this.pauseWithApp === false && val.capture === "paused")
+      const stateForCapture = this.readsThroughAppPause(val)
         ? { ...val, capture: "permitted" }
         : val;
 
@@ -836,8 +836,15 @@
       return;
     }
 
+    // The setting reaches only the owner's own pause. An app that cannot say
+    // so (no `away` fact) or reports nobody at the computer (locked, asleep)
+    // closes reading whatever the setting says.
+    readsThroughAppPause(val) {
+      return this.pauseWithApp === false && val?.capture === "paused" && val.away === false;
+    }
+
     appReportedPaused() {
-      return this.pauseWithApp === false && this.lastCaptureMessage?.capture === "paused";
+      return this.readsThroughAppPause(this.lastCaptureMessage);
     }
 
     async reapplyLastCapture() {

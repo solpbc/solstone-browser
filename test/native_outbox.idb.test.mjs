@@ -68,6 +68,41 @@ test("outbox: abort after request success and before completion hides the write"
   assert.equal(producerRow, undefined);
 });
 
+test("outbox: a transaction aborted under pending reads rejects with its cause", async () => {
+  await resetDB();
+
+  // The reads still pending when a transaction aborts fail afterwards with a
+  // generic AbortError; the rejection must carry the first failure instead.
+  const origGet = IDBObjectStore.prototype.get;
+  let hooked = true;
+  IDBObjectStore.prototype.get = function (...args) {
+    const req = origGet.apply(this, args);
+    if (hooked) {
+      hooked = false;
+      req.addEventListener("success", () => {
+        this.transaction.__error = new Error("database_closed");
+        this.transaction.abort();
+      });
+    }
+    return req;
+  };
+  try {
+    await assert.rejects(Outbox.enqueueSkim({
+      inst: "00000000-0000-0000-0000-000000000001",
+      ctx: "ctx-abort-pending",
+      destinationGeneration: "gen-1",
+      senderUrl: "https://mail.google.com/mail/u/0/#inbox",
+      site: "mail.google.com",
+      title: "Inbox",
+      adapter: "gmail",
+      blocks: [{ id: "1", type: "heading", depth: 1, text: "Title", attrs: {} }],
+      nowMs: 1000,
+    }), { message: "database_closed" });
+  } finally {
+    IDBObjectStore.prototype.get = origGet;
+  }
+});
+
 test("outbox: aborting a delete transaction leaves the record in place", async () => {
   await resetDB();
 

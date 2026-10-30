@@ -8,6 +8,13 @@
   const Seg = globalThis.SolstoneSegment;
   const Blocks = globalThis.SolstoneBlocks;
   const activeTransactions = new Set();
+  // The first failure is the cause. Reads still pending when a transaction
+  // aborts fail afterwards, against a finished transaction, so they neither
+  // replace the cause nor abort it a second time.
+  function fail(t, err) {
+    if (t.__error === undefined) t.__error = err;
+    try { t.abort(); } catch (_e) { /* already finished */ }
+  }
   function checkAuthorization() {
     for (const check of activeTransactions) check();
   }
@@ -22,8 +29,7 @@
       if (allowed) return true;
       const err = new Error("authorization_failed");
       err.code = "authorization_failed";
-      t.__error = err;
-      try { t.abort(); } catch (_e) {}
+      fail(t, err);
       finish();
       return false;
     };
@@ -180,13 +186,11 @@
           if (!authOk) {
             const err = new Error("authorization_failed");
             err.code = "authorization_failed";
-            t.__error = err;
-            t.abort();
+            fail(t, err);
             return;
           }
         } catch (authErr) {
-          t.__error = authErr;
-          t.abort();
+          fail(t, authErr);
           return;
         }
       }
@@ -240,8 +244,7 @@
                 const err = new Error("batch-oversize");
                 err.code = "batch-oversize";
                 err.disposition = "batch-oversize";
-                t.__error = err;
-                t.abort();
+                fail(t, err);
                 return;
               }
             }
@@ -252,8 +255,7 @@
               const err = new Error("batch-oversize");
               err.code = "batch-oversize";
               err.disposition = "batch-oversize";
-              t.__error = err;
-              t.abort();
+              fail(t, err);
               return;
             }
           }
@@ -303,8 +305,7 @@
             const err = new Error("outbox-full");
             err.code = "outbox-full";
             err.disposition = "outbox-full";
-            t.__error = err;
-            t.abort();
+            fail(t, err);
             return;
           }
 
@@ -313,8 +314,7 @@
             if (!authOk) {
               const err = new Error("authorization_failed");
               err.code = "authorization_failed";
-              t.__error = err;
-              t.abort();
+              fail(t, err);
               return;
             }
           }
@@ -334,8 +334,7 @@
             pressure,
           };
         } catch (err) {
-          t.__error = err;
-          t.abort();
+          fail(t, err);
         }
       }
 
@@ -345,8 +344,7 @@
         checkReady();
       };
       cursorReq.onerror = () => {
-        t.__error = cursorReq.error;
-        t.abort();
+        fail(t, cursorReq.error);
       };
 
       const allOutboxReq = outboxStore.getAll();
@@ -355,8 +353,7 @@
         checkReady();
       };
       allOutboxReq.onerror = () => {
-        t.__error = allOutboxReq.error;
-        t.abort();
+        fail(t, allOutboxReq.error);
       };
 
       const allProducersReq = producerStore.getAll();
@@ -365,8 +362,7 @@
         checkReady();
       };
       allProducersReq.onerror = () => {
-        t.__error = allProducersReq.error;
-        t.abort();
+        fail(t, allProducersReq.error);
       };
     });
     return result;
@@ -380,8 +376,7 @@
           const items = (req.result || []).sort((a, b) => (a.seq || 0) - (b.seq || 0));
           t.__result = items[0] || null;
         } catch (err) {
-          t.__error = err;
-          t.abort();
+          fail(t, err);
         }
       };
     });
@@ -395,8 +390,7 @@
           const items = (req.result || []).sort((a, b) => (a.seq || 0) - (b.seq || 0));
           t.__result = items;
         } catch (err) {
-          t.__error = err;
-          t.abort();
+          fail(t, err);
         }
       };
     });
@@ -421,8 +415,7 @@
             producerStore.put(cursor);
           }
         } catch (err) {
-          t.__error = err;
-          t.abort();
+          fail(t, err);
         }
       };
     });
@@ -438,8 +431,7 @@
             producerStore.put(cursor);
           }
         } catch (err) {
-          t.__error = err;
-          t.abort();
+          fail(t, err);
         }
       };
     });
@@ -518,26 +510,22 @@
                         }
                         t.__result = { removed: 1, promotedBatchId, seq: nextLossSeq };
                       } catch (err) {
-                        t.__error = err;
-                        t.abort();
+                        fail(t, err);
                       }
                     };
                   } catch (err) {
-                    t.__error = err;
-                    t.abort();
+                    fail(t, err);
                   }
                 };
               } else {
                 t.__result = { removed: 0, promotedBatchId: null };
               }
             } catch (err) {
-              t.__error = err;
-              t.abort();
+              fail(t, err);
             }
           };
         } catch (err) {
-          t.__error = err;
-          t.abort();
+          fail(t, err);
         }
       };
     });
@@ -604,15 +592,14 @@
           }
           t.__result = { count: 0 };
         } catch (err) {
-          t.__error = err;
-          t.abort();
+          fail(t, err);
         }
       }
 
       allRowsReq.onsuccess = () => { allRows = allRowsReq.result || []; promoteWhenReady(); };
-      allRowsReq.onerror = () => { t.__error = allRowsReq.error; t.abort(); };
+      allRowsReq.onerror = () => { fail(t, allRowsReq.error); };
       allCursorsReq.onsuccess = () => { allCursors = allCursorsReq.result || []; promoteWhenReady(); };
-      allCursorsReq.onerror = () => { t.__error = allCursorsReq.error; t.abort(); };
+      allCursorsReq.onerror = () => { fail(t, allCursorsReq.error); };
     });
   }
 
@@ -629,8 +616,7 @@
             t.__result = false;
           }
         } catch (err) {
-          t.__error = err;
-          t.abort();
+          fail(t, err);
         }
       };
     });
@@ -663,8 +649,7 @@
             pressure: { active: totalBytes >= consts.OUTBOX_BYTES_MAX },
           };
         } catch (err) {
-          t.__error = err;
-          t.abort();
+          fail(t, err);
         }
       }
 
@@ -673,8 +658,7 @@
         checkDone();
       };
       allOutboxReq.onerror = () => {
-        t.__error = allOutboxReq.error;
-        t.abort();
+        fail(t, allOutboxReq.error);
       };
 
       allProducersReq.onsuccess = () => {
@@ -682,8 +666,7 @@
         checkDone();
       };
       allProducersReq.onerror = () => {
-        t.__error = allProducersReq.error;
-        t.abort();
+        fail(t, allProducersReq.error);
       };
     });
   }

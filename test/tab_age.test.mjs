@@ -61,7 +61,7 @@ test("tab_age: simulated restart uses persisted first-seen", async () => {
 
 test("tab_age: read before bulk map load keeps persisted value rather than wake-time seed", async () => {
   const stored = { 303: 4000 };
-  const { TabAge } = createTabAgeHarness({ tabFirstSeen: stored });
+  const { TabAge } = createTabAgeHarness({ tabFirstSeenEpochMs: stored });
 
   // Read before start() has been called
   const ageBeforeStart = await TabAge.ageMs(303, 6000);
@@ -104,7 +104,35 @@ test("tab_age: incognito tabs are not stored by start or noteCreated", async () 
 
   await TabAge.noteCreated({ id: 603, incognito: true }, 1000);
 
-  assert.equal(store.tabFirstSeen["601"], undefined);
-  assert.equal(store.tabFirstSeen["603"], undefined);
-  assert.equal(store.tabFirstSeen["602"], 1000);
+  assert.equal(store.tabFirstSeenEpochMs["601"], undefined);
+  assert.equal(store.tabFirstSeenEpochMs["603"], undefined);
+  assert.equal(store.tabFirstSeenEpochMs["602"], 1000);
 });
+
+test("tab_age: old relative timestamps cannot become epoch ages", async () => {
+  const { TabAge, store } = createTabAgeHarness({ tabFirstSeen: { 701: 600_000 } });
+  const now = 1_800_000_000_000;
+  await TabAge.start([{ id: 701 }], now);
+  assert.equal(await TabAge.ageMs(701, now + 3000), 3000);
+  assert.equal(store.tabFirstSeenEpochMs["701"], now);
+});
+
+for (const unavailable of ["absent", "rejected"]) {
+  test(`tab_age: ${unavailable} session storage keeps a safe in-context lower bound`, async () => {
+    function boot() {
+      const { TabAge, sandbox } = createTabAgeHarness();
+      if (unavailable === "absent") delete sandbox.chrome.storage.session;
+      else sandbox.chrome.storage.session = {
+        get: async () => { throw Error("storage unavailable"); },
+        set: async () => { throw Error("storage unavailable"); },
+      };
+      return TabAge;
+    }
+    const first = boot();
+    await first.start([{ id: 702 }], 1000);
+    assert.equal(await first.ageMs(702, 4000), 3000);
+    const second = boot();
+    await second.start([{ id: 702 }], 5000);
+    assert.equal(await second.ageMs(702, 6000), 1000);
+  });
+}

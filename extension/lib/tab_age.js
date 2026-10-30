@@ -5,13 +5,16 @@
   "use strict";
 
   const memoryMap = new Map();
+  // Epoch milliseconds survive background recreation; performance.now() does not.
+  // A separate key leaves old relative timestamps behind instead of inventing ages.
+  const STORAGE_KEY = "tabFirstSeenEpochMs";
 
   async function getStoredMap() {
     if (typeof chrome !== "undefined" && chrome.storage?.session?.get) {
       try {
-        const res = await chrome.storage.session.get("tabFirstSeen");
-        if (res && res.tabFirstSeen && typeof res.tabFirstSeen === "object") {
-          return { ...res.tabFirstSeen };
+        const res = await chrome.storage.session.get(STORAGE_KEY);
+        if (res && res[STORAGE_KEY] && typeof res[STORAGE_KEY] === "object") {
+          return { ...res[STORAGE_KEY] };
         }
       } catch (_e) {}
     }
@@ -21,7 +24,7 @@
   async function setStoredMap(map) {
     if (typeof chrome !== "undefined" && chrome.storage?.session?.set) {
       try {
-        await chrome.storage.session.set({ tabFirstSeen: map });
+        await chrome.storage.session.set({ [STORAGE_KEY]: map });
       } catch (_e) {}
     }
   }

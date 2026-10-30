@@ -805,6 +805,8 @@ test("router: page context on segment_start and delta with tabs/windows and fall
   const port = makePort();
   const frozen = port.now();
   port.now = () => frozen;
+  const wall = port.wallNow();
+  port.wallNow = () => wall;
   const origin = "https://example.test";
   port.grantedOrigins.add(origin);
   const tabId = 88;

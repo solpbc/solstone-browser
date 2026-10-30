@@ -783,13 +783,13 @@ async function doInit() {
   try {
     const q = chrome.tabs?.query?.({}, (tabs) => {
       if (!chrome.runtime.lastError && Array.isArray(tabs) && typeof SolstoneTabAge !== "undefined") {
-        SolstoneTabAge.start(tabs, port.now());
+        SolstoneTabAge.start(tabs, port.wallNow());
       }
     });
     if (q && typeof q.then === "function") {
       q.then((tabs) => {
         if (Array.isArray(tabs) && typeof SolstoneTabAge !== "undefined") {
-          SolstoneTabAge.start(tabs, port.now());
+          SolstoneTabAge.start(tabs, port.wallNow());
         }
       }).catch(() => {});
     }
@@ -868,7 +868,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 chrome.tabs.onCreated?.addListener((tab) => {
   if (port && typeof SolstoneTabAge !== "undefined") {
-    SolstoneTabAge.noteCreated(tab, port.now());
+    SolstoneTabAge.noteCreated(tab, port.wallNow());
   }
   refreshOpenTabs();
 });

@@ -20,12 +20,13 @@ function readExtFile(relPath) {
 const MANIFEST = JSON.parse(fs.readFileSync(join(EXT_DIR, "manifest.json"), "utf8"));
 const SCRIPT_LIST = MANIFEST.background.scripts;
 
-function createSandbox(mockChrome, isWorker = true) {
+function createSandbox(mockChrome, isWorker = true, clock) {
   const sandbox = {
     globalThis: null,
     console,
     crypto,
-    performance: { now: () => Date.now() },
+    performance: { now: () => clock ? clock.monotonic : Date.now() },
+    Date: clock ? class extends Date { static now() { return clock.wall; } } : Date,
     chrome: mockChrome.chrome,
     setTimeout,
     clearTimeout,
@@ -35,6 +36,7 @@ function createSandbox(mockChrome, isWorker = true) {
     IDBKeyRange,
     TextEncoder,
     TextDecoder,
+    structuredClone,
     URL,
   };
   sandbox.globalThis = sandbox;
@@ -187,6 +189,75 @@ test("lifecycle (ordered scripts): manifest scripts load in order and initialize
   assert.ok(port);
   assert.ok(port.inst);
 });
+
+for (const isWorker of [true, false]) {
+  test(`tab age survives ${isWorker ? "worker" : "ordered-script"} recreation with a reset performance clock`, async () => {
+    const session = {};
+    const firstWall = 1_800_000_000_000;
+    async function boot(clock, tabs) {
+      const mock = createMockChrome();
+      mock.tabsList.splice(0, mock.tabsList.length, ...tabs);
+      mock.chrome.tabs.query = (_query, callback) => {
+        if (isWorker && callback) { callback(mock.tabsList); return; }
+        return Promise.resolve(mock.tabsList);
+      };
+      mock.chrome.storage.session = {
+        get: async key => structuredClone({ [key]: session[key] }),
+        set: async value => Object.assign(session, structuredClone(value)),
+      };
+      const sandbox = createSandbox(mock, isWorker, clock);
+      sandbox.indexedDB = new IDBFactory();
+      sandbox.setTimeout = () => 1;
+      sandbox.setInterval = () => 1;
+      if (isWorker) vm.runInNewContext(readExtFile("background.js"), sandbox);
+      else for (const path of SCRIPT_LIST) vm.runInNewContext(readExtFile(path), sandbox);
+      const starts = [];
+      const start = sandbox.SolstoneTabAge.start;
+      sandbox.SolstoneTabAge.start = (...args) => {
+        const pending = start(...args);
+        starts.push(pending);
+        return pending;
+      };
+      const port = await sandbox.SolstoneBackground.ensureInit();
+      await Promise.all(starts);
+      return { mock, sandbox, port };
+    }
+    const clock = { wall: firstWall, monotonic: 600_000 };
+    const first = await boot(clock, [{ id: 101 }]);
+    clock.wall += 120_000;
+    clock.monotonic += 120_000;
+    let created;
+    const noteCreated = first.sandbox.SolstoneTabAge.noteCreated;
+    first.sandbox.SolstoneTabAge.noteCreated = (...args) => (created = noteCreated(...args));
+    first.mock.listeners.onCreatedTab[0]({ id: 102 });
+    await created;
+
+    const second = await boot({ wall: firstWall + 300_000, monotonic: 25 }, [{ id: 101 }, { id: 102 }]);
+    const { sandbox, port } = second;
+    const origin = "https://example.com";
+    Object.assign(port, { consentVersion: 1, hostCapture: "permitted", capturePermitted: true,
+      connectionToken: "token", destinationGeneration: "generation",
+      lease: { token: "token", generation: "generation", receivedAt: 25, freshnessMs: 10000 } });
+    port.grantedOrigins.add(origin);
+    port.chosenOrigins.add(origin);
+    const deps = { runtimeId: second.mock.chrome.runtime.id, port, confirmRealm: async () => true };
+    for (const [id, age] of [[101, 300_000], [102, 180_000]]) {
+      const sender = { id: deps.runtimeId, tab: { id }, frameId: 0, url: `${origin}/page`, origin };
+      const identity = { realmToken: `realm-${id}`, documentKey: "0123456789abcdef0123456789abcdef" };
+      const hello = await sandbox.SolstoneRouter.route({ kind: "hello", ...identity }, sender, deps);
+      assert.equal(hello.ok, true, JSON.stringify(hello));
+      const skim = await sandbox.SolstoneRouter.route({ kind: "skim", ...identity,
+        captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration,
+        destinationGeneration: port.destinationGeneration, leaseToken: port.lease.token,
+        blocks: [{ id: "1", type: "text", depth: 0, text: `Synthetic tab ${id}` }],
+      }, sender, deps);
+      assert.equal(skim.ok, true, JSON.stringify(skim));
+      const rows = await sandbox.SolstoneNativeOutbox.getAll();
+      const record = rows.find(row => row.records[0].tab.id === id).records[0];
+      assert.equal(record.tab.age_ms, age);
+    }
+  });
+}
 
 test("all-sites bootstrap survives native lease renewal during tab enumeration", async () => {
   const mock=createMockChrome();const sandbox=createSandbox(mock,true);

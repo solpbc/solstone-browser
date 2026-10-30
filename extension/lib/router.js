@@ -730,7 +730,7 @@
         let ageMs;
         try {
           if (globalThis.SolstoneTabAge && typeof globalThis.SolstoneTabAge.ageMs === "function") {
-            ageMs = await globalThis.SolstoneTabAge.ageMs(tabId, port.now());
+            ageMs = await globalThis.SolstoneTabAge.ageMs(tabId, port.wallNow());
           }
         } catch (_e) {}
 

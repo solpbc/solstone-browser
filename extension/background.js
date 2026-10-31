@@ -337,6 +337,23 @@ function patternNeeded(pattern) {
   });
 }
 
+// After an update, Safari can leave a tab that was already open bound to the
+// previous copy of the extension: injection resolves, yet nothing in the tab can
+// reach this worker until the page reloads. A loaded, non-private tab that does
+// not answer is treated like one the browser refused, so its site asks for a reload.
+async function tabAnswers(tab) {
+  if (tab.incognito || tab.status !== "complete") return true;
+  try {
+    const reply = await Promise.race([
+      chrome.tabs.sendMessage(tab.id, { kind: "ping" }, { frameId: 0 }),
+      new Promise(resolve => setTimeout(() => resolve(null), 1500)),
+    ]);
+    return reply?.ok === true;
+  } catch (_e) {
+    return false;
+  }
+}
+
 async function registerSite(host) {
   const matchHost = H.matchHostFor(host);
   const id = "cs-" + matchHost;
@@ -383,6 +400,7 @@ async function registerSite(host) {
       if (tab.id == null) continue;
       try {
         await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: CONTENT_SCRIPT_FILES });
+        if (!(await tabAnswers(tab))) hadTabError = true;
       } catch (_e) {
         hadTabError = true;
       }

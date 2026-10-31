@@ -18,6 +18,7 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ### Fixed
 
+- in Safari, after the solstone app updates, a tab you already had open on a site you share could stop being taken in, while the extension still showed the site as "on now". the extension now shows "reload this tab to begin" for that site until you reload the tab.
 - Safari's settings for the solstone extension no longer list `InvalidStateError` errors when the extension is interrupted while taking in a page. thanks @dvanduzer.
 - in settings, you can now add a site by pasting its whole address, like `https://example.com/some/page`. before, pasting an address showed "enter a website address" instead. the extension adds the site, not the page, and a site you paste with `http://` stays `http://`. reported and fixed by ha-ye.
 - the optional on-page mark shows "on" only while the page is taken in. before, it could keep saying "on" after you left the site out, after the solstone app closed, or after you paused and resumed.

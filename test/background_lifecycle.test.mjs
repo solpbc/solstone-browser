@@ -987,6 +987,43 @@ test("lifecycle: onRemoved during add getAll rejects a stale permission snapshot
   assert.equal(port.getStatus().gate.open, false);
 });
 
+test("lifecycle: an open tab that cannot answer after injection asks for a reload", async () => {
+  for (const [label, tab, reply, expected] of [
+    ["answers", {id: 101, url: "https://example.com/page", status: "complete"}, {ok: true}, "ready"],
+    ["stranded", {id: 101, url: "https://example.com/page", status: "complete"}, undefined, "reload"],
+    ["refused", {id: 101, url: "https://example.com/page", status: "complete"}, new Error("no receiver"), "reload"],
+    ["still loading", {id: 101, url: "https://example.com/page", status: "loading"}, undefined, "ready"],
+    ["private", {id: 101, url: "https://example.com/page", status: "complete", incognito: true}, undefined, "ready"],
+  ]) {
+    const {mock, sandbox, bg} = await startWorker();
+    const port = bg.port;
+    const id = mock.chrome.runtime.id;
+    const sender = {id, url: "chrome-extension://" + id + "/popup.html"};
+    port.hostCapture = "permitted";
+    port.capturePermitted = true;
+    port.consentVersion = 1;
+    port.lease = {token: "t", generation: "g", receivedAt: port.now(), freshnessMs: 10000};
+    mock.grantedPermissions.add("*://example.com/*");
+    mock.chrome.tabs.query = async () => [tab];
+    const pings = [];
+    mock.chrome.tabs.sendMessage = async (tabId, msg, options) => {
+      pings.push({tabId, msg, options});
+      if (msg?.kind !== "ping") return undefined;
+      if (reply instanceof Error) throw reply;
+      return reply;
+    };
+    const deps = {runtimeId: id, port, setCfg: bg.setCfg, registerSite: bg.registerSite};
+    const origin = "https://example.com";
+    await sandbox.SolstoneRouter.route({cmd: "intendAddOrigin", origin}, sender, deps);
+    const result = await sandbox.SolstoneRouter.route({cmd: "addGrantedOrigin", origin}, sender, deps);
+    assert.equal(result.ok, true, label + ": " + JSON.stringify(result));
+    assert.equal(result.registration, expected, label);
+    const asked = pings.filter(p => p.msg?.kind === "ping");
+    assert.equal(asked.length, tab.status === "complete" && !tab.incognito ? 1 : 0, label);
+    if (asked.length) assert.equal(asked[0].options?.frameId, 0, label);
+  }
+});
+
 test("lifecycle: real registration results retain reload and failed origin choices", async () => {
   const {mock, sandbox, bg} = await startWorker();
   const port = bg.port;

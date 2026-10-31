@@ -270,7 +270,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     const safari = brand === "safari";
     return {
       granted: `${bName} allows solstone on all websites.`,
-      grantedNote: safari ? (MOBILE ? "a site set to Deny in Settings, under Apps, Safari, Extensions, solstone stays off." : "a site set to Deny in Safari's website settings stays off.") : "",
+      grantedNote: safari ? (MOBILE ? "in Settings, under Apps, Safari, Extensions, solstone, a site set to Deny stays off." : "a site set to Deny in Safari's website settings stays off.") : "",
       missingTitle: safari ? "allow all websites in Safari" : `${bName} isn't allowing all websites`,
       missingBody: safari
         ? "Safari allows this only in its own settings. nothing new is taken in until you allow it:"

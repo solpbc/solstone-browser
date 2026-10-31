@@ -702,7 +702,7 @@
       return { met: false, heading: item.headline, body: bodies[item.kind] || item.reason || "", action: item.action || null };
     }
     const heading = status.hostCapture === "paused"
-      ? "found the solstone app, paired with your journal. it's paused right now."
+      ? (mobile() ? "found the solstone app, paired with your journal. Safari is paused in it right now." : "found the solstone app, paired with your journal. it's paused right now.")
       : "found the solstone app, paired with your journal";
     return { met: true, heading, body: "", action: null };
   }

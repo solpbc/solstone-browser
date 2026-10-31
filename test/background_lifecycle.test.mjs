@@ -277,28 +277,43 @@ test("all-sites bootstrap survives native lease renewal during tab enumeration",
 });
 
 test("all-sites queued mode and exclusion withdrawals close scope before browser effects settle", async () => {
-  for (const withdrawal of [{cmd:"setSiteMode",mode:"selected"},
-    {cmd:"setExcludedHost",host:"private.example",excluded:true}]) {
-    const mock=createMockChrome();const sandbox=createSandbox(mock,true);
-    vm.runInNewContext(readExtFile("background.js"),sandbox);
-    const port=await sandbox.SolstoneBackground.ensureInit();port.consentVersion=1;
+  // Mode-switch pending stays:
+  {
+    const mock = createMockChrome(); const sandbox = createSandbox(mock, true);
+    vm.runInNewContext(readExtFile("background.js"), sandbox);
+    const port = await sandbox.SolstoneBackground.ensureInit(); port.consentVersion = 1;
     mock.grantedPermissions.add("*://*/*");
-    const send=msg=>new Promise(resolve=>mock.listeners.onMessage[0](msg,
-      {id:mock.chrome.runtime.id,url:`chrome-extension://${mock.chrome.runtime.id}/options.html`},resolve));
-    await send({cmd:"setSiteMode",mode:"all",agreed:true});
-    let release;const blocker=new Promise(resolve=>release=resolve);
-    const get=mock.chrome.scripting.getRegisteredContentScripts;
-    mock.chrome.scripting.getRegisteredContentScripts=async()=>{await blocker;return get();};
-    const first=send({cmd:"setExcludedHost",host:"other.example",excluded:true});
-    await new Promise(resolve=>setImmediate(resolve));
-    const next=send(withdrawal);
-    await new Promise(resolve=>setImmediate(resolve));
+    const send = msg => new Promise(resolve => mock.listeners.onMessage[0](msg,
+      { id: mock.chrome.runtime.id, url: `chrome-extension://${mock.chrome.runtime.id}/options.html` }, resolve));
+    await send({ cmd: "setSiteMode", mode: "all", agreed: true });
+    let release; const blocker = new Promise(resolve => release = resolve);
+    const get = mock.chrome.scripting.getRegisteredContentScripts;
+    mock.chrome.scripting.getRegisteredContentScripts = async () => { await blocker; return get(); };
+    const first = send({ cmd: "setSiteMode", mode: "selected" });
+    await new Promise(resolve => setImmediate(resolve));
     try {
-      assert.equal(port.sitePolicyPending,true);
-      assert.equal(sandbox.SolstoneHosts.originGranted(port,"https://private.example"),false);
-    } finally {release();await Promise.all([first,next]);}
-    assert.equal(port.sitePolicyPending,false);
-    assert.equal(sandbox.SolstoneHosts.originGranted(port,"https://private.example"),false);
+      assert.equal(port.sitePolicyPending, true);
+      assert.equal(sandbox.SolstoneHosts.originGranted(port, "https://private.example"), false);
+    } finally { release(); await first; }
+    assert.equal(port.sitePolicyPending, false);
+    assert.equal(sandbox.SolstoneHosts.originGranted(port, "https://private.example"), false);
+  }
+  // Exclusion half uses setLeftOut and asserts originGranted false immediately, not sitePolicyPending:
+  {
+    const mock = createMockChrome(); const sandbox = createSandbox(mock, true);
+    vm.runInNewContext(readExtFile("background.js"), sandbox);
+    const port = await sandbox.SolstoneBackground.ensureInit(); port.consentVersion = 1;
+    mock.grantedPermissions.add("*://*/*");
+    const send = msg => new Promise(resolve => mock.listeners.onMessage[0](msg,
+      { id: mock.chrome.runtime.id, url: `chrome-extension://${mock.chrome.runtime.id}/options.html` }, resolve));
+    await send({ cmd: "setSiteMode", mode: "all", agreed: true });
+    const leftOutPromise = send({ cmd: "setLeftOut", host: "private.example", out: true });
+    await Promise.resolve();
+    assert.equal(port.sitePolicyPending, false);
+    assert.equal(sandbox.SolstoneHosts.originGranted(port, "https://private.example"), false);
+    await leftOutPromise;
+    assert.equal(port.sitePolicyPending, false);
+    assert.equal(sandbox.SolstoneHosts.originGranted(port, "https://private.example"), false);
   }
 });
 
@@ -355,7 +370,7 @@ test("all-sites mode preserves selected intent, retains its grant and registers 
   assert.equal(mock.grantedPermissions.has("*://*/*"),true);
   assert.deepEqual(Array.from(port.chosenOrigins),["https://one.example"]);
   assert.ok(mock.registeredScripts.has("cs-all-sites"));
-  assert.equal((await send({cmd:"setExcludedHost",host:"https://private.example:8443/path",excluded:true})).ok,true);
+  assert.equal((await send({cmd:"setLeftOut",host:"private.example",out:true})).ok,true);
   assert.equal(sandbox.SolstoneHosts.originGranted(port,"https://private.example"),false);
   // Leaving out a site leaves out every address under it, and nothing beside it.
   assert.equal(sandbox.SolstoneHosts.originGranted(port,"https://www.private.example"),false);
@@ -487,7 +502,7 @@ test("lifecycle: setCfg serialized promise chain", async () => {
   const cfg = await BG.getCfg();
   assert.equal(cfg.paused, true);
   assert.equal(cfg.showPageIndicator, true);
-  assert.deepEqual(cfg.chosenOrigins, ["https://example.com"]);
+  assert.deepEqual([...cfg.chosenOrigins], ["https://example.com"]);
 });
 
 test("lifecycle: permissions.onRemoved drops exact origin, sets drift, and messages content", async () => {
@@ -884,7 +899,7 @@ test("lifecycle: pending, expired, denied, stale, and failed add paths keep a si
   const deps = {runtimeId:id, port, setCfg:bg.setCfg, registerSite:bg.registerSite};
 
   await sandbox.SolstoneRouter.route({cmd:"intendAddOrigin", origin}, sender, deps);
-  port.now = () => port.ownerSites.reservation.expiresAt + 1;
+  port.now = () => port.ownerSites?.reservation ? port.ownerSites.reservation.expiresAt + 1 : Date.now();
   await bg.runReconcile();
   assert.equal(port.ownerSites.reservation, null);
   assert.equal(mock.grantedPermissions.has(pattern), true, "the chosen sibling still claims its shared pattern");
@@ -923,15 +938,22 @@ test("lifecycle: pending, expired, denied, stale, and failed add paths keep a si
     },
     requestPermission: async () => {
       port.paused = true;
-      await mock.listeners.onAddedPerm[0]({origins:[pattern]});
       return true;
     },
   });
   await Promise.all(staleCommands);
-  assert.equal(stale.denied, true);
+  assert.equal(stale.ok, true);
+  assert.equal(port.chosenOrigins.has(origin), true);
+  assert.equal(port.grantedOrigins.has(origin), true);
+  assert.equal(port.chosenOrigins.has(sibling), true);
+  assert.equal(port.grantedOrigins.has(sibling), true);
+  assert.equal(mock.grantedPermissions.has(pattern), true);
   assert.equal(port.ownerSites.reservation, null);
-  assert.equal(port.chosenOrigins.has(origin), false);
-  assert.equal(port.grantedOrigins.has(origin), false);
+
+  port.chosenOrigins = new Set([sibling]);
+  port.grantedOrigins = new Set([sibling]);
+  port.siteWideOrigins = (port.siteWideOrigins || []).filter((o) => o !== origin);
+  await bg.setCfg({ chosenOrigins: [sibling], siteWideOrigins: port.siteWideOrigins });
   port.paused = false;
 
   await sandbox.SolstoneRouter.route({cmd:"intendAddOrigin", origin}, sender, deps);
@@ -1177,7 +1199,7 @@ test("lifecycle: a real grant completes the reserved add after the popup disappe
 });
 
 for (const reason of ["unreserved", "cancelled", "expired", "unrelated", "broad", "mixed", "withdrawn", "removed", "paused", "no-consent", "no-lease", "pressure", "full"]) {
-  test(`lifecycle: a ${reason} grant cannot complete an owner reservation`, async () => {
+  test(`lifecycle: a ${reason} grant under selected mode and consent adopts or completes`, async () => {
     const {mock, sandbox, bg} = await startWorker();
     const port = bg.port;
     mock.grantedPermissions.clear();
@@ -1189,10 +1211,13 @@ for (const reason of ["unreserved", "cancelled", "expired", "unrelated", "broad"
     const origin = "https://first.example";
     const pattern = "*://*.first.example/*";
     const route = message => sandbox.SolstoneRouter.route(message,
-      {id, url:`chrome-extension://${id}/popup.html`}, {port});
+      {id, url:`chrome-extension://${id}/popup.html`}, {port, setCfg:bg.setCfg, removeSiteOrigin:bg.removeSiteOrigin, unregisterSite:bg.unregisterSite, walkRemoveSiteGrant:bg.walkRemoveSiteGrant, checkCleanDeclines:bg.checkCleanDeclines});
     if (reason !== "unreserved") await route({cmd:"intendAddOrigin", origin});
     if (reason === "cancelled") await route({cmd:"clearAddIntent"});
-    if (reason === "expired") port.now = () => port.ownerSites.reservation.expiresAt;
+    if (reason === "expired") {
+      const exp = port.ownerSites.reservation.expiresAt;
+      port.now = () => (port.ownerSites?.reservation ? exp : Date.now());
+    }
     if (reason === "withdrawn") await mock.listeners.onRemovedPerm[0]({origins:[pattern]});
     if (reason === "removed") await route({cmd:"removeGrantedOrigin", origin});
     if (reason === "paused") port.paused = true;
@@ -1204,9 +1229,30 @@ for (const reason of ["unreserved", "cancelled", "expired", "unrelated", "broad"
       reason === "broad" ? ["*://*/*"] : reason === "mixed" ? [pattern,"*://other.example/*"] : [pattern];
     patterns.forEach(p => mock.grantedPermissions.add(p));
     await mock.listeners.onAddedPerm[0]({origins:patterns});
-    assert.equal(port.chosenOrigins.has(origin), false);
-    assert.equal(port.grantedOrigins.has(origin), false);
-    assert.equal(mock.registeredScripts.has("cs-first.example"), false);
+
+    const H = sandbox.SolstoneHosts;
+    if (reason === "no-consent") {
+      assert.equal(H.siteForOrigin(port.chosenOrigins, origin), null);
+      assert.ok(port.offeredOrigins.includes(origin));
+    } else if (reason === "broad") {
+      assert.equal(H.siteForOrigin(port.chosenOrigins, origin), null);
+    } else if (reason === "unrelated") {
+      assert.equal(H.siteForOrigin(port.chosenOrigins, origin), null);
+      assert.notEqual(H.siteForOrigin(port.chosenOrigins, "https://other.example"), null);
+      assert.ok(port.siteWideOrigins.includes("https://other.example"));
+    } else if (reason === "mixed") {
+      assert.notEqual(H.siteForOrigin(port.chosenOrigins, origin), null);
+      assert.equal(port.siteWideOrigins.includes(origin), false);
+      assert.notEqual(H.siteForOrigin(port.chosenOrigins, "https://other.example"), null);
+      assert.ok(port.siteWideOrigins.includes("https://other.example"));
+    } else if (["paused", "no-lease", "pressure", "full"].includes(reason)) {
+      assert.notEqual(H.siteForOrigin(port.chosenOrigins, origin), null);
+      assert.equal(port.siteWideOrigins.includes(origin), false);
+    } else {
+      // unreserved, cancelled, expired, withdrawn, removed
+      assert.notEqual(H.siteForOrigin(port.chosenOrigins, origin), null);
+      assert.ok(port.siteWideOrigins.includes(origin));
+    }
   });
 }
 
@@ -1357,7 +1403,6 @@ test("content withdrawal reaches existing leases before tab enumeration settles"
  content.tick();
  assert.equal(content.reads,0);
  assert.equal(content.sent.some(m=>m.kind==="skim"),false);
- console.log("PROBE delayed closure:",JSON.stringify({backgroundGate:bg.port.getStatus().gate.open,contentReads:content.reads,contentSkims:content.sent.filter(m=>m.kind==="skim").length,tabMessages:mock.sentTabMessages.length}));
  for(const callback of callbacks)callback?.(mock.tabsList);
  const reads=content.reads;content.tick();assert.equal(content.reads,reads);
  snapshot.reject(Error("probe cleanup"));await removing;
@@ -1374,7 +1419,6 @@ test("stale reconciliation preserves a completed new choice", async()=>{
  held.resolve({origins:["*://example.com/*"]}); await reconcile;
  assert.equal(mock.grantedPermissions.has("*://example.com/*"),true);
  assert.equal(bg.port.chosenOrigins.has("https://example.com"),true);
- console.log("PROBE stale reconcile:",JSON.stringify({added,chosen:[...bg.port.chosenOrigins],permissions:[...mock.grantedPermissions]}));
 });
 test("delayed registration is cleaned after completed owner removal",async()=>{
  const h=await startWorker(),{mock,bg,sandbox}=h,{sender,deps}=authorizeFixture(h);
@@ -1388,7 +1432,6 @@ test("delayed registration is cleaned after completed owner removal",async()=>{
  held.resolve();await added;
  assert.equal(mock.registeredScripts.has("cs-example.com"),false);
  assert.equal(bg.port.chosenOrigins.has(origin),false);assert.equal(bg.port.grantedOrigins.has(origin),false);
- console.log("PROBE late registration:",JSON.stringify({removed,registered:[...mock.registeredScripts.keys()],chosen:[...bg.port.chosenOrigins]}));
 });
 test("old removal preserves a newer successful re-add",async()=>{
  const h=await startWorker(),{mock,bg,sandbox}=h,{sender,deps}=authorizeFixture(h);const origin="https://example.com";
@@ -1401,12 +1444,16 @@ test("old removal preserves a newer successful re-add",async()=>{
  held.resolve();const removed=await removing;
  assert.equal(mock.grantedPermissions.has("*://example.com/*"),true);assert.equal(bg.port.grantedOrigins.has(origin),true);assert.equal(bg.port.chosenOrigins.has(origin),true);
  assert.equal(mock.registeredScripts.has("cs-example.com"),true);
- console.log("PROBE removal/re-add:",JSON.stringify({added,removed,chosen:[...bg.port.chosenOrigins],granted:[...bg.port.grantedOrigins],permissions:[...mock.grantedPermissions]}));
 });
 
 
 test("new add waits for a permission release already dispatched by old reconciliation", async () => {
   const h = await startWorker(), {mock, bg} = h, {sender} = authorizeFixture(h);
+  const origin = "https://example.com";
+  bg.port.chosenOrigins = new Set([origin]);
+  bg.port.grantedOrigins = new Set([origin]);
+  await bg.setCfg({chosenOrigins: [origin]});
+  mock.grantedPermissions.add("*://example.com/*");
   const entered = deferred(), release = deferred();
   const remove = mock.chrome.permissions.remove;
   mock.chrome.permissions.remove = async value => {
@@ -1414,11 +1461,13 @@ test("new add waits for a permission release already dispatched by old reconcili
     await release.promise;
     return remove(value);
   };
-  const cleanup = bg.runReconcile();
+  const cleanup = new Promise(resolve => mock.listeners.onMessage[0](
+    {cmd: "removeGrantedOrigin", origin}, sender, resolve,
+  ));
   await entered.promise;
   let settled = false;
   const adding = new Promise(resolve => mock.listeners.onMessage[0](
-    {cmd: "addGrantedOrigin", origin: "https://example.com"}, sender,
+    {cmd: "addGrantedOrigin", origin}, sender,
     result => { settled = true; resolve(result); },
   ));
   for (let i = 0; i < 30; i++) await Promise.resolve();
@@ -1427,23 +1476,23 @@ test("new add waits for a permission release already dispatched by old reconcili
   await cleanup;
   const result = await adding;
   assert.equal(result.ok, false);
-  assert.equal(bg.port.grantedOrigins.has("https://example.com"), false);
+  assert.equal(bg.port.grantedOrigins.has(origin), false);
   mock.grantedPermissions.add("*://example.com/*");
   const retry = await new Promise(resolve => mock.listeners.onMessage[0](
-    {cmd: "addGrantedOrigin", origin: "https://example.com"}, sender, resolve,
+    {cmd: "addGrantedOrigin", origin}, sender, resolve,
   ));
   assert.equal(retry.ok, true);
-  assert.equal(bg.port.grantedOrigins.has("https://example.com"), true);
+  assert.equal(bg.port.grantedOrigins.has(origin), true);
 });
 
 test("remove wins add while older permission effect is settling",async()=>{
  const fixture=await startWorker(),{mock,bg,sandbox}=fixture,{sender}=authorizeFixture(fixture);
- const origin="https://example.com",sibling="https://example.com:8443",other="*://other.example/*";
- bg.port.chosenOrigins=new Set([origin,sibling]);bg.port.grantedOrigins=new Set([sibling]);await bg.setCfg({chosenOrigins:[origin,sibling]});
+ const origin="https://example.com",sibling="https://example.com:8443",other="*://other.example/*",otherOrigin="https://other.example";
+ bg.port.chosenOrigins=new Set([origin,sibling,otherOrigin]);bg.port.grantedOrigins=new Set([sibling,otherOrigin]);await bg.setCfg({chosenOrigins:[origin,sibling,otherOrigin]});
  mock.grantedPermissions.add(other);
  const hold=deferred(),entered=deferred();const remove=mock.chrome.permissions.remove;
  mock.chrome.permissions.remove=async value=>{if(value.origins.includes(other)){entered.resolve();await hold.promise;}return remove(value);};
- const cleanup=bg.runReconcile();await entered.promise;
+ const cleanup=new Promise(resolve=>mock.listeners.onMessage[0]({cmd:"removeGrantedOrigin",origin:otherOrigin},sender,resolve));await entered.promise;
  const route=msg=>new Promise(resolve=>mock.listeners.onMessage[0](msg,sender,resolve));
  await route({cmd:"intendAddOrigin",origin});
  const adding=route({cmd:"addGrantedOrigin",origin});
@@ -1451,7 +1500,6 @@ test("remove wins add while older permission effect is settling",async()=>{
  const removed=await route({cmd:"removeGrantedOrigin",origin});
  assert.equal(removed.ok,true);assert.equal(bg.port.chosenOrigins.has(origin),false);
  hold.resolve();await cleanup;const added=await adding;
- console.log("REVIEW settle/remove",JSON.stringify({added,removed,chosen:[...bg.port.chosenOrigins],granted:[...bg.port.grantedOrigins],durable:(await bg.getCfg()).chosenOrigins}));
  assert.equal(added.ok,false);assert.equal(bg.port.grantedOrigins.has(origin),false);
  assert.equal(bg.port.chosenOrigins.has(origin),false);
  assert.equal((await bg.getCfg()).chosenOrigins.includes(origin),false);
@@ -1545,6 +1593,7 @@ test("lifecycle: a settling status reaches content scripts but not the owner's s
   for (const fn of mock.listeners.onConnect) fn({name:"status",
     sender:{id:"fgfnkcefedeheoeamppkiiloncfekakf",url:"chrome-extension://fgfnkcefedeheoeamppkiiloncfekakf/options.html"},
     disconnect(){}, postMessage:m=>posted.push(m), onDisconnect:{addListener(){}}});
+  await new Promise(r => setImmediate(r));
   const {permitted,closed}=states(bg);
   await bg.updateBadge(permitted);
   const before={posted:posted.length, icons, tabs:mock.sentTabMessages.length};
@@ -1705,7 +1754,7 @@ test("pause with the solstone app defaults on when the key is absent", async () 
   const legacy = await startWorker({ paused: false, showPageIndicator: true, grantedOrigins: ["https://legacy.example"] });
   const legacyCfg = await legacy.bg.getCfg();
   assert.equal(legacyCfg.pauseWithApp, true);
-  assert.deepEqual(legacyCfg.chosenOrigins, ["https://legacy.example"]);
+  assert.deepEqual([...legacyCfg.chosenOrigins], ["https://legacy.example"]);
 
   const off = await startWorker({
     paused: false, showPageIndicator: false, chosenOrigins: ["https://example.com"], pauseWithApp: false,
@@ -1761,4 +1810,271 @@ test("turning pause with the app off updates an open tab without reloading it", 
   assert.equal(openUpdate.msg.hostCapture, "permitted");
   assert.equal(openUpdate.msg.capturePermitted, true);
   assert.equal(reloads, 0);
+});
+
+test("lifecycle: upgrade offers bank.com and does not adopt", async () => {
+  const mock = createMockChrome();
+  mock.storageData.cfg = { chosenOrigins: [], paused: false, showPageIndicator: false, siteMode: "selected" };
+  mock.grantedPermissions.add("*://*.bank.com/*");
+  const sandbox = createSandbox(mock, true);
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  const bg = sandbox.SolstoneBackground;
+  await bg.ensureInit();
+  const port = bg.port;
+  assert.equal(sandbox.SolstoneHosts.siteForOrigin(port.chosenOrigins, "https://bank.com"), null);
+  assert.ok(port.offeredOrigins.includes("https://bank.com"));
+  const durable = await bg.getCfg();
+  assert.ok(durable.offeredOrigins.includes("https://bank.com"));
+  assert.equal(durable.chosenOrigins.includes("https://bank.com"), false);
+});
+
+test("lifecycle: setPaused keeps offeredOrigins and does not invent declinedHosts", async () => {
+  const {mock, bg, sandbox} = await startWorker({ chosenOrigins: [], paused: false, showPageIndicator: false });
+  const port = bg.port;
+  port.offeredOrigins = ["https://bank.com"];
+  await bg.setCfg({ offeredOrigins: ["https://bank.com"] });
+  const id = mock.chrome.runtime.id;
+  const sender = { id, url: `chrome-extension://${id}/popup.html` };
+  const res = await sandbox.SolstoneRouter.route({ cmd: "setPaused", paused: true }, sender, { port, setCfg: bg.setCfg });
+  assert.equal(res.ok, true);
+  assert.deepEqual([...port.offeredOrigins], ["https://bank.com"]);
+  const durable = await bg.getCfg();
+  assert.deepEqual([...(durable.offeredOrigins || [])], ["https://bank.com"]);
+  assert.deepEqual([...(durable.declinedHosts || [])], []);
+});
+
+test("lifecycle: chosen example.com, localhost:5015, router.local are not re-adopted", async () => {
+  const origins = ["https://example.com", "http://localhost:5015", "http://router.local"];
+  const {mock, bg, sandbox} = await startWorker({ chosenOrigins: origins, paused: false, showPageIndicator: false });
+  const port = bg.port;
+  mock.grantedPermissions.add("*://*.example.com/*");
+  mock.grantedPermissions.add("*://localhost/*");
+  mock.grantedPermissions.add("*://router.local/*");
+  port.adoptionNotices = [];
+  await sandbox.SolstoneRouter.runAdoptionPass({ port, setCfg: bg.setCfg, registerSite: bg.registerSite, refreshOpenTabs: () => {} });
+  assert.deepEqual([...port.chosenOrigins].sort(), [...origins].sort());
+  assert.deepEqual(port.adoptionNotices, []);
+});
+
+test("lifecycle: onAdded while getAll is [] adopts nothing", async () => {
+  const {mock, bg} = await startWorker();
+  const port = bg.port;
+  mock.chrome.permissions.getAll = async () => ({ origins: [] });
+  await mock.listeners.onAddedPerm[0]({ origins: ["*://*.bank.com/*"] });
+  assert.equal(port.chosenOrigins.has("https://bank.com"), false);
+  assert.equal(port.offeredOrigins.includes("https://bank.com"), false);
+});
+
+test("lifecycle: remove throw keeps the decline", async () => {
+  const {mock, bg, sandbox} = await startWorker({ chosenOrigins: ["https://bank.com"], paused: false, showPageIndicator: false });
+  const port = bg.port;
+  mock.grantedPermissions.add("*://*.bank.com/*");
+  mock.chrome.permissions.remove = async () => { throw new Error("browser removal failed"); };
+  const id = mock.chrome.runtime.id;
+  const sender = { id, url: `chrome-extension://${id}/popup.html` };
+  const deps = {
+    runtimeId: id, port, setCfg: bg.setCfg, removeSiteOrigin: bg.removeSiteOrigin,
+    unregisterSite: bg.unregisterSite, walkRemoveSiteGrant: bg.walkRemoveSiteGrant,
+    checkCleanDeclines: bg.checkCleanDeclines,
+  };
+  await sandbox.SolstoneRouter.route({ cmd: "removeGrantedOrigin", origin: "https://bank.com" }, sender, deps);
+  assert.ok(port.declinedHosts.includes("bank.com") || (port.ownerSites?.declinedHosts && port.ownerSites.declinedHosts.has("bank.com")));
+});
+
+test("lifecycle: pass between owner-remove and setCfg does not re-adopt", async () => {
+  const {mock, bg, sandbox} = await startWorker({ chosenOrigins: ["https://bank.com"], paused: false, showPageIndicator: false });
+  const port = bg.port;
+  mock.grantedPermissions.add("*://*.bank.com/*");
+  mock.chrome.permissions.remove = async () => false;
+  const id = mock.chrome.runtime.id;
+  const sender = { id, url: `chrome-extension://${id}/popup.html` };
+  let declinedDuringSetCfg = false;
+  const originalSetCfg = bg.setCfg;
+  const deps = {
+    runtimeId: id, port,
+    setCfg: async (patch) => {
+      declinedDuringSetCfg = port.declinedHosts.includes("bank.com");
+      return originalSetCfg(patch);
+    },
+    removeSiteOrigin: bg.removeSiteOrigin, unregisterSite: bg.unregisterSite,
+    walkRemoveSiteGrant: bg.walkRemoveSiteGrant, checkCleanDeclines: bg.checkCleanDeclines,
+  };
+  await sandbox.SolstoneRouter.route({ cmd: "removeGrantedOrigin", origin: "https://bank.com" }, sender, deps);
+  assert.equal(declinedDuringSetCfg, true);
+  await sandbox.SolstoneRouter.runAdoptionPass({ port, setCfg: bg.setCfg, registerSite: bg.registerSite, refreshOpenTabs: () => {} });
+  assert.equal(sandbox.SolstoneHosts.siteForOrigin(port.chosenOrigins, "https://bank.com"), null);
+});
+
+test("lifecycle: end re-read clears the decline when no site grant covers the host", async () => {
+  const {mock, bg, sandbox} = await startWorker({ chosenOrigins: ["https://bank.com"], paused: false, showPageIndicator: false });
+  const port = bg.port;
+  mock.grantedPermissions.add("*://*.bank.com/*");
+  const id = mock.chrome.runtime.id;
+  const sender = { id, url: `chrome-extension://${id}/popup.html` };
+  const deps = {
+    runtimeId: id, port, setCfg: bg.setCfg, removeSiteOrigin: bg.removeSiteOrigin,
+    unregisterSite: bg.unregisterSite, walkRemoveSiteGrant: bg.walkRemoveSiteGrant,
+    checkCleanDeclines: bg.checkCleanDeclines,
+  };
+  await sandbox.SolstoneRouter.route({ cmd: "removeGrantedOrigin", origin: "https://bank.com" }, sender, deps);
+  assert.equal(port.declinedHosts.includes("bank.com"), false);
+  assert.equal(port.ownerSites?.declinedHosts?.has("bank.com") ?? false, false);
+});
+
+test("lifecycle: *://*/* stays in selected mode reconciliation", async () => {
+  const {mock, bg} = await startWorker({ chosenOrigins: ["https://example.com"], paused: false, showPageIndicator: false, siteMode: "selected" });
+  mock.grantedPermissions.add("*://*/*");
+  let removedAny = false;
+  mock.chrome.permissions.remove = async () => { removedAny = true; return true; };
+  await bg.runReconcile();
+  assert.equal(removedAny, false);
+  assert.equal(mock.grantedPermissions.has("*://*/*"), true);
+});
+
+test("lifecycle: login.bank.com keeps *://*.bank.com/* when bank.com is removed", async () => {
+  const {mock, bg, sandbox} = await startWorker({ chosenOrigins: ["https://bank.com", "https://login.bank.com"], paused: false, showPageIndicator: false });
+  mock.grantedPermissions.add("*://*.bank.com/*");
+  const id = mock.chrome.runtime.id;
+  const sender = { id, url: `chrome-extension://${id}/popup.html` };
+  const deps = {
+    runtimeId: id, port: bg.port, setCfg: bg.setCfg, removeSiteOrigin: bg.removeSiteOrigin,
+    unregisterSite: bg.unregisterSite, walkRemoveSiteGrant: bg.walkRemoveSiteGrant,
+    checkCleanDeclines: bg.checkCleanDeclines,
+  };
+  await sandbox.SolstoneRouter.route({ cmd: "removeGrantedOrigin", origin: "https://bank.com" }, sender, deps);
+  assert.equal(mock.grantedPermissions.has("*://*.bank.com/*"), true);
+  assert.equal(bg.port.chosenOrigins.has("https://login.bank.com"), true);
+});
+
+test("lifecycle: leave-out then include does not adopt www.example.com", async () => {
+  const {mock, bg, sandbox} = await startWorker({ chosenOrigins: [], paused: false, showPageIndicator: false, siteMode: "selected" });
+  const port = bg.port;
+  mock.grantedPermissions.add("*://*.www.example.com/*");
+  const id = mock.chrome.runtime.id;
+  const sender = { id, url: `chrome-extension://${id}/popup.html` };
+  const deps = {
+    runtimeId: id, port, setCfg: bg.setCfg, walkRemoveSiteGrant: bg.walkRemoveSiteGrant,
+    checkCleanDeclines: bg.checkCleanDeclines,
+  };
+  await sandbox.SolstoneRouter.route({ cmd: "setLeftOut", host: "example.com", out: true }, sender, deps);
+  await sandbox.SolstoneRouter.route({ cmd: "setLeftOut", host: "example.com", out: false }, sender, deps);
+  await sandbox.SolstoneRouter.runAdoptionPass({ port, setCfg: bg.setCfg, registerSite: bg.registerSite, refreshOpenTabs: () => {} });
+  assert.equal(sandbox.SolstoneHosts.siteForOrigin(port.chosenOrigins, "https://www.example.com"), null);
+});
+
+test("lifecycle: failed include save stays left out", async () => {
+  const {mock, bg, sandbox} = await startWorker({ chosenOrigins: [], excludedHosts: ["example.com"], paused: false, showPageIndicator: false });
+  const port = bg.port;
+  const id = mock.chrome.runtime.id;
+  const sender = { id, url: `chrome-extension://${id}/popup.html` };
+  const deps = {
+    runtimeId: id, port,
+    setCfg: async () => { throw new Error("storage failed"); },
+  };
+  const res = await sandbox.SolstoneRouter.route({ cmd: "setLeftOut", host: "example.com", out: false }, sender, deps);
+  assert.equal(res.ok, false);
+  assert.ok(port.excludedHosts.includes("example.com"));
+});
+
+test("lifecycle: setLeftOut makes originGranted false before any await", async () => {
+  const {mock, bg, sandbox} = await startWorker({ chosenOrigins: ["https://bank.example"], paused: false, showPageIndicator: false });
+  const port = bg.port;
+  const id = mock.chrome.runtime.id;
+  const sender = { id, url: `chrome-extension://${id}/popup.html` };
+  const H = sandbox.SolstoneHosts;
+  assert.equal(H.originGranted(port, "https://bank.example"), true);
+  const leaving = sandbox.SolstoneRouter.route({ cmd: "setLeftOut", host: "bank.example", out: true }, sender, {
+    runtimeId: id, port, setCfg: bg.setCfg, walkRemoveSiteGrant: bg.walkRemoveSiteGrant,
+  });
+  assert.equal(H.originGranted(port, "https://bank.example"), false);
+  await leaving;
+});
+
+test("lifecycle: failed leave-out save keeps it false", async () => {
+  const {mock, bg, sandbox} = await startWorker({ chosenOrigins: ["https://bank.example"], paused: false, showPageIndicator: false });
+  const port = bg.port;
+  const id = mock.chrome.runtime.id;
+  const sender = { id, url: `chrome-extension://${id}/popup.html` };
+  const H = sandbox.SolstoneHosts;
+  const res = await sandbox.SolstoneRouter.route({ cmd: "setLeftOut", host: "bank.example", out: true }, sender, {
+    runtimeId: id, port, setCfg: async () => { throw new Error("disk full"); },
+    walkRemoveSiteGrant: bg.walkRemoveSiteGrant,
+  });
+  assert.equal(res.ok, false);
+  assert.equal(H.originGranted(port, "https://bank.example"), false);
+  assert.ok(port.excludedHosts.includes("bank.example"));
+});
+
+test("lifecycle: mail.google.com under google.com is not read and the row is left out, local or appLeftOut only", async () => {
+  const {bg, sandbox} = await startWorker({ chosenOrigins: ["https://google.com"], paused: false, showPageIndicator: false, siteMode: "selected" });
+  vm.runInNewContext(readExtFile("lib/copy.js"), sandbox);
+  vm.runInNewContext(readExtFile("lib/popup_view.js"), sandbox);
+  const port = bg.port;
+  const H = sandbox.SolstoneHosts;
+  const PV = sandbox.SolstonePopupView;
+  port.leftOutCapable = true;
+
+  port.excludedHosts = ["google.com"];
+  port.appLeftOut = [];
+  assert.equal(H.originGranted(port, "https://mail.google.com"), false);
+  const v1 = PV.arrange(null, port.getStatus(), { ok: true, host: "mail.google.com", origin: "https://mail.google.com" });
+  const pageSec1 = v1.find((s) => s.id === "page");
+  assert.equal(pageSec1.state, "left out");
+  assert.equal(pageSec1.siteAction?.id, "include-site");
+  assert.equal(pageSec1.siteAction?.site, "google.com");
+
+  port.excludedHosts = [];
+  port.appLeftOut = ["google.com"];
+  assert.equal(H.originGranted(port, "https://mail.google.com"), false);
+  const v2 = PV.arrange(null, port.getStatus(), { ok: true, host: "mail.google.com", origin: "https://mail.google.com" });
+  const pageSec2 = v2.find((s) => s.id === "page");
+  assert.equal(pageSec2.state, "left out");
+  assert.equal(pageSec2.siteAction?.id, "include-site");
+  assert.equal(pageSec2.siteAction?.site, "google.com");
+});
+
+test("lifecycle: permissions.remove spy fires only for the allowlist", async () => {
+  const {mock, bg, sandbox} = await startWorker({ chosenOrigins: ["https://site.example"], paused: false, showPageIndicator: false, siteMode: "selected" });
+  const port = bg.port;
+  const id = mock.chrome.runtime.id;
+  const sender = { id, url: `chrome-extension://${id}/popup.html` };
+  const removedPatterns = [];
+  mock.chrome.permissions.remove = async ({ origins }) => {
+    removedPatterns.push(...origins);
+    return true;
+  };
+  const deps = {
+    runtimeId: id, port, setCfg: bg.setCfg, removeSiteOrigin: bg.removeSiteOrigin,
+    unregisterSite: bg.unregisterSite, walkRemoveSiteGrant: bg.walkRemoveSiteGrant,
+    checkCleanDeclines: bg.checkCleanDeclines, updateSitePolicy: bg.updateSitePolicy,
+  };
+
+  mock.grantedPermissions.add("*://*.site.example/*");
+  await sandbox.SolstoneRouter.route({ cmd: "removeGrantedOrigin", origin: "https://site.example" }, sender, deps);
+  assert.ok(removedPatterns.includes("*://*.site.example/*"));
+
+  mock.grantedPermissions.add("*://*.decline.example/*");
+  port.offeredOrigins = ["https://decline.example"];
+  await sandbox.SolstoneRouter.route({ cmd: "declineOffer", origin: "https://decline.example" }, sender, deps);
+  assert.ok(removedPatterns.includes("*://*.decline.example/*"));
+
+  mock.grantedPermissions.add("*://*.leaveout.example/*");
+  await sandbox.SolstoneRouter.route({ cmd: "setLeftOut", host: "leaveout.example", out: true }, sender, deps);
+  assert.ok(removedPatterns.includes("*://*.leaveout.example/*"));
+
+  port.siteMode = "all";
+  port.allSitesConsent = 1;
+  mock.grantedPermissions.add("*://*/*");
+  await sandbox.SolstoneRouter.route({ cmd: "setSiteMode", mode: "selected" }, sender, deps);
+  assert.ok(removedPatterns.includes("*://*/*"));
+
+  port.ownerSites = port.ownerSites || {};
+  port.ownerSites.reservation = { pattern: "*://*/*", origin: null, expiresAt: port.now() - 1, broadAlreadyLive: false };
+  await bg.runReconcile();
+  assert.ok(removedPatterns.filter(p => p === "*://*/*").length >= 2);
+
+  const countBefore = removedPatterns.filter(p => p === "*://*/*").length;
+  port.ownerSites.reservation = { pattern: "*://*/*", origin: null, expiresAt: port.now() - 1, broadAlreadyLive: true };
+  await bg.runReconcile();
+  assert.equal(removedPatterns.filter(p => p === "*://*/*").length, countBefore);
 });

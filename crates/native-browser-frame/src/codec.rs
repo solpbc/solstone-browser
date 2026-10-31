@@ -354,6 +354,11 @@ fn write_canonical(val: &Value, out: &mut String) -> Result<(), &'static str> {
                     || map.contains_key("linkHost")
                 {
                     Some("block_attrs")
+                } else if map.contains_key("screen")
+                    || map.contains_key("activity")
+                    || map.contains_key("sites")
+                {
+                    Some("desktop")
                 } else {
                     None
                 }
@@ -443,7 +448,7 @@ pub fn decode(bytes: &[u8], direction: Direction) -> DecodeOutcome {
         return DecodeOutcome::Refuse(DecodeError::new("missing_field"));
     };
     let expected_direction = match message_type {
-        "hello" | "batch" => Direction::ExtensionToHost,
+        "hello" | "batch" | "site_rule" => Direction::ExtensionToHost,
         "hello_ack" | "unsupported" | "state" | "boundary" | "accepted" | "bye" => {
             Direction::HostToExtension
         }
@@ -565,6 +570,26 @@ pub fn build_recipe(recipe_id: &str) -> Result<Vec<u8>, &'static str> {
                 "pad": ""
             })
         }
+        "state_payload_max" => {
+            let host253 = format!("{}.com", "a".repeat(249));
+            let left_out: Vec<Value> = (0..200).map(|_| Value::String(host253.clone())).collect();
+            serde_json::json!({
+                "type": "state",
+                "capture": "permitted",
+                "delivery": "idle",
+                "freshness_ms": 0,
+                "destination_generation": "g",
+                "period_id": "p",
+                "custody": { "full": false, "stale": false },
+                "version": "1.0.0",
+                "left_out": left_out,
+                "left_out_epoch": "e".repeat(64),
+                "left_out_rev": 1000,
+                "desktop": { "screen": true, "activity": true, "sites": "on" },
+                "site_rule_ack": 1,
+                "pad": ""
+            })
+        }
         "batch_delta_cap_3000" => {
             let mut deltas = Vec::new();
             for i in 0..1500 {
@@ -604,7 +629,7 @@ pub fn build_recipe(recipe_id: &str) -> Result<Vec<u8>, &'static str> {
     let target_len = match recipe_id {
         "extension_to_host_batch_max" => EXTENSION_TO_HOST_MAX,
         "extension_to_host_batch_oversize" => EXTENSION_TO_HOST_MAX + 1,
-        "control_payload_max" => CONTROL_MAX,
+        "control_payload_max" | "state_payload_max" => CONTROL_MAX,
         "control_payload_oversize" => CONTROL_MAX + 1,
         _ => return Err("unknown target length"),
     };

@@ -145,6 +145,25 @@
       this.consentVersion = 0;
       this.showPageIndicator = false;
       this.pauseWithApp = true;
+      this.siteWideOrigins = [];
+      this.offeredOrigins = [];
+      this.declinedHosts = [];
+      this.declinedHostsKnown = false;
+      this.appLeftOut = [];
+      this.appLeftOutEpoch = null;
+      this.appLeftOutRev = null;
+      this.leftOutCapable = false;
+      this.desktop = null;
+      this.adoptionNotices = [];
+      this.ruleId = 0;
+      this.outstandingRule = null;
+      this.migrationQueue = [];
+      this.refusedHosts = new Set();
+      this.migrationBlocked = false;
+      this.lastRuleSentAt = null;
+      this.migrationTimer = null;
+      this.persistCfg = options.persistCfg || null;
+      this.onLapseReservation = options.onLapseReservation || null;
       this.lastCaptureMessage = null;
       this.capturePermitted = false;
       this.brand = resolveBrand();
@@ -376,7 +395,9 @@
     getStatus() {
       this.syncCaptureAuthority();
       const nowMs = this.now();
-      if (this.ownerSites?.reservation && nowMs >= this.ownerSites.reservation.expiresAt) this.ownerSites.reservation = null;
+      if (this.ownerSites?.reservation && nowMs >= this.ownerSites.reservation.expiresAt) {
+        if (typeof this.onLapseReservation === "function") this.onLapseReservation();
+      }
       const chosenList = Array.from(this.chosenOrigins).sort();
       const grantedList = Array.from(this.grantedOrigins).sort();
       const inactiveOrigins = this.siteMode === "all" ? [] : chosenList.filter((o) => !this.grantedOrigins.has(o)).sort();
@@ -451,8 +472,18 @@
         chosenOrigins: chosenList,
         grantedOrigins: grantedList,
         exactOnlyOrigins: Array.from(this.exactOnlyOrigins || []).filter((o) => this.grantedOrigins.has(o)).sort(),
+        siteWideOrigins: Array.from(this.siteWideOrigins || []).sort(),
+        offeredOrigins: Array.from(this.offeredOrigins || []).sort(),
+        declinedHosts: Array.from(this.declinedHosts || []).sort(),
+        declinedHostsKnown: !!this.declinedHostsKnown,
         siteMode: this.siteMode,
         excludedHosts: [...this.excludedHosts],
+        appLeftOut: Array.from(this.appLeftOut || []).sort(),
+        appLeftOutEpoch: this.appLeftOutEpoch ?? null,
+        appLeftOutRev: this.appLeftOutRev ?? null,
+        leftOutCapable: !!this.leftOutCapable,
+        desktop: this.desktop ? { ...this.desktop } : null,
+        adoptionNotices: Array.from(this.adoptionNotices || []),
         allSitesConsent: this.allSitesConsent,
         broadGranted: this.broadGranted,
         allSitesRegistration: this.allSitesRegistration,
@@ -496,6 +527,17 @@
       this.hostFailure = null;
       this.custody = null;
       this.capturePermitted = false;
+      this.leftOutCapable = false;
+      this.ruleId = 0;
+      this.outstandingRule = null;
+      this.migrationQueue = [];
+      this.refusedHosts.clear();
+      this.migrationBlocked = false;
+      this.lastRuleSentAt = null;
+      if (this.migrationTimer) {
+        this.clearSchedule(this.migrationTimer);
+        this.migrationTimer = null;
+      }
 
       if (oldPort) {
         try {
@@ -754,6 +796,62 @@
       const codec = globalThis.SolstoneNativeBrowser;
       const nowMs = this.now();
 
+      if (Object.prototype.hasOwnProperty.call(val, "left_out")) {
+        this.leftOutCapable = true;
+        const res = globalThis.SolstoneLeftOut ? globalThis.SolstoneLeftOut.applyList({
+          epoch: val.left_out_epoch,
+          rev: val.left_out_rev,
+          savedEpoch: this.appLeftOutEpoch,
+          savedRev: this.appLeftOutRev,
+          savedList: this.appLeftOut,
+          localExcluded: this.excludedHosts,
+          frameList: val.left_out,
+          acceptHost: (h) => (globalThis.SolstoneHosts ? globalThis.SolstoneHosts.excludedHostname(h) === h : true),
+        }) : { list: val.left_out, epoch: val.left_out_epoch, rev: val.left_out_rev, localExcluded: this.excludedHosts, migrated: [] };
+        this.appLeftOut = res.list;
+        this.appLeftOutEpoch = res.epoch;
+        this.appLeftOutRev = res.rev;
+        this.excludedHosts = res.localExcluded;
+        if (typeof this.persistCfg === "function") {
+          this.persistCfg({
+            appLeftOut: this.appLeftOut,
+            appLeftOutEpoch: this.appLeftOutEpoch,
+            appLeftOutRev: this.appLeftOutRev,
+            excludedHosts: this.excludedHosts,
+          }).catch(() => {});
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(val, "desktop")) {
+        this.desktop = val.desktop || null;
+      }
+      if (Object.prototype.hasOwnProperty.call(val, "site_rule_ack")) {
+        if (this.outstandingRule && globalThis.SolstoneLeftOut) {
+          const ackStatus = globalThis.SolstoneLeftOut.noteAck({
+            outstandingId: this.outstandingRule.id,
+            ackId: val.site_rule_ack,
+          });
+          if (ackStatus === "settled") {
+            const frameList = Object.prototype.hasOwnProperty.call(val, "left_out")
+              ? (val.left_out || [])
+              : this.appLeftOut;
+            const result = globalThis.SolstoneLeftOut.ruleResult({
+              outstanding: this.outstandingRule,
+              frameList,
+            });
+            if (result === "refused") {
+              this.refusedHosts.add(this.outstandingRule.host);
+            }
+            const settledHost = this.outstandingRule.host;
+            this.outstandingRule = null;
+            const qIdx = this.migrationQueue.indexOf(settledHost);
+            if (qIdx !== -1) this.migrationQueue.splice(qIdx, 1);
+          }
+        }
+      }
+      if (this.outstandingRule && globalThis.SolstoneLeftOut?.migrationBlocked(this.outstandingRule, nowMs)) {
+        this.migrationBlocked = true;
+      }
+
       // Clear the old destination before the first status or any await,
       // including a new destination with absent or malformed optional facts.
       if (val.type === "hello_ack" || this.aboutDestination !== (val.destination_generation || null)) {
@@ -846,8 +944,62 @@
       if (typeof val.destination_generation === "string" && val.destination_generation.length > 0) {
         this.retryAfterState = false;
       }
+      if (this.leftOutCapable) {
+        for (const h of this.excludedHosts) {
+          if (!this.appLeftOut.includes(h) && !this.migrationQueue.includes(h) && !this.refusedHosts.has(h)) {
+            this.migrationQueue.push(h);
+          }
+        }
+        this.pumpMigration();
+      }
       await this.drain();
       return;
+    }
+
+    sendSiteRule(host, out) {
+      if (!this.leftOutCapable || !this.livePort || this.handshake !== "ready") return false;
+      const id = ++this.ruleId;
+      const msg = { type: "site_rule", id, host, out: !!out };
+      this.outstandingRule = { id, host, out: !!out, sentAt: this.now() };
+      this.lastRuleSentAt = this.now();
+      try {
+        this.livePort.postMessage(msg);
+        return true;
+      } catch (_e) {
+        return false;
+      }
+    }
+
+    pumpMigration() {
+      if (!this.leftOutCapable || !this.livePort || this.handshake !== "ready" || this.migrationBlocked) return;
+      const now = this.now();
+      if (this.outstandingRule) {
+        if (globalThis.SolstoneLeftOut?.migrationBlocked(this.outstandingRule, now)) {
+          this.migrationBlocked = true;
+        }
+        return;
+      }
+      const nextHost = globalThis.SolstoneLeftOut?.nextMigration({
+        queue: this.migrationQueue,
+        refused: this.refusedHosts,
+        outstanding: this.outstandingRule,
+        now,
+        lastSentAt: this.lastRuleSentAt,
+        blocked: this.migrationBlocked,
+      });
+      if (!nextHost) {
+        if (!this.outstandingRule && !this.migrationBlocked && this.migrationQueue.length > 0) {
+          const waitMs = Math.max(0, 1000 - (now - (this.lastRuleSentAt || 0)));
+          if (!this.migrationTimer && waitMs > 0) {
+            this.migrationTimer = this.schedule(() => {
+              this.migrationTimer = null;
+              this.pumpMigration();
+            }, waitMs);
+          }
+        }
+        return;
+      }
+      this.sendSiteRule(nextHost, true);
     }
 
     // The setting reaches only the owner's own pause. An app that cannot say
@@ -912,6 +1064,13 @@
           this.capturePermitted = false;
           this.notify();
         }
+      }
+
+      if (this.outstandingRule && globalThis.SolstoneLeftOut?.migrationBlocked(this.outstandingRule, monoNow)) {
+        this.migrationBlocked = true;
+      }
+      if (this.leftOutCapable) {
+        this.pumpMigration();
       }
 
       await this.refreshStorageStatus();

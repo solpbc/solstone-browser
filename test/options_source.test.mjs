@@ -160,14 +160,14 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
     "step1Section", "step1HeadingRow", "step1Check", "step1Heading", "step1Body", "step1Actions", "step1ActionBtn",
     "step2Section", "step2HeadingRow", "step2Check", "step2Heading", "step2Content", "step2DisclosureBody",
     "step2PendingText", "step2Actions", "agreeDisclosureBtn", "step2Completed", "step2ReReadDetails", "step2ReadAgain", "step2ReReadBody",
-    "step3Section", "step3HeadingRow", "step3Check", "step3Heading", "step3Content", "step3Body", "welcomeShowPageIndicator", "welcomeSiteList",
+    "step3Section", "step3HeadingRow", "step3Check", "step3Heading", "step3Content", "step3Body", "welcomeShowPageIndicator", "welcomeOffersBlock", "welcomeSiteList",
     "statusCard", "statusLead", "statusStateChip", "statusReason", "sitesCard",
     "statusAlso", "statusActions", "sitesHeading", "siteInputLabel", "siteModeHelp",
     "modeSelected", "modeSelectedTitle", "modeSelectedCurrent", "modeSelectedBody", "modeSelectedBtn",
-    "modeAll", "modeAllTitle", "modeAllCurrent", "modeAllBody", "modeAllBtn",
+    "modeAll", "modeAllTitle", "modeAllCurrent", "modeAllBody", "modeAllBtn", "broadInSelectedNote",
     "accessPanel", "accessGranted", "accessMissing", "accessTitle", "accessBody", "accessSteps", "accessReturn",
     "accessAllow", "accessCheck", "accessChecking", "accessDenied", "accessDeniedTitle", "accessDeniedList", "accessDeniedHelp",
-    "listHeading", "regrant", "regrantLine", "regrantBtn", "exactOnly", "exactOnlyLine", "exactOnlyBtn", "siteInputError", "keptNote", "siteDisclosureLeaveOut",
+    "offersBlock", "listHeading", "regrant", "regrantLine", "regrantBtn", "exactOnly", "exactOnlyLine", "exactOnlyBtn", "siteInputError", "leftOutDetails", "leftOutSummary", "leftOutList", "keptNote", "siteDisclosureLeaveOut",
     "sitesMain", "addForm", "newHost", "addBtn", "siteList", "siteDisclosure",
     "siteDisclosureTitle", "siteDisclosureWhat", "siteDisclosureUnsent", "siteDisclosureDestination",
     "siteDisclosureDestinationDetail", "siteDisclosureChrome", "siteDisclosureConfirm",
@@ -334,7 +334,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   // Settings replaces the welcome page, and the owner lands on the first site.
   assert.equal(nodes.newHost.focusCount, newHostFocus + 1);
   assert.equal(nodes.siteModeHelp.hidden, false);
-  assert.equal(nodes.siteModeHelp.textContent, C.ADD_HELP);
+  assert.equal(nodes.siteModeHelp.textContent, C.addHelp(liveState.brand));
   assert.equal(nodes.welcomeView.hidden, true);
   assert.equal(nodes.settingsView.hidden, false);
   assert.match(nodes.modeSelected.className, /\bcurrent\b/);
@@ -538,7 +538,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   assert.equal(nodes.siteModeHelp.textContent, C.LEAVE_OUT_HELP);
   nodes.newHost.value = "*.bank.com";
   await nodes.addForm.listeners.submit({ preventDefault() {} });
-  assert.deepEqual(sentMessages.findLast((message) => message.cmd === "setExcludedHost"), { cmd: "setExcludedHost", host: "bank.com", excluded: true });
+  assert.deepEqual(sentMessages.findLast((message) => message.cmd === "setLeftOut"), { cmd: "setLeftOut", host: "bank.com", out: true });
   assert.equal(nodes.actionMessage.textContent, "all bank.com sites and pages left out. other sites shown inside them are still shared.");
 
   // A site added before sites covered their subdomains is offered the rest.

@@ -582,10 +582,14 @@
     const leaseOpen = !!status.lease && Number(status.lease.freshnessMs) > 0;
     const gateOpenFor = (granted) => granted && status.capturePermitted === true && leaseOpen && status.consentVersion === 1 &&
       !status.paused && !status.pressure?.active && status.hostCapture === "permitted" && status.custody?.full !== true;
+    const leftOutList = (status.excludedHosts || []).concat(status.appLeftOut || []);
+    if (host && leftOutList.some((site) => globalThis.SolstoneHosts?.hostCovers ? globalThis.SolstoneHosts.hostCovers(site, host) : false)) {
+      return { kind: "excluded", label: "left out", action: null };
+    }
+
     if (status.siteMode === "all") {
       // In all-sites mode a site isn't added or granted on its own: it is left
       // out, refused by the browser, or covered by the one broad grant.
-      if ((status.excludedHosts || []).some((site) => globalThis.SolstoneHosts.hostCovers(site, host))) return { kind: "excluded", label: "left out", action: null };
       if ((status.browserDeniedOrigins || []).includes(entry)) {
         return { kind: "denied-by-browser", label: `${bName} is denying this site`, action: null };
       }

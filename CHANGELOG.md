@@ -13,6 +13,7 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ### Changed
 
+- a site you already allowed in your browser stays allowed. after you agree, sites you add picks it up, or offers it first so you can leave it out. removing a site or leaving it out stays that way, including when the browser keeps a wider permission. leave this site out works when you add sites one by one and when you share all sites, and a site the solstone app leaves out stays left out here too.
 - adding bank.com now shares all bank.com sites and pages, like www.bank.com and login.bank.com, and the confirmation says so before anything is shared. to share only part of a site, add that address, like mail.google.com. a site you added before this update keeps covering only its exact address until you allow the rest in settings.
 - in all sites mode, leaving out bank.com now leaves out all bank.com sites and pages, like www.bank.com and login.bank.com, including sites you left out before this update. typing `www.bank.com` or `*.bank.com` means bank.com. before, Chrome and Edge saved a typed `*.bank.com` as left out, though it left nothing out; that entry now covers bank.com, as you meant.
 

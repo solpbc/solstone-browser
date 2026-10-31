@@ -22,6 +22,7 @@ function ownerState(overrides = {}) {
     permissionEpoch: 0,
     chosen: [],
     granted: [],
+    siteWide: [],
     reservation: null,
     registration: {},
     enqueue: {},
@@ -49,7 +50,7 @@ test("owner-site transition rejects an epoch mismatch despite a live reservation
     type: "begin-add",
     origin: "https://first.example",
     now: 1,
-    liveAuth: true,
+    consent: true,
     hasPerm: true,
     capturedGrantEpoch: 0,
     capturedPermissionEpoch: 0,
@@ -132,10 +133,10 @@ test("owner-site fences preserve a choice only after its durable write", () => {
   const origin = "https://same.example";
   const state = ownerState();
   const denied = apply(state, {
-    type:"begin-add", origin, now:1, liveAuth:false, hasPerm:true,
+    type:"begin-add", origin, now:1, consent:false, hasPerm:true,
     capturedGrantEpoch:0, capturedPermissionEpoch:0,
   });
-  assert.equal(denied.result.error, "capture_unavailable");
+  assert.equal(denied.result.error, "missing_consent");
   assert.equal(state.chosen.length, 0);
   assert.equal(state.granted.length, 0);
 
@@ -170,4 +171,67 @@ test("owner-site registration status is per exact origin and failure keeps grant
   assert.equal(state.registration[origin], "reload");
   apply(state, {type:"note-registration", origin, status:"ready", capturedGrantEpoch:0, capturedPermissionEpoch:0});
   assert.equal(Object.hasOwn(state.registration, origin), false);
+});
+
+test("begin-adopt and fence-adopt honor epoch fences and track marks", () => {
+  const apply = loadApply();
+  const origin = "https://measure.test";
+  const state = ownerState({ grantEpoch: 0, permissionEpoch: 0, chosen: [] });
+
+  // begin-adopt succeeds on match
+  const start = apply(state, {
+    type: "begin-adopt", origins: [{ origin, siteWide: true }],
+    capturedGrantEpoch: 0, capturedPermissionEpoch: 0,
+  });
+  assert.equal(start.result.ok, true);
+  assert.equal(state.chosen.length, 0);
+
+  // begin-adopt fails on epoch mismatch
+  const stale = apply(state, {
+    type: "begin-adopt", origins: [{ origin, siteWide: true }],
+    capturedGrantEpoch: 1, capturedPermissionEpoch: 0,
+  });
+  assert.equal(stale.result.ok, false);
+  assert.equal(stale.result.stale, true);
+  assert.equal(stale.effects.includes("stale"), true);
+
+  // fence-adopt commits origins and marks on match
+  const fenced = apply(state, {
+    type: "fence-adopt", origins: [{ origin, siteWide: true }],
+    capturedGrantEpoch: 0, capturedPermissionEpoch: 0, phase: "after-choice-write",
+  });
+  assert.equal(fenced.result.ok, true);
+  assert.deepEqual(state.chosen, [origin]);
+  assert.deepEqual(state.siteWide, [origin]);
+
+  // fence-adopt when grantEpoch moved emits align-durable-to-memory
+  const movedState = ownerState({ grantEpoch: 1, permissionEpoch: 0, chosen: [] });
+  const align = apply(movedState, {
+    type: "fence-adopt", origins: [{ origin: "https://other.test", siteWide: false }],
+    capturedGrantEpoch: 0, capturedPermissionEpoch: 0, phase: "after-choice-write",
+  });
+  assert.equal(align.result.ok, false);
+  assert.equal(align.result.error, "capture_unavailable");
+  assert.equal(align.effects.includes("align-durable-to-memory"), true);
+});
+
+test("declines are recorded on owner-remove, decline-offer, and selected-leave-out", () => {
+  const apply = loadApply();
+  const origin = "https://bank.com";
+  const state = ownerState({ chosen: [origin], granted: [origin] });
+
+  apply(state, { type: "owner-remove", origin });
+  assert.equal(state.declinedHosts.has("bank.com"), true);
+
+  apply(state, { type: "decline-offer", host: "offer.test" });
+  assert.equal(state.declinedHosts.has("offer.test"), true);
+
+  apply(state, { type: "selected-leave-out", host: "left.test", coveringHosts: ["sub.left.test"] });
+  assert.equal(state.declinedHosts.has("left.test"), true);
+  assert.equal(state.declinedHosts.has("sub.left.test"), true);
+
+  apply(state, { type: "drop-declines", hosts: ["offer.test", "left.test"] });
+  assert.equal(state.declinedHosts.has("offer.test"), false);
+  assert.equal(state.declinedHosts.has("left.test"), false);
+  assert.equal(state.declinedHosts.has("sub.left.test"), true);
 });

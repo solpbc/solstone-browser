@@ -649,23 +649,20 @@ test("router: trusted options tab uses exact extension origin, not absence of a 
   } finally { chrome.runtime = previous; }
 });
 
-test("router: a new grant requires no local pause or pressure across permission waits", async () => {
+test("router: add succeeds under pause or pressure when consent is in force", async () => {
   await resetDB();
   const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
   for (const hold of [p=>{p.paused=true;},p=>{p.pressure={active:true};}]) {
     const port=makePort();hold(port);
-    const result=await Router.route({cmd:"addGrantedOrigin",origin:"https://example.test"},sender,{runtimeId:EXT_ID,port});
-    assert.equal(result.ok,false);
-    assert.equal(port.grantedOrigins.size,0);
+    const result=await Router.route({cmd:"addGrantedOrigin",origin:"https://example.test"},sender,{runtimeId:EXT_ID,port,setCfg:async()=>{},registerSite:async()=>"ready"});
+    assert.equal(result.ok,true);
+    assert.equal(port.grantedOrigins.has("https://example.test"),true);
   }
-  const port=makePort();
-  const previous=chrome.permissions.contains;
-  try {
-    chrome.permissions.contains=async()=>{port.paused=true;return true;};
-    const result=await Router.route({cmd:"addGrantedOrigin",origin:"https://example.test"},sender,{runtimeId:EXT_ID,port});
-    assert.equal(result.ok,false);
-    assert.equal(port.grantedOrigins.size,0);
-  } finally { chrome.permissions.contains=previous; }
+  const noConsent = makePort();
+  noConsent.consentVersion = 0;
+  const refused = await Router.route({cmd:"addGrantedOrigin",origin:"https://example.test"},sender,{runtimeId:EXT_ID,port:noConsent,setCfg:async()=>{},registerSite:async()=>"ready"});
+  assert.equal(refused.ok, false);
+  assert.equal(noConsent.grantedOrigins.size, 0);
 });
 
 test("router: reservation cannot bypass a captured permission epoch mismatch", async () => {
@@ -1016,9 +1013,51 @@ test("router: a rewritten open pause admits a site, and a closed gate does not",
   assert.equal(port.grantedOrigins.has("https://example.test"), true);
 
   const closed = makePort();
-  closed.hostCapture = "paused";
-  closed.capturePermitted = false;
+  closed.consentVersion = 0;
   const refused = await Router.route({ cmd: "addGrantedOrigin", origin: "https://other.test" }, sender, depsFor(closed));
   assert.equal(refused.ok, false);
   assert.equal(closed.grantedOrigins.size, 0);
+});
+
+test("router: acknowledgeDisclosure persists held offers before consent and thrown write aborts", async () => {
+  await resetDB();
+  const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+  const port = makePort();
+  port.consentVersion = 0;
+  const previous = chrome.permissions.getAll;
+  try {
+    chrome.permissions.getAll = async () => ({ origins: ["*://*.first.example/*", "*://*.second.example/*"] });
+    let wroteOffers = null;
+    let consentWrittenBeforeOffers = false;
+
+    // 1. Thrown setCfg does not write consent
+    const failDeps = {
+      runtimeId: EXT_ID,
+      port,
+      setCfg: async () => { throw new Error("storage_error"); },
+    };
+    const failed = await Router.route({ cmd: "acknowledgeDisclosure", version: 1 }, sender, failDeps);
+    assert.equal(failed.ok, false);
+    assert.equal(port.consentVersion, 0);
+    assert.equal(await globalThis.SolstoneDB.get("meta", "consentVersion"), undefined);
+
+    // 2. Successful acknowledgeDisclosure persists the two classified offers before DB.put
+    const passDeps = {
+      runtimeId: EXT_ID,
+      port,
+      setCfg: async (patch) => {
+        wroteOffers = patch.offeredOrigins;
+        const dbConsent = await globalThis.SolstoneDB.get("meta", "consentVersion");
+        if (dbConsent) consentWrittenBeforeOffers = true;
+      },
+    };
+    const success = await Router.route({ cmd: "acknowledgeDisclosure", version: 1 }, sender, passDeps);
+    assert.equal(success.ok, true);
+    assert.equal(port.consentVersion, 1);
+    assert.equal(consentWrittenBeforeOffers, false);
+    assert.deepEqual(wroteOffers, ["https://first.example", "https://second.example"]);
+    assert.equal(await globalThis.SolstoneDB.get("meta", "consentVersion"), 1);
+  } finally {
+    chrome.permissions.getAll = previous;
+  }
 });

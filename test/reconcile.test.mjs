@@ -28,7 +28,7 @@ test("present grant resumes a paused group", () => {
   assert.deepEqual(actions, [{ op: "resume", matchHost: "example.com", entries: ["example.com"] }]);
 });
 
-test("orphan grants are released and claimed grants are retained", () => {
+test("orphan grants are not released and claimed grants are retained", () => {
   const actions = R.reconcile({
     granted: ["*://example.com/*", "*://orphan.test/*"],
     manifestOrigins: [],
@@ -36,7 +36,7 @@ test("orphan grants are released and claimed grants are retained", () => {
     allowlist: ["example.com"],
     pausedHosts: {},
   });
-  assert.deepEqual(actions, [{ op: "release", origin: "*://orphan.test/*" }]);
+  assert.deepEqual(actions, []);
 });
 
 test("permission exemptions are empty with no relay exemptions", () => {
@@ -50,9 +50,7 @@ test("obsolete journal grant release leaves the broad localhost site grant claim
     exemptOrigins: [],
     allowlist: ["localhost:5015"],
     pausedHosts: {},
-  }), [
-    { op: "release", origin: "http://localhost:5015/*" },
-  ]);
+  }), []);
 });
 
 test("port siblings form one normalized pause and resume group", () => {
@@ -114,12 +112,11 @@ test("permission comparisons are exact pattern-string membership", () => {
     }),
     [
       { op: "pause", matchHost: "example.com", entries: ["example.com"] },
-      { op: "release", origin: "https://example.com/*" },
     ],
   );
 });
 
-test("actions are deterministic, grouped first, and orphan releases are deduplicated", () => {
+test("actions are deterministic, grouped first, and no release ops are emitted", () => {
   const actions = R.reconcile({
     granted: ["*://z.test/*", "https://y.test/*", "https://b.test/*", "https://y.test/*"],
     manifestOrigins: [],
@@ -130,8 +127,6 @@ test("actions are deterministic, grouped first, and orphan releases are deduplic
   assert.deepEqual(actions, [
     { op: "pause", matchHost: "a.test", entries: ["a.test"] },
     { op: "resume", matchHost: "z.test", entries: ["z.test:2", "z.test:1"] },
-    { op: "release", origin: "https://b.test/*" },
-    { op: "release", origin: "https://y.test/*" },
   ]);
 });
 

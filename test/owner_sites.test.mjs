@@ -235,3 +235,13 @@ test("declines are recorded on owner-remove, decline-offer, and selected-leave-o
   assert.equal(state.declinedHosts.has("left.test"), false);
   assert.equal(state.declinedHosts.has("sub.left.test"), true);
 });
+
+test("an exact-only entry whose grant lapsed keeps its exact mark", () => {
+  const apply = loadApply();
+  const state = ownerState({ chosen: ["https://ex.test"], granted: ["https://ex.test"], exactOnly: ["https://ex.test"] });
+  const { state: next } = apply(state, { type: "publish-grants", livePatterns: [], epochAtStart: 0 });
+  assert.deepEqual(next.granted, []);
+  assert.deepEqual(next.exactOnly, ["https://ex.test"]);
+  const { state: regranted } = apply(next, { type: "publish-grants", livePatterns: ["*://*.ex.test/*"], epochAtStart: 0 });
+  assert.deepEqual(regranted.exactOnly, []);
+});

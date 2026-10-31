@@ -2140,6 +2140,8 @@ test("lifecycle: remove immediate stop and adoption pass race", async () => {
   mock.grantedPermissions.add("*://*.www.example.com/*");
   port.broadGranted = false;
   port.declinedHosts = ["other.com"];
+  // A bystander decline whose grant is still live stays declined across passes.
+  mock.grantedPermissions.add("*://*.other.com/*");
 
   let passOnChain = false;
   let releasePass;
@@ -2204,6 +2206,8 @@ test("lifecycle: remove success cleans covering grants and allows subsequent ado
   mock.grantedPermissions.add("*://*.www.example.com/*");
   port.broadGranted = false;
   port.declinedHosts = ["other.com"];
+  // A bystander decline whose grant is still live stays declined across passes.
+  mock.grantedPermissions.add("*://*.other.com/*");
 
   const sender = { id: mock.chrome.runtime.id, url: `chrome-extension://${mock.chrome.runtime.id}/popup.html` };
   const res = await sandbox.SolstoneRouter.route(
@@ -2249,6 +2253,8 @@ test("lifecycle: throwing remove keeps covering hosts declined and prevents adop
   mock.grantedPermissions.add("*://*.www.example.com/*");
   port.broadGranted = false;
   port.declinedHosts = ["other.com"];
+  // A bystander decline whose grant is still live stays declined across passes.
+  mock.grantedPermissions.add("*://*.other.com/*");
 
   mock.chrome.permissions.remove = async () => { throw new Error("permission remove denied"); };
 
@@ -2343,3 +2349,117 @@ test("lifecycle: hidden revoke - reservation lapse during registerSite does not 
   }
 });
 
+
+async function deliverState(port, extra) {
+  port.handshake = "ready";
+  await port.handlePortMessage(
+    Object.assign({ type: "state", capture: "permitted", delivery: "idle", freshness_ms: 15000, destination_generation: "gen-alpha", period_id: "period-1" }, extra),
+    port.opEpoch, port.connectionGeneration, port.connectionToken);
+}
+
+test("lifecycle: after a restart, an app reset keeps every site the app had left out", async () => {
+  const {bg, sandbox} = await startWorker({ chosenOrigins: [], siteMode: "all", allSitesConsent: 1, paused: false, showPageIndicator: false,
+    appLeftOut: ["bank.com"], appLeftOutRaw: ["*.bank.com"], appLeftOutEpoch: "E1", appLeftOutRev: 5 });
+  const port = bg.port;
+  port.consentVersion = sandbox.SolstoneCaptureGate.CONSENT_VERSION;
+  port.broadGranted = true;
+  await deliverState(port, { left_out: [], left_out_epoch: "E2", left_out_rev: 1 });
+  assert.ok(port.excludedHosts.includes("bank.com"));
+  assert.equal(sandbox.SolstoneHosts.originGranted(port, "https://bank.com"), false);
+});
+
+test("lifecycle: after a restart, an app-side removal at a higher rev is applied and not re-sent", async () => {
+  const {bg} = await startWorker({ chosenOrigins: [], siteMode: "all", allSitesConsent: 1, paused: false, showPageIndicator: false,
+    excludedHosts: ["bank.com"], appLeftOut: ["bank.com"], appLeftOutRaw: ["bank.com"], appLeftOutEpoch: "E1", appLeftOutRev: 5 });
+  const port = bg.port;
+  const sent = [];
+  port.livePort = { postMessage: (m) => sent.push(m) };
+  await deliverState(port, { left_out: [], left_out_epoch: "E1", left_out_rev: 6 });
+  assert.equal(port.excludedHosts.includes("bank.com"), false);
+  assert.equal(sent.some((m) => m.type === "site_rule" && m.host === "bank.com" && m.out === true), false);
+});
+
+test("lifecycle: removing a parent keeps a chosen sub-site's own grant and doesn't decline it", async () => {
+  const {mock, bg, sandbox} = await startWorker({ chosenOrigins: ["https://example.com", "https://sub.example.com"], paused: false, showPageIndicator: false, siteMode: "selected" });
+  const port = bg.port;
+  port.consentVersion = sandbox.SolstoneCaptureGate.CONSENT_VERSION;
+  port.declinedHostsKnown = true;
+  mock.grantedPermissions.clear();
+  mock.grantedPermissions.add("*://*.example.com/*");
+  mock.grantedPermissions.add("https://sub.example.com/*");
+  const removed = [];
+  const realRemove = mock.chrome.permissions.remove;
+  mock.chrome.permissions.remove = async (req) => { removed.push(...(req.origins || [])); return realRemove(req); };
+  const id = mock.chrome.runtime.id;
+  await sandbox.SolstoneRouter.route({ cmd: "removeGrantedOrigin", origin: "https://example.com" },
+    { id, url: `chrome-extension://${id}/popup.html` },
+    { runtimeId: id, port, setCfg: bg.setCfg, unregisterSite: bg.unregisterSite, walkRemoveSiteGrant: bg.walkRemoveSiteGrant,
+      checkCleanDeclines: bg.checkCleanDeclines, removeSiteOrigin: bg.removeSiteOrigin });
+  assert.equal(removed.includes("https://sub.example.com/*"), false);
+  assert.equal((port.declinedHosts || []).includes("sub.example.com"), false);
+  assert.ok(port.chosenOrigins.has("https://sub.example.com"));
+});
+
+test("lifecycle: a decline clears once the browser drops the grant, and the owner's next Allow adopts", async () => {
+  const {mock, bg, sandbox} = await startWorker({ chosenOrigins: [], paused: false, showPageIndicator: false, siteMode: "selected" });
+  const port = bg.port;
+  port.consentVersion = sandbox.SolstoneCaptureGate.CONSENT_VERSION;
+  port.declinedHostsKnown = true;
+  port.declinedHosts = ["example.com"];
+  mock.grantedPermissions.clear();
+  const deps = { port, setCfg: bg.setCfg, registerSite: bg.registerSite, refreshOpenTabs: () => {}, checkCleanDeclines: bg.checkCleanDeclines };
+  await sandbox.SolstoneRouter.runAdoptionPass(deps);
+  assert.equal(port.declinedHosts.includes("example.com"), false);
+  // Saved too, so a restart between the owner's Ask and Allow can't bring the decline back.
+  assert.equal(((await bg.getCfg()).declinedHosts || []).includes("example.com"), false);
+  mock.grantedPermissions.add("*://*.example.com/*");
+  await sandbox.SolstoneRouter.runAdoptionPass(deps);
+  assert.ok(port.chosenOrigins.has("https://example.com"));
+});
+
+test("lifecycle: an owner rule waits behind one already in flight, and a stuck one times out", async () => {
+  const {bg} = await startWorker({ chosenOrigins: [], paused: false, showPageIndicator: false, siteMode: "selected" });
+  const port = bg.port;
+  const sent = [];
+  port.livePort = { postMessage: (m) => sent.push(m) };
+  port.handshake = "ready";
+  port.leftOutCapable = true;
+  port.outstandingRule = { id: 1, host: "a.com", out: true, sentAt: port.now() };
+  port.queueSiteRule("y.com", true);
+  assert.equal(sent.length, 0);
+  port.outstandingRule.sentAt = port.now() - 11000;
+  port.pumpRuleQueue();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].host, "y.com");
+});
+
+test("lifecycle: an offer is adopted only in sites-you-add mode", async () => {
+  const {mock, bg, sandbox} = await startWorker({ chosenOrigins: [], paused: false, showPageIndicator: false, siteMode: "all", allSitesConsent: 1 });
+  const port = bg.port;
+  port.consentVersion = sandbox.SolstoneCaptureGate.CONSENT_VERSION;
+  port.offeredOrigins = ["https://example.com"];
+  mock.grantedPermissions.add("*://*.example.com/*");
+  const id = mock.chrome.runtime.id;
+  const res = await sandbox.SolstoneRouter.route({ cmd: "adoptOffer", origin: "https://example.com" },
+    { id, url: `chrome-extension://${id}/options.html` }, { runtimeId: id, port, setCfg: bg.setCfg, registerSite: bg.registerSite });
+  assert.equal(res.error, "wrong_site_mode");
+});
+
+test("lifecycle: removing a chosen sub-site itself gives up its own grant", async () => {
+  const {mock, bg, sandbox} = await startWorker({ chosenOrigins: ["https://sub.example.com"], paused: false, showPageIndicator: false, siteMode: "selected" });
+  const port = bg.port;
+  port.consentVersion = sandbox.SolstoneCaptureGate.CONSENT_VERSION;
+  port.declinedHostsKnown = true;
+  mock.grantedPermissions.clear();
+  mock.grantedPermissions.add("https://sub.example.com/*");
+  const removed = [];
+  const realRemove = mock.chrome.permissions.remove;
+  mock.chrome.permissions.remove = async (req) => { removed.push(...(req.origins || [])); return realRemove(req); };
+  const id = mock.chrome.runtime.id;
+  await sandbox.SolstoneRouter.route({ cmd: "removeGrantedOrigin", origin: "https://sub.example.com" },
+    { id, url: `chrome-extension://${id}/popup.html` },
+    { runtimeId: id, port, setCfg: bg.setCfg, unregisterSite: bg.unregisterSite, walkRemoveSiteGrant: bg.walkRemoveSiteGrant,
+      checkCleanDeclines: bg.checkCleanDeclines, removeSiteOrigin: bg.removeSiteOrigin });
+  assert.ok(removed.includes("https://sub.example.com/*"));
+  assert.equal(port.chosenOrigins.has("https://sub.example.com"), false);
+});

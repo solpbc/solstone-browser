@@ -156,8 +156,10 @@
     let rawHost = "";
     try { rawHost = new URL(origin).hostname; } catch (_e) {}
     const effectiveList = (state?.excludedHosts || []).concat(state?.appLeftOut || []);
-    if (rawHost && effectiveList.some((s) => Hosts?.hostCovers ? Hosts.hostCovers(s, rawHost) : false)) {
-      announce(Copy.leftOutRefusal(rawHost), "bad");
+    // Name the left-out entry that covers it (google.com for mail.google.com).
+    const coveringEntry = rawHost ? effectiveList.find((s) => Hosts?.hostCovers ? Hosts.hostCovers(s, rawHost) : false) : null;
+    if (coveringEntry) {
+      announce(Copy.leftOutRefusal(coveringEntry), "bad");
       return;
     }
     const displayHost = Hosts.displayOrigin(origin);
@@ -531,7 +533,15 @@
   function renderOffersBlock(container) {
     if (!container) return;
     const allSites = state?.siteMode === "all";
-    const offers = (!allSites && Array.isArray(state?.offeredOrigins)) ? state.offeredOrigins : [];
+    // An offer for a site that is now left out (here or in the app) or declined
+    // is not shown: there is nothing to add.
+    const leftOut = [...(state?.excludedHosts || []), ...(state?.appLeftOut || [])];
+    const declined = state?.declinedHosts || [];
+    const offers = (!allSites && Array.isArray(state?.offeredOrigins) ? state.offeredOrigins : []).filter((origin) => {
+      let host = "";
+      try { host = new URL(origin).hostname; } catch (_e) { return false; }
+      return !leftOut.some((site) => Hosts.hostCovers(site, host)) && !declined.includes(host);
+    });
     if (offers.length === 0) {
       container.hidden = true;
       container.replaceChildren();

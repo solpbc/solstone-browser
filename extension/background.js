@@ -432,10 +432,18 @@ function patternNeeded(pattern) {
   if (reservation?.pattern === pattern && port.now() < reservation.expiresAt) return true;
   if (pattern === "*://*/*" && port.siteMode === "all" && port.allSitesConsent === H.ALL_SITES_CONSENT_VERSION) return true;
   // A chosen site needs its own pattern and, if the browser still holds one
-  // from before sites covered subdomains, its exact-host pattern.
+  // from before sites covered subdomains, its exact-host pattern. Any other
+  // site grant for a chosen site's own host (such as an owner's
+  // https://login.bank.com/*) is kept too, matching scheme where it names one.
+  const grant = H.classifySiteGrant(pattern);
   return [...port.chosenOrigins].some(origin => {
-    try { return H.sitePatternsFor(new URL(origin).host).includes(pattern); }
-    catch (_e) { return false; }
+    try {
+      const url = new URL(origin);
+      if (H.sitePatternsFor(url.host).includes(pattern)) return true;
+      if (!grant || grant.host !== url.hostname) return false;
+      if (pattern.startsWith("*://")) return true;
+      return new URL(grant.origin).protocol === url.protocol;
+    } catch (_e) { return false; }
   });
 }
 
@@ -703,7 +711,7 @@ function updateSitePolicy(msg) {
     port.notify();
     await syncSiteRegistrations();
     await runReconcile();
-    Router.runAdoptionPass({ port, setCfg, registerSite, refreshOpenTabs }).catch(() => {});
+    Router.runAdoptionPass({ port, setCfg, registerSite, refreshOpenTabs, checkCleanDeclines }).catch(() => {});
     return { ok: true, siteMode: port.siteMode, excludedHosts: [...port.excludedHosts], broadGranted: port.broadGranted };
   });
   const settled = change.finally(() => {
@@ -738,7 +746,7 @@ async function refreshSiteAccess() {
   Router.applyOwnerEvent(port, { type: "publish-grants", livePatterns: perms.origins || [], epochAtStart: epoch });
   port.notify();
   await syncSiteRegistrations();
-  Router.runAdoptionPass({ port, setCfg, registerSite, refreshOpenTabs }).catch(() => {});
+  Router.runAdoptionPass({ port, setCfg, registerSite, refreshOpenTabs, checkCleanDeclines }).catch(() => {});
   return { ok: true };
 }
 
@@ -821,6 +829,9 @@ async function doInit() {
   port.siteWideOrigins = cfg.siteWideOrigins ? [...cfg.siteWideOrigins] : [];
   port.offeredOrigins = cfg.offeredOrigins ? [...cfg.offeredOrigins] : [];
   port.appLeftOut = cfg.appLeftOut ? [...cfg.appLeftOut] : [];
+  // The app's list exactly as it sent it; sync compares raw strings (a restart
+  // that lost it would make an app reset drop every app exclusion).
+  port.appLeftOutRaw = Array.isArray(cfg.appLeftOutRaw) ? [...cfg.appLeftOutRaw] : [];
   port.appLeftOutEpoch = cfg.appLeftOutEpoch ?? null;
   port.appLeftOutRev = cfg.appLeftOutRev ?? 0;
   port.truncationByOrigin = storedTruncation && typeof storedTruncation === "object" ? storedTruncation : {};
@@ -887,7 +898,7 @@ async function doInit() {
   port.connect();
   updateBadge();
   refreshOpenTabs();
-  await Router.runAdoptionPass({ port, setCfg, registerSite, refreshOpenTabs }).catch(() => {});
+  await Router.runAdoptionPass({ port, setCfg, registerSite, refreshOpenTabs, checkCleanDeclines }).catch(() => {});
   try {
     const q = chrome.tabs?.query?.({}, (tabs) => {
       if (!chrome.runtime.lastError && Array.isArray(tabs) && typeof SolstoneTabAge !== "undefined") {
@@ -929,7 +940,7 @@ chrome.runtime.onConnect.addListener((p) => {
       // minute's poll.
       if (port && !port.livePort) port.connect();
       if (!port) return;
-      Router.runAdoptionPass({ port, setCfg, registerSite, refreshOpenTabs }).catch(() => {});
+      Router.runAdoptionPass({ port, setCfg, registerSite, refreshOpenTabs, checkCleanDeclines }).catch(() => {});
       // Mid-renewal, the settled state reaches this surface through
       // updateBadge, like every surface already open.
       const status = port.getStatus();
@@ -1000,7 +1011,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
         await port.poll();
       }
       await runReconcile().catch(() => {});
-      await Router.runAdoptionPass({ port, setCfg, registerSite, refreshOpenTabs }).catch(() => {});
+      await Router.runAdoptionPass({ port, setCfg, registerSite, refreshOpenTabs, checkCleanDeclines }).catch(() => {});
     }).catch(() => {});
   }
 });
@@ -1033,7 +1044,7 @@ chrome.permissions.onRemoved.addListener(async (details) => {
     port.notify();
     syncSiteRegistrations().catch(() => {});
     await runReconcile().catch(() => {});
-    const adoption = Router.runAdoptionPass({ port, setCfg, registerSite, refreshOpenTabs });
+    const adoption = Router.runAdoptionPass({ port, setCfg, registerSite, refreshOpenTabs, checkCleanDeclines });
     if (Router.grantChainBusy()) adoption.catch(() => {});
     else await adoption;
     return;
@@ -1093,7 +1104,7 @@ chrome.permissions.onAdded.addListener(async (details) => {
     port.notify();
     refreshOpenTabs();
     await runReconcile().catch(() => {});
-    const adoption = Router.runAdoptionPass({ port, setCfg, registerSite, refreshOpenTabs });
+    const adoption = Router.runAdoptionPass({ port, setCfg, registerSite, refreshOpenTabs, checkCleanDeclines });
     if (Router.grantChainBusy()) adoption.catch(() => {});
     else await adoption;
     return;

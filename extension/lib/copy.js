@@ -141,10 +141,12 @@ no analytics. no telemetry. no phone home. nobody counted.`;
   const appOnlyLeftOut = "left out in the solstone app";
   const desktopScreenOn = "the solstone extension isn't taking in this site. your screen still goes into your journal.";
   const desktopActivityOn = "the solstone extension isn't taking in this site. this browser's activity still goes into your journal.";
-  const appLeftOutSitesOn = "kept out of your journal, including this browser window on your screen and activity.";
-  const appLeftOutNeedsAccess = "the solstone extension leaves it out. the solstone app needs Accessibility to keep it off your screen and out of activity.";
+  function appLeftOutSitesOn(brand) {
+    return `kept out of your journal, ${browserName(brand)} windows on your screen and activity included.`;
+  }
+  const appLeftOutNeedsAccess = "the solstone extension leaves it out, but it can still go into activity. the solstone app's settings say why.";
   function appLeftOutNotChecked(brand) {
-    return `the solstone extension leaves it out. the solstone app doesn't check ${browserName(brand)} windows on your screen.`;
+    return `the solstone extension leaves it out. ${browserName(brand)} windows showing it can still go into your journal, on your screen and in activity.`;
   }
   const appLeftOutAppAway = "the solstone app leaves it out too.";
   const extensionLeftOut = "the solstone extension leaves it out.";
@@ -171,7 +173,8 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       const appLeftOut = Array.isArray(status.appLeftOut) ? status.appLeftOut : [];
       const appCovers = !!(pageHost && appLeftOut.some((entry) => H?.hostCovers ? H.hostCovers(entry, pageHost) : false));
       if (appCovers) {
-        if (!desktop) return "appLeftOutAppAway";
+        // With neither the screen nor activity going in, the app's list is all that matters.
+        if (!desktop || (desktop.screen !== true && desktop.activity !== true)) return "appLeftOutAppAway";
         if (desktop.sites === "on") return "appLeftOutSitesOn";
         if (desktop.sites === "needs_access") return "appLeftOutNeedsAccess";
         return "appLeftOutNotChecked";
@@ -212,7 +215,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     const bName = browserName(brand);
     const list = Array.isArray(sites) ? sites : [sites].filter(Boolean);
     if (list.length > 1) {
-      return `${list.length} sites added. you allowed them in ${bName}.`;
+      return `${list.length} sites added. you allowed them in ${bName}. what you share there goes into your journal.`;
     }
     if (list.length === 1) {
       const item = list[0];
@@ -222,9 +225,9 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       const isSiteWide = typeof item === "object" && item.siteWide !== undefined ? item.siteWide : (H?.coversSubdomains ? H.coversSubdomains(host) : false);
       const escaped = escapeToken(host);
       if (isSiteWide && !isLocal) {
-        return `all ${escaped} sites and pages added. you allowed them in ${bName}.`;
+        return `all ${escaped} sites and pages added. you allowed them in ${bName}. what you share there goes into your journal.`;
       }
-      return `${escaped} added. you allowed it in ${bName}.`;
+      return `${escaped} added. you allowed it in ${bName}. what you share there goes into your journal.`;
     }
     return "";
   }
@@ -394,6 +397,9 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     if (["capture_unavailable", "permission_not_granted", "registration_failed", "invalid_phase"].includes(s)) return "couldn't add the site. try again.";
     if (s === "missing_consent") return "finish setting up first.";
     if (s === "invalid_host" || s === "invalid_origin") return FIELD_ERROR;
+    if (s === "site_excluded") return "this site is left out. include it first.";
+    if (s === "declined") return `you chose not to add this site. to add it, allow it in ${browserName(brandInput)} again.`;
+    if (s === "permissions_unavailable") return `couldn't check what ${browserName(brandInput)} allows. try again.`;
     return "something went wrong. try again.";
   }
 

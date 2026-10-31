@@ -242,7 +242,8 @@ test("the page block names pages the extension never reads instead of offering a
   assert.ok(shared.note.includes("news.example"));
   const left = page(all, { origin: "https://bank.example", host: "bank.example", ok: true, kind: "web" });
   assert.equal(left.siteAction.id, "include-site");
-  assert.equal(left.note, "");
+  // A left-out page names what keeps it out in both modes (section 7).
+  assert.equal(left.note, "the solstone extension leaves it out.");
   const noGrant = page(Object.assign({}, all, { broadGranted: false }), { origin: "https://news.example", host: "news.example", ok: true, kind: "web" });
   assert.equal(noGrant.note, "");
 
@@ -486,4 +487,36 @@ test("popup_view: grantChosenSites requests exactPatternFor for exact-only entri
     requestPermission: async (req) => { requested = req.origins; return true; },
   });
   assert.deepEqual(requested.sort(), ["*://*.sub.bank.com/*", "*://example.com/*"].sort());
+});
+
+test("a page the app's list also covers offers no include while the app can't be told", () => {
+  const derived = () => Status.derive(state(), {});
+  const st = state({ siteMode: "selected", excludedHosts: ["bank.com"], appLeftOut: ["bank.com"], leftOutCapable: false });
+  const section = View.arrange(derived(), st, { origin: "https://bank.com", host: "bank.com", ok: true, kind: "web" })
+    .find((s) => s.id === "page");
+  assert.equal(section.state, "left out");
+  assert.equal(section.siteAction, null);
+  const capable = View.arrange(derived(), Object.assign({}, st, { leftOutCapable: true }), { origin: "https://bank.com", host: "bank.com", ok: true, kind: "web" })
+    .find((s) => s.id === "page");
+  assert.equal(capable.siteAction.id, "include-site");
+});
+
+test("allow again asks for an exact-only entry's own address, never the whole site", async () => {
+  const requested = [];
+  const effects = {
+    status: { siteMode: "selected", chosenOrigins: ["https://ex.test"], exactOnlyOrigins: ["https://ex.test"] },
+    requestPermission: async ({ origins }) => { requested.push(...origins); return true; },
+    cmd: async () => ({ ok: true }),
+  };
+  await View.grantChosenSites(["https://ex.test"], effects);
+  assert.deepEqual(requested, ["*://ex.test/*"]);
+});
+
+test("a left-out page covered by the app names the app, not the screen, when neither screen nor activity goes in", () => {
+  const C = globalThis.SolstoneCopy;
+  const page = { origin: "https://bank.com", host: "bank.com", ok: true, kind: "web" };
+  const base = { appLeftOut: ["bank.com"], excludedHosts: [] };
+  assert.equal(C.popupNoteKey(Object.assign({}, base, { desktop: { screen: false, activity: false, sites: "needs_access" } }), page, "left-out"), "appLeftOutAppAway");
+  assert.equal(C.popupNoteKey(Object.assign({}, base, { desktop: { screen: true, activity: false, sites: "needs_access" } }), page, "left-out"), "appLeftOutNeedsAccess");
+  assert.equal(C.popupNoteKey(Object.assign({}, base, { desktop: { screen: true, activity: true, sites: "on" } }), page, "left-out"), "appLeftOutSitesOn");
 });

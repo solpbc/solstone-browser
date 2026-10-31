@@ -124,7 +124,11 @@
             grantLevelFor(chosenOrigin, event.livePatterns, siteWideSet.has(chosenOrigin)),
           ]));
           state.granted = state.chosen.filter((chosenOrigin) => levels.get(chosenOrigin));
-          state.exactOnly = state.chosen.filter((chosenOrigin) => levels.get(chosenOrigin) === "exact");
+          // An exact-only entry whose grant lapsed keeps its mark, so allowing it
+          // again asks for the same exact address, never the whole site.
+          const priorExact = new Set(state.exactOnly || []);
+          state.exactOnly = state.chosen.filter((chosenOrigin) => levels.get(chosenOrigin) === "exact" ||
+            (!levels.get(chosenOrigin) && priorExact.has(chosenOrigin)));
         }
         break;
       case "begin-add":

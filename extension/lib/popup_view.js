@@ -119,10 +119,13 @@
       pageState = "left out";
       pageNoteKey = Copy?.popupNoteKey ? Copy.popupNoteKey(state, page, "left-out") : "";
       const rawLeftOutNote = pageNoteKey && Copy ? Copy[pageNoteKey] : "";
-      pageNote = !allSites ? (typeof rawLeftOutNote === "function" ? rawLeftOutNote(state.brand) : (rawLeftOutNote || "")) : "";
+      pageNote = typeof rawLeftOutNote === "function" ? rawLeftOutNote(state.brand) : (rawLeftOutNote || "");
       const site = coveringExcludedSite;
       const includeLabel = site === H.siteHostname(page.host) ? "include this site" : `include ${site}`;
-      if (!isLocalLeftOut && !state.leftOutCapable) {
+      // Including can't reach the app while it can't be told, so a site its
+      // list also covers offers no include (same rule as the site row).
+      const appCovers = (state.appLeftOut || []).some((s2) => H.hostCovers(s2, page.host));
+      if ((appCovers || !isLocalLeftOut) && !state.leftOutCapable) {
         siteAction = null;
       } else {
         siteAction = { id: "include-site", site, label: includeLabel, disabled: false, primary: false };

@@ -19,6 +19,7 @@ if (typeof importScripts === "function") {
     "lib/native_outbox.js",
     "lib/about.js",
     "lib/safari_port.js",
+    "lib/safari_ios_port.js",
     "lib/native_port.js",
     "lib/status.js",
     "lib/owner_sites.js",

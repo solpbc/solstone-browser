@@ -15,6 +15,7 @@
   }
 
   function resolveHostName(runtimeId) {
+    if (globalThis.SolstoneSafariPort?.ios && runtimeId === "app.solstone.swift.safari (7QCG8V4M6H)") return "app.solstone.swift";
     const consts = getConsts();
     const table = consts.HOSTS_AND_IDS;
     if (!table || !runtimeId) return null;
@@ -47,12 +48,12 @@
   }
 
   function defaultConnectNative() {
-    if (typeof chrome === "undefined" || !chrome.runtime?.connectNative) return null;
+    if (typeof chrome === "undefined" || !chrome.runtime) return null;
     const runtime = chrome.runtime;
     if (globalThis.SolstoneSafariPort?.isSafari(runtime)) {
       return (host) => globalThis.SolstoneSafariPort.connect(runtime, host);
     }
-    return runtime.connectNative.bind(runtime);
+    return runtime.connectNative ? runtime.connectNative.bind(runtime) : null;
   }
 
   function mintConnectionToken() {

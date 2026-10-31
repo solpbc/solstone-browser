@@ -72,6 +72,9 @@ test("on iPhone the words name the phone and say reading continues while the app
   assert.match(phone.DISCLOSURE_BODY, /solstone app on this iphone\./);
   assert.match(phone.DISCLOSURE_BODY, /the solstone extension keeps taking in the sites you choose while the solstone app is closed/);
   assert.doesNotMatch(phone.DISCLOSURE_BODY, /this computer|unless you turn that off/);
+  assert.match(phone.DISCLOSURE_BODY, /takes in nothing from private browsing/);
+  assert.match(phone.DISCLOSURE_BODY, /pausing Safari in the solstone app stops this extension too\./);
+  assert.match(phone.step3Body("safari"), /Safari's page menu/);
   const pad = copyFor({ userAgent: "Mozilla/5.0 (Macintosh)", platform: "MacIntel", maxTouchPoints: 5 });
   assert.equal(pad.PLACE, "this ipad");
 });

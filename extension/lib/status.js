@@ -143,10 +143,10 @@
           action = { id: "get-app", label: "get the solstone app" };
         } else if (!everConnected || connected) {
           if (!everConnected) mark = "paused";
-          reason = mobile() ? `the solstone app on ${here()} isn't answering right now. it tries again on its own.`
+          reason = mobile() ? `the solstone app on ${here()} isn't answering right now. this extension tries again on its own.`
             : `the solstone app on ${here()} isn't answering. open it to go on.`;
         } else if (platform !== "linux") {
-          reason = mobile() ? `the solstone app on ${here()} isn't answering right now. it tries again on its own.`
+          reason = mobile() ? `the solstone app on ${here()} isn't answering right now. this extension tries again on its own.`
             : `open the solstone app on ${here()}. if it's already open, look under sources in its settings.`;
         } else if (C) {
           reason = C.linuxCantReachAppReason();
@@ -173,7 +173,7 @@
           badge: "",
           headline: "the solstone app isn't paired yet",
           sub: "nothing is taken in until it is",
-          reason: mobile() ? `pair the solstone app on ${here()} with your journal and confirm its mark, then come back.`
+          reason: mobile() ? `pair the solstone app on ${here()} with your journal and confirm your journal's mark, then come back.`
             : `pair the solstone app on ${here()} with your journal, then come back.`,
           action: null,
           connecting: null,
@@ -331,9 +331,10 @@
           kind: "intake-held",
           mark: "offline",
           badge: "",
-          headline: "nothing new is taken in right now",
+          headline: mobile() && custody?.full === true ? "no room for more right now" : "nothing new is taken in right now",
           sub: "",
-          reason: `the solstone app on ${here()} isn't taking in new pages right now.`,
+          reason: mobile() && custody?.full === true ? `the room on ${here()} for Safari pages is full. open the solstone app to make room.`
+            : `the solstone app on ${here()} isn't taking in new pages right now.`,
           action: null,
           connecting: null,
         });

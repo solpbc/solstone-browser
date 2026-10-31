@@ -62,9 +62,22 @@
       await refresh();
       return true;
     }
-    if (action.id === "exclude-site" || action.id === "include-site") {
-      const result = await cmd({ cmd: "setExcludedHost", host: action.host || action.origin, excluded: action.id === "exclude-site" });
+    if (action.id === "exclude-site" || action.id === "include-site" || action.id === "leave-out") {
+      const result = await cmd({ cmd: "setLeftOut", host: action.host || action.origin, out: action.id !== "include-site" });
       if (result?.error || result?.ok === false) effects.showError(result.error || "storage_error");
+      await refresh();
+      return true;
+    }
+    if (action.id === "offer-add") {
+      const result = effects.grantSite ? await effects.grantSite(action.origin) : await cmd({ cmd: "addGrantedOrigin", origin: action.origin });
+      if (result?.denied) effects.showDenied ? effects.showDenied(action) : null;
+      else if (result?.error) effects.showError(result.error);
+      await refresh();
+      return true;
+    }
+    if (action.id === "offer-decline") {
+      const result = await cmd({ cmd: "declineOffer", host: action.host });
+      if (result?.error) effects.showError(result.error);
       await refresh();
       return true;
     }

@@ -95,6 +95,60 @@ no analytics. no telemetry. no phone home. nobody counted.`;
   const ADD_HELP = "adding bank.com shares all bank.com sites and pages, like www.bank.com and login.bank.com. to share only part, add that address, like mail.google.com.";
   const FIELD_ERROR = "enter a website address, like mail.google.com.";
 
+  function addHelp(brand) {
+    return `${ADD_HELP} a site you already allowed in ${browserName(brand)} is added here too, after you agree, unless you leave it out or choose don't add.`;
+  }
+
+  function broadInSelected(brand) {
+    return `${browserName(brand)} allows solstone on every website. sites you have not added here stay off.`;
+  }
+
+  function leftOutSummary(n) {
+    return n === 1 ? "1 site left out" : `${n} sites left out`;
+  }
+
+  function leftOutRefusal(host) {
+    return `${escapeToken(host)} is left out. include it before you add it.`;
+  }
+
+  function offerLine(brand) {
+    return `${browserName(brand)} already allows these sites. add one to share it, or choose don't add.`;
+  }
+
+  const appOnlyLeftOut = "left out in the solstone app";
+  const appOnlyNote = "the solstone app left this site out. this browser can't put it back until the app is sharing its list.";
+  const appLeftOutNote = "the solstone app left this site out. include it to share it again.";
+  const desktopNeedsAccess = "the solstone app needs access before it shares sites on this computer.";
+  const desktopNotChecked = "the solstone app has not checked site access on this computer yet.";
+  const desktopScreenOff = "the solstone app is not sharing the screen on this computer.";
+  const desktopActivityOff = "the solstone app is not sharing activity on this computer.";
+  const OFFER_ADD = "add";
+  const OFFER_DECLINE = "don't add";
+
+  function popupNoteKey(status, page) {
+    status = status || {};
+    page = page || {};
+    const H = globalThis.SolstoneHosts;
+    let pageHost = page.host || "";
+    if (!pageHost && page.origin) {
+      try { pageHost = new URL(page.origin).hostname; } catch (_e) {}
+    }
+    const appLeftOut = Array.isArray(status.appLeftOut) ? status.appLeftOut : [];
+    const isCoveredByApp = pageHost && appLeftOut.some((entry) => H?.hostCovers ? H.hostCovers(entry, pageHost) : false);
+
+    if (isCoveredByApp) {
+      return status.leftOutCapable ? "appLeftOutNote" : "appOnlyNote";
+    }
+    const desktop = status.desktop;
+    if (desktop) {
+      if (desktop.sites === "needs_access") return "desktopNeedsAccess";
+      if (desktop.sites === "not_checked") return "desktopNotChecked";
+      if (desktop.screen === false) return "desktopScreenOff";
+      if (desktop.activity === false) return "desktopActivityOff";
+    }
+    return "";
+  }
+
   function wholeSite(host) {
     const H = globalThis.SolstoneHosts;
     return !!H?.coversSubdomains?.(H.matchHostFor(String(host || "").replace(/^https?:\/\//i, "")));
@@ -118,6 +172,15 @@ no analytics. no telemetry. no phone home. nobody counted.`;
 
   function addedAnnouncement(host, onNow) {
     const named = wholeSite(host) ? `all ${escapeToken(host)} sites and pages added.` : `${escapeToken(host)} added.`;
+    return onNow ? `${named} what you share there now goes into your journal.` : named;
+  }
+
+  function adoptedAnnouncement(host, brand, onNow) {
+    const bName = browserName(brand);
+    const escaped = escapeToken(host);
+    const named = wholeSite(host)
+      ? `all ${escaped} sites and pages were already allowed in ${bName}, so they're on your list.`
+      : `${escaped} was already allowed in ${bName}, so it's on your list.`;
     return onNow ? `${named} what you share there now goes into your journal.` : named;
   }
 
@@ -321,5 +384,21 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     linuxStep1IntakeOffBody,
     sheetCopy,
     classifyFailure,
+    addHelp,
+    adoptedAnnouncement,
+    broadInSelected,
+    leftOutSummary,
+    leftOutRefusal,
+    offerLine,
+    popupNoteKey,
+    appOnlyLeftOut,
+    appOnlyNote,
+    appLeftOutNote,
+    desktopNeedsAccess,
+    desktopNotChecked,
+    desktopScreenOff,
+    desktopActivityOff,
+    OFFER_ADD,
+    OFFER_DECLINE,
   };
 })();

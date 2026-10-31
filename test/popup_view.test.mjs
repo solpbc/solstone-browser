@@ -360,3 +360,65 @@ test("a verdict note stays off the headline when the app reports paused and read
   assert.notEqual(verdict.appPausedNote, verdict.sub);
   assert.notEqual(verdict.appPausedNote, verdict.reason);
 });
+
+test("secondary leave-out, include rules, and note keys in popup arrange", () => {
+  const page = (st, p) => View.arrange(derived(), st, p).find((section) => section.id === "page");
+
+  // 1. Unchosen web page in selected mode offers secondary leave-out
+  const unchosen = state({ siteMode: "selected", chosenOrigins: [] });
+  const pUnchosen = page(unchosen, { origin: "https://example.com", host: "example.com", ok: true, kind: "web" });
+  assert.equal(pUnchosen.siteSecondary?.id, "leave-out");
+  assert.equal(pUnchosen.siteSecondary?.label, "leave this site out");
+
+  // 2. Chosen web page has no secondary leave-out
+  const chosen = state({ siteMode: "selected", chosenOrigins: ["https://example.com"] });
+  const pChosen = page(chosen, { origin: "https://example.com", host: "example.com", ok: true, kind: "web" });
+  assert.equal(pChosen.siteSecondary, null);
+
+  // 3. Left-out web page gets include-site action
+  const leftOutLocal = state({ siteMode: "selected", excludedHosts: ["example.com"] });
+  const pLeftLocal = page(leftOutLocal, { origin: "https://example.com", host: "example.com", ok: true, kind: "web" });
+  assert.equal(pLeftLocal.siteAction?.id, "include-site");
+  assert.equal(pLeftLocal.siteSecondary, null);
+
+  // 4. App-only left out with leftOutCapable: gets include-site
+  const leftOutAppCapable = state({ siteMode: "selected", appLeftOut: ["example.com"], leftOutCapable: true });
+  const pLeftAppCapable = page(leftOutAppCapable, { origin: "https://example.com", host: "example.com", ok: true, kind: "web" });
+  assert.equal(pLeftAppCapable.siteAction?.id, "include-site");
+
+  // 5. App-only left out without leftOutCapable: siteAction is null
+  const leftOutAppIncapable = state({ siteMode: "selected", appLeftOut: ["example.com"], leftOutCapable: false });
+  const pLeftAppIncapable = page(leftOutAppIncapable, { origin: "https://example.com", host: "example.com", ok: true, kind: "web" });
+  assert.equal(pLeftAppIncapable.siteAction, null);
+
+  // 6. Note keys: desktop notes appear on page Note
+  const withDesktop = state({
+    siteMode: "selected",
+    chosenOrigins: ["https://example.com"],
+    desktop: { screen: false, activity: true, sites: "on" },
+  });
+  const pDesktop = page(withDesktop, { origin: "https://example.com", host: "example.com", ok: true, kind: "web" });
+  assert.equal(pDesktop.note, globalThis.SolstoneCopy.desktopScreenOff);
+
+  // But desktop note does not override private, restricted, or unknown
+  const pPrivate = page(withDesktop, { origin: "", host: "example.com", ok: false, kind: "private" });
+  assert.notEqual(pPrivate.note, globalThis.SolstoneCopy.desktopScreenOff);
+});
+
+test("grantSite succeeds post-grant with consentVersion === 1 even if addSiteEligible is false post-grant", async () => {
+  const calls = [];
+  let postGrant = false;
+  const result = await View.grantSite("example.com", {
+    cmd: async (message) => {
+      calls.push(message.cmd);
+      if (message.cmd === "getState") {
+        if (!postGrant) return { consentVersion: 1, addSiteEligible: true };
+        return { consentVersion: 1, addSiteEligible: false };
+      }
+      return { ok: true };
+    },
+    requestPermission: async () => { calls.push("permission"); postGrant = true; return true; },
+  });
+  assert.deepEqual(calls, ["intendAddOrigin", "permission", "getState", "addGrantedOrigin"]);
+  assert.deepEqual(result, { ok: true });
+});

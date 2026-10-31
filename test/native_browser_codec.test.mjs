@@ -60,7 +60,8 @@ test("codec recipe builders match targets and sha256 digests", () => {
     const built = Codec.buildRecipe(r.id);
     assert.equal(built.length, r.target_length, `recipe ${r.id} length mismatch`);
     assert.equal(sha256(built.bytes), r.sha256, `recipe ${r.id} sha256 mismatch`);
-    const result = Codec.decode(built.bytes, "extension_to_host");
+    const dir = r.id.startsWith("state") ? "host_to_extension" : "extension_to_host";
+    const result = Codec.decode(built.bytes, dir);
     assert.equal(result.status, r.expect, `recipe ${r.id} decode mismatch`);
     if (r.code) assert.equal(result.code, r.code);
   }
@@ -414,4 +415,68 @@ test("custody snapshots preserve concurrent facts and gate only full custody", (
       assert.equal(Codec.captureIsPermitted({...base, custody}), false);
     }
   }
+});
+
+test("contract 1.4.0 schema acceptance and validations", () => {
+  const schemas = globalThis.SolstoneNativeBrowserSchemas;
+  assert.equal(
+    schemas.envelope.$defs.hello_ack.properties.site_rule_ack.description,
+    "id of the last site_rule this session has answered; repeated on every later per-session state"
+  );
+  assert.equal(
+    schemas.envelope.$defs.state.properties.site_rule_ack.description,
+    "id of the last site_rule this session has answered; repeated on every later per-session state"
+  );
+
+  const baseState = {
+    type: "state",
+    capture: "permitted",
+    delivery: "idle",
+    freshness_ms: 0,
+    destination_generation: "gen1",
+    period_id: "period1",
+  };
+  assert.equal(Codec.decode(Codec.encode(baseState), "host_to_extension").status, "accept");
+
+  const fullState = {
+    ...baseState,
+    left_out: ["example.com"],
+    left_out_epoch: "epoch-1",
+    left_out_rev: 42,
+    desktop: { screen: true, activity: false, sites: "on" },
+    site_rule_ack: 7,
+  };
+  assert.equal(Codec.decode(Codec.encode(fullState), "host_to_extension").status, "accept");
+
+  const laterState = { ...fullState, freshness_ms: 5000, site_rule_ack: 7 };
+  assert.equal(Codec.decode(Codec.encode(laterState), "host_to_extension").status, "accept");
+
+  const fiveHosts = ["[::1]", "a_b.example", "192.168.1.1", "localhost", "xn--bcher-kva.de"];
+  for (const host of fiveHosts) {
+    const msg = { type: "site_rule", id: 1, host, out: true };
+    const decoded = Codec.decode(Codec.encode(msg), "extension_to_host");
+    assert.equal(decoded.status, "accept", `expected ${host} to be accepted`);
+    assert.equal(decoded.value.host, host);
+    assert.equal(decoded.value.out, true);
+  }
+
+  const ruleIn = { type: "site_rule", id: 2, host: "localhost", out: false };
+  assert.equal(Codec.decode(Codec.encode(ruleIn), "extension_to_host").status, "accept");
+
+  const badHosts = ["", " a", "*", "a/b", "http://example.com"];
+  for (const host of badHosts) {
+    const bad = { type: "site_rule", id: 1, host, out: true };
+    const res = Codec.decode(Codec.encode(bad), "extension_to_host");
+    assert.equal(res.status, "refuse", `expected ${host} to be refused`);
+  }
+
+  for (const out of [null, 1, "true", undefined]) {
+    const bad = { type: "site_rule", id: 1, host: "example.com", out };
+    const res = Codec.decode(Codec.encode(bad), "extension_to_host");
+    assert.equal(res.status, "refuse");
+  }
+
+  const stateMax = Codec.buildRecipe("state_payload_max");
+  assert.ok(stateMax.length <= globalThis.SolstoneNativeBrowserConstants.CONTROL_MAX);
+  assert.equal(Codec.decode(stateMax.bytes, "host_to_extension").status, "accept");
 });

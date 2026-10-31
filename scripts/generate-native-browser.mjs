@@ -5,8 +5,15 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import vm from "node:vm";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
+
+const hostsCode = readFileSync(join(ROOT, "extension/lib/hosts.js"), "utf8");
+const hostsCtx = {};
+vm.createContext(hostsCtx);
+vm.runInContext(hostsCode, hostsCtx);
+const SolstoneHosts = hostsCtx.SolstoneHosts;
 
 // Parse --out <dir>
 let outDir = ROOT;
@@ -95,6 +102,27 @@ function stateSchema(type) {
         type: "object", additionalProperties: true, required: ["full", "stale"],
         properties: { full: { type: "boolean" }, stale: { type: "boolean" } },
       },
+      left_out: {
+        type: "array",
+        maxItems: 200,
+        items: { type: "string", minLength: 1, maxLength: 253 },
+      },
+      left_out_epoch: { type: "string", maxLength: 64 },
+      left_out_rev: { type: "integer", minimum: 0 },
+      desktop: {
+        type: "object",
+        additionalProperties: false,
+        required: ["screen", "activity", "sites"],
+        properties: {
+          screen: { type: "boolean" },
+          activity: { type: "boolean" },
+          sites: { enum: ["on", "needs_access", "not_checked"] },
+        },
+      },
+      site_rule_ack: {
+        type: "integer",
+        description: "id of the last site_rule this session has answered; repeated on every later per-session state",
+      },
     },
     allOf: [
       { if: { properties: { capture: { enum: ["unavailable", "not_paired"] } } }, then: { properties: { destination_generation: { type: "null" }, period_id: { type: "null" } } } },
@@ -108,7 +136,7 @@ const envelopeSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $id: "solstone-native-browser:envelope",
   title: "Solstone Native Browser Wire Envelope",
-  oneOf: ["hello", "hello_ack", "unsupported", "state", "batch", "boundary", "accepted", "bye"].map(name => ({ $ref: "#/$defs/" + name })),
+  oneOf: ["hello", "hello_ack", "unsupported", "state", "batch", "boundary", "accepted", "bye", "site_rule"].map(name => ({ $ref: "#/$defs/" + name })),
   $defs: {
     hello: {
       type: "object", additionalProperties: true,
@@ -155,6 +183,17 @@ const envelopeSchema = {
     bye: {
       type: "object", additionalProperties: true, required: ["type", "reason"],
       properties: { type: { const: "bye" }, reason: { enum: authority.enums.bye_reason } },
+    },
+    site_rule: {
+      type: "object",
+      additionalProperties: true,
+      required: ["type", "id", "host", "out"],
+      properties: {
+        type: { const: "site_rule" },
+        id: { type: "integer", minimum: 1 },
+        host: { type: "string", minLength: 1, maxLength: 253, pattern: SolstoneHosts.siteRuleHostPattern() },
+        out: { type: "boolean" },
+      },
     },
   },
 };
@@ -395,6 +434,11 @@ const recipesList = [
     target_length: authority.caps.control + 1,
     expect: "refuse",
     code: "oversize",
+  },
+  {
+    id: "state_payload_max",
+    target_length: authority.caps.control,
+    expect: "accept",
   },
   {
     id: "batch_delta_cap_3000",
@@ -771,6 +815,44 @@ addVector({
     inst: "inst1",
     queued_at_ms: 100,
     records: [{ t: "delta", ts: 100, op: "remove", block: { id: "d1" } }],
+  },
+  expect: "refuse",
+  code: "missing_field",
+});
+
+// 9. site_rule
+addVector({
+  id: "site_rule_positive",
+  direction: "extension_to_host",
+  payloadObj: {
+    type: "site_rule",
+    id: 1,
+    host: "example.com",
+    out: true,
+  },
+  expect: "accept",
+});
+
+addVector({
+  id: "site_rule_wrong_direction",
+  direction: "host_to_extension",
+  payloadObj: {
+    type: "site_rule",
+    id: 1,
+    host: "example.com",
+    out: true,
+  },
+  expect: "refuse",
+  code: "bad_direction",
+});
+
+addVector({
+  id: "site_rule_missing_field",
+  direction: "extension_to_host",
+  payloadObj: {
+    type: "site_rule",
+    id: 1,
+    host: "example.com",
   },
   expect: "refuse",
   code: "missing_field",

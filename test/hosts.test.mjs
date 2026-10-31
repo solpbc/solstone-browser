@@ -207,3 +207,80 @@ test("an origin is shown with its port, and with http:// when it isn't https", (
   assert.equal(H.displayOrigin("https://localhost:5015"), "localhost:5015");
   assert.equal(H.displayOrigin("http://localhost:3000"), "http://localhost:3000");
 });
+
+test("classifySiteGrant and coverage rules", () => {
+  // Broad and malformed
+  assert.equal(H.classifySiteGrant("*://*/*"), null);
+  assert.equal(H.classifySiteGrant("<all_urls>"), null);
+  assert.equal(H.classifySiteGrant("*://localhost:5015/*"), null);
+  assert.equal(H.classifySiteGrant("https://*.example.com/*"), null);
+  assert.equal(H.classifySiteGrant("http://*.example.com/*"), null);
+
+  // Wildcard site: preserves www, local gets http
+  assert.deepEqual(H.classifySiteGrant("*://*.www.example.com/*"), {
+    host: "www.example.com", origin: "https://www.example.com", siteWide: true, exactOnly: false,
+  });
+  assert.deepEqual(H.classifySiteGrant("*://*.measure.test/*"), {
+    host: "measure.test", origin: "https://measure.test", siteWide: true, exactOnly: false,
+  });
+  assert.deepEqual(H.classifySiteGrant("*://*.localhost/*"), {
+    host: "localhost", origin: "http://localhost", siteWide: true, exactOnly: false,
+  });
+
+  // Exact wildcard site
+  assert.deepEqual(H.classifySiteGrant("*://localhost/*"), {
+    host: "localhost", origin: "http://localhost", siteWide: true, exactOnly: true,
+  });
+  assert.deepEqual(H.classifySiteGrant("*://example.com/*"), {
+    host: "example.com", origin: "https://example.com", siteWide: true, exactOnly: true,
+  });
+
+  // Scheme-specific host grant
+  assert.deepEqual(H.classifySiteGrant("https://example.com/*"), {
+    host: "example.com", origin: "https://example.com", siteWide: false, exactOnly: true,
+  });
+  assert.deepEqual(H.classifySiteGrant("http://example.com/*"), {
+    host: "example.com", origin: "http://example.com", siteWide: false, exactOnly: true,
+  });
+
+  // originCoveredBy: marked vs unmarked
+  assert.equal(H.originCoveredBy("https://measure.test", "http://measure.test:8766/", false, true), true);
+  assert.equal(H.originCoveredBy("https://measure.test", "https://sub.measure.test/", false, true), true);
+  assert.equal(H.originCoveredBy("https://example.com", "http://example.com", true, false), false);
+  assert.equal(H.originCoveredBy("https://example.com", "https://sub.example.com", true, false), false);
+
+  // grantLevel: marked ignores broad, unmarked exact not widened by broad
+  assert.equal(H.grantLevel("measure.test", ["*://*.measure.test/*"], true), "site");
+  assert.equal(H.grantLevel("measure.test", ["*://*/*"], true), null);
+  assert.equal(H.grantLevel("localhost", ["*://*.localhost/*"], true), "site");
+  assert.equal(H.grantLevel("example.com", ["https://example.com/*", "*://*/*"], false), "exact");
+});
+
+test("siteRuleHostPattern accepts valid grammar and rejects malformed hosts", () => {
+  const pat = new RegExp(H.siteRuleHostPattern());
+  for (const valid of ["[::1]", "a_b.example", "192.168.1.1", "localhost", "xn--bcher-kva.de"]) {
+    assert.equal(pat.test(valid), true, valid);
+    assert.equal(H.excludedHostname(valid), valid, valid);
+  }
+  for (const invalid of ["", " ", "a b.com", "*", "example.com/path", "http://foo"]) {
+    assert.equal(pat.test(invalid), false, invalid);
+  }
+});
+
+test("originGranted respects effective left-out in selected and all-sites mode", () => {
+  const state = {
+    siteMode: "selected",
+    grantedOrigins: ["https://mail.google.com"],
+    siteWideOrigins: ["https://mail.google.com"],
+    excludedHosts: [],
+    appLeftOut: ["google.com"],
+  };
+  assert.equal(H.originGranted(state, "https://mail.google.com"), false);
+  state.appLeftOut = [];
+  state.excludedHosts = ["google.com"];
+  assert.equal(H.originGranted(state, "https://mail.google.com"), false);
+  state.siteMode = "all";
+  state.broadGranted = true;
+  state.allSitesConsent = 1;
+  assert.equal(H.originGranted(state, "https://mail.google.com"), false);
+});

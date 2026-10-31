@@ -378,10 +378,10 @@ test("capture transaction aborts when authorization closes after write success",
 
 test("grant completion rechecks app state and consent after permission await", async () => {
   await reset();
-  const p = port(),
+  let p = port(),
     ext = { id: "ext", url: "chrome-extension://ext/popup.html" };
   globalThis.chrome = { permissions: { contains: async () => true, getAll: async () => ({ origins: ["*://*/*"] }) } };
-  const deps = { runtimeId: "ext", port: p, setCfg: async () => {} };
+  let deps = { runtimeId: "ext", port: p, setCfg: async () => {} };
   p.hostCapture = "not_paired";
   assert.equal(
     (
@@ -391,8 +391,13 @@ test("grant completion rechecks app state and consent after permission await", a
         deps,
       )
     ).ok,
-    false,
+    true,
   );
+  assert.equal(p.chosenOrigins.has("https://new.test"), true);
+
+  await reset();
+  p = port();
+  deps = { runtimeId: "ext", port: p, setCfg: async () => {} };
   p.hostCapture = "permitted";
   let resolve, enteredResolve;
   const entered = new Promise((r) => (enteredResolve = r));

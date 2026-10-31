@@ -14,7 +14,7 @@ await import(new URL("../extension/native-browser/codec.js", import.meta.url));
 const Live = globalThis.SolstoneNativeBrowser;
 const Constants = globalThis.SolstoneNativeBrowserConstants;
 const fixtureRoot = new URL("./fixtures/native-browser-1.1.0/", import.meta.url);
-const frozenGlobal = { TextEncoder, TextDecoder };
+const frozenGlobal = { TextEncoder, TextDecoder, Uint8Array };
 frozenGlobal.globalThis = frozenGlobal;
 for (const file of ["schema-validator.js", "constants.js", "schemas.js", "codec.js"]) {
   vm.runInNewContext(readFileSync(new URL(file, fixtureRoot), "utf8"), frozenGlobal, { filename: file });
@@ -94,4 +94,10 @@ test("live reader accepts old-shaped batches and old readers accept every emitta
     assert.equal(Live.decode(JSON.stringify(retryable), "host_to_extension").code, "invalid_receipt");
     assert.throws(() => Live.buildReply({ ...identity, reason, class: "permanent" }), error => error.code === "invalid_receipt");
   }
+});
+
+test("frozen 1.1.0 codec accepts state_payload_max frame", () => {
+  const stateMax = Live.buildRecipe("state_payload_max");
+  const decoded = Frozen.decode(stateMax.bytes, "host_to_extension");
+  assert.equal(decoded.status, "accept");
 });

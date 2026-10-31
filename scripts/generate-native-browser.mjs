@@ -74,6 +74,17 @@ function writeArtifact(relPath, content) {
   const fullPath = join(outDir, relPath);
   mkdirSync(dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, content, "utf8");
+  if (outDir === ROOT) {
+    if (relPath === "contracts/native-browser/constants.js") {
+      const extPath = join(ROOT, "extension/native-browser/constants.js");
+      mkdirSync(dirname(extPath), { recursive: true });
+      writeFileSync(extPath, content, "utf8");
+    } else if (relPath === "contracts/native-browser/schemas.js") {
+      const extPath = join(ROOT, "extension/native-browser/schemas.js");
+      mkdirSync(dirname(extPath), { recursive: true });
+      writeFileSync(extPath, content, "utf8");
+    }
+  }
 }
 
 if (sha256(readFileSync(schemaPath)) !== authority.journal.sha256) {
@@ -111,12 +122,12 @@ function stateSchema(type) {
       left_out_rev: { type: "integer", minimum: 0 },
       desktop: {
         type: "object",
-        additionalProperties: false,
+        additionalProperties: true,
         required: ["screen", "activity", "sites"],
         properties: {
           screen: { type: "boolean" },
           activity: { type: "boolean" },
-          sites: { enum: ["on", "needs_access", "not_checked"] },
+          sites: { type: "string", minLength: 1, maxLength: 64 },
         },
       },
       site_rule_ack: {

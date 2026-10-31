@@ -459,14 +459,7 @@
 
     // Adoption Notices
     if (state?.adoptionNotices && state.adoptionNotices.length > 0) {
-      const notices = state.adoptionNotices.slice();
-      for (const origin of notices) {
-        let host = origin;
-        try { host = new URL(origin).hostname; } catch (_e) {}
-        const displayHost = Hosts.displayOrigin ? Hosts.displayOrigin(origin) : host;
-        const row = Status.siteRow(origin, state);
-        announce(Copy.adoptedAnnouncement(displayHost, state.brand, row.kind === "on-now"), "ok");
-      }
+      announce(Copy.adoptedAnnouncement(state.brand, state.adoptionNotices), "ok");
       cmd({ cmd: "dismissAdoptionNotices" });
     }
 
@@ -571,21 +564,7 @@
       addBtn.textContent = Copy.OFFER_ADD;
       addBtn.addEventListener("click", async () => {
         clearAnnouncement();
-        const effectiveList = (state?.excludedHosts || []).concat(state?.appLeftOut || []);
-        if (originHost && effectiveList.some((s) => Hosts?.hostCovers ? Hosts.hostCovers(s, originHost) : false)) {
-          announce(Copy.leftOutRefusal(originHost), "bad");
-          return;
-        }
-        const result = await View.grantSite(origin, siteEffects());
-        if (result.denied) {
-          announce(Copy.ADD_DENIED, "bad");
-        } else if (result.error) {
-          showActionError(result.error);
-        } else if (result.ok) {
-          const r = Status.siteRow(origin, state);
-          announce(Copy.addedAnnouncement(Hosts.displayOrigin(origin), r.kind === "on-now"), "ok");
-        }
-        await refresh();
+        await SolstoneActions.run({ id: "offer-add", origin }, sharedActionEffects());
       });
 
       const declineBtn = document.createElement("button");
@@ -593,8 +572,7 @@
       declineBtn.textContent = Copy.OFFER_DECLINE;
       declineBtn.addEventListener("click", async () => {
         clearAnnouncement();
-        await cmd({ cmd: "declineOffer", host: originHost || origin });
-        await refresh();
+        await SolstoneActions.run({ id: "offer-decline", origin, host: originHost }, sharedActionEffects());
       });
 
       btnGroup.append(addBtn, declineBtn);

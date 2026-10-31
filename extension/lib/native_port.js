@@ -22,7 +22,9 @@
     if (
       runtimeId === table.dev?.chrome_id ||
       runtimeId === table.dev?.edge_id ||
-      runtimeId === table.dev?.firefox_id
+      runtimeId === table.dev?.firefox_id ||
+      (table.dev?.safari_id && runtimeId === table.dev.safari_id) ||
+      (table.dev?.safari_ios_id && runtimeId === table.dev.safari_ios_id)
     ) {
       return table.dev.host;
     }
@@ -30,11 +32,22 @@
       runtimeId === table.production?.chrome_id ||
       runtimeId === table.production?.edge_id ||
       runtimeId === table.production?.firefox_id ||
-      (table.production?.safari_id && runtimeId === table.production.safari_id)
+      (table.production?.safari_id && runtimeId === table.production.safari_id) ||
+      (table.production?.safari_ios_id && runtimeId === table.production.safari_ios_id)
     ) {
       return table.production.host;
     }
     return null;
+  }
+
+  function arraysEqual(a, b) {
+    if (a === b) return true;
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
   }
 
   function resolveBrand(runtime = typeof chrome !== "undefined" ? chrome.runtime : null) {
@@ -146,15 +159,22 @@
       this.showPageIndicator = false;
       this.pauseWithApp = true;
       this.siteWideOrigins = [];
+      this.pendingRemoveOrigins = [];
       this.offeredOrigins = [];
       this.declinedHosts = [];
       this.declinedHostsKnown = false;
       this.appLeftOut = [];
+      this.appLeftOutRaw = [];
       this.appLeftOutEpoch = null;
       this.appLeftOutRev = null;
       this.leftOutCapable = false;
       this.desktop = null;
       this.adoptionNotices = [];
+      this.includeHolds = new Set();
+      this.ruleQueue = [];
+      this.excludedGen = 0;
+      this.leftOutTail = Promise.resolve();
+      this.syncSiteRegistrations = options.syncSiteRegistrations || null;
       this.ruleId = 0;
       this.outstandingRule = null;
       this.migrationQueue = [];
@@ -473,6 +493,7 @@
         grantedOrigins: grantedList,
         exactOnlyOrigins: Array.from(this.exactOnlyOrigins || []).filter((o) => this.grantedOrigins.has(o)).sort(),
         siteWideOrigins: Array.from(this.siteWideOrigins || []).sort(),
+        pendingRemoveOrigins: Array.from(this.pendingRemoveOrigins || []),
         offeredOrigins: Array.from(this.offeredOrigins || []).sort(),
         declinedHosts: Array.from(this.declinedHosts || []).sort(),
         declinedHostsKnown: !!this.declinedHostsKnown,
@@ -506,6 +527,10 @@
       this.about = null;
       this.aboutDestination = null;
       this.aboutDeadline = null;
+      this.desktop = null;
+      this.leftOutCapable = false;
+      this.includeHolds.clear();
+      this.ruleQueue = [];
       this.opEpoch++;
       this.stateRevision++;
       this.hostStateDeadline = null;
@@ -796,44 +821,88 @@
       const codec = globalThis.SolstoneNativeBrowser;
       const nowMs = this.now();
 
+      if (val.type === "hello_ack" || val.type === "state") {
+        this.leftOutCapable = Object.prototype.hasOwnProperty.call(val, "left_out");
+      }
+
       if (Object.prototype.hasOwnProperty.call(val, "left_out")) {
-        this.leftOutCapable = true;
         const res = globalThis.SolstoneLeftOut ? globalThis.SolstoneLeftOut.applyList({
           epoch: val.left_out_epoch,
           rev: val.left_out_rev,
           savedEpoch: this.appLeftOutEpoch,
           savedRev: this.appLeftOutRev,
           savedList: this.appLeftOut,
+          savedRawList: this.appLeftOutRaw,
           localExcluded: this.excludedHosts,
           frameList: val.left_out,
-          acceptHost: (h) => (globalThis.SolstoneHosts ? globalThis.SolstoneHosts.excludedHostname(h) === h : true),
-        }) : { list: val.left_out, epoch: val.left_out_epoch, rev: val.left_out_rev, localExcluded: this.excludedHosts, migrated: [] };
-        this.appLeftOut = res.list;
-        this.appLeftOutEpoch = res.epoch;
-        this.appLeftOutRev = res.rev;
-        this.excludedHosts = res.localExcluded;
-        if (typeof this.persistCfg === "function") {
-          this.persistCfg({
+          normalizeHost: (h) => (globalThis.SolstoneHosts ? globalThis.SolstoneHosts.excludedHostname(h) : h),
+        }) : { list: val.left_out, rawList: val.left_out, epoch: val.left_out_epoch, rev: val.left_out_rev, localExcluded: this.excludedHosts, migrated: [] };
+
+        const prevExcluded = this.excludedHosts;
+        const prevAppLeftOut = this.appLeftOut;
+        const prevRaw = this.appLeftOutRaw;
+        const prevEpoch = this.appLeftOutEpoch;
+        const prevRev = this.appLeftOutRev;
+
+        const nextExcluded = res.localExcluded;
+        const nextAppLeftOut = res.list;
+        const nextRaw = res.rawList || val.left_out;
+        const nextEpoch = res.epoch;
+        const nextRev = res.rev;
+
+        const excludedChanged = !arraysEqual(nextExcluded, prevExcluded);
+        const appLeftOutChanged = !arraysEqual(nextAppLeftOut, prevAppLeftOut);
+        const rawChanged = !arraysEqual(nextRaw, prevRaw);
+        const epochChanged = nextEpoch !== prevEpoch;
+        const revChanged = nextRev !== prevRev;
+
+        this.appLeftOut = nextAppLeftOut;
+        this.appLeftOutRaw = nextRaw;
+        this.appLeftOutEpoch = nextEpoch;
+        this.appLeftOutRev = nextRev;
+        this.excludedHosts = nextExcluded;
+
+        if (excludedChanged) {
+          this.excludedGen++;
+        }
+
+        const changed = excludedChanged || appLeftOutChanged || rawChanged || epochChanged || revChanged;
+
+        if (changed) {
+          this.commitLeftOut({
             appLeftOut: this.appLeftOut,
+            appLeftOutRaw: this.appLeftOutRaw,
             appLeftOutEpoch: this.appLeftOutEpoch,
             appLeftOutRev: this.appLeftOutRev,
             excludedHosts: this.excludedHosts,
           }).catch(() => {});
         }
+
+        const effectiveChanged = excludedChanged || appLeftOutChanged;
+        if (effectiveChanged && typeof this.syncSiteRegistrations === "function") {
+          this.syncSiteRegistrations().catch(() => {});
+        }
       }
       if (Object.prototype.hasOwnProperty.call(val, "desktop")) {
-        this.desktop = val.desktop || null;
+        if (val.desktop && typeof val.desktop === "object") {
+          const knownSites = ["on", "needs_access", "not_checked"];
+          const rawSites = val.desktop.sites;
+          const sites = knownSites.includes(rawSites) ? rawSites : "not_checked";
+          this.desktop = {
+            screen: val.desktop.screen === true,
+            activity: val.desktop.activity === true,
+            sites,
+          };
+        }
       }
       if (Object.prototype.hasOwnProperty.call(val, "site_rule_ack")) {
-        if (this.outstandingRule && globalThis.SolstoneLeftOut) {
+        if (this.outstandingRule && globalThis.SolstoneLeftOut && Object.prototype.hasOwnProperty.call(val, "left_out")) {
           const ackStatus = globalThis.SolstoneLeftOut.noteAck({
             outstandingId: this.outstandingRule.id,
             ackId: val.site_rule_ack,
           });
           if (ackStatus === "settled") {
-            const frameList = Object.prototype.hasOwnProperty.call(val, "left_out")
-              ? (val.left_out || [])
-              : this.appLeftOut;
+            const frameList = Array.isArray(val.left_out) ? val.left_out : [];
             const result = globalThis.SolstoneLeftOut.ruleResult({
               outstanding: this.outstandingRule,
               frameList,
@@ -845,6 +914,7 @@
             this.outstandingRule = null;
             const qIdx = this.migrationQueue.indexOf(settledHost);
             if (qIdx !== -1) this.migrationQueue.splice(qIdx, 1);
+            this.pumpRuleQueue();
           }
         }
       }
@@ -945,15 +1015,92 @@
         this.retryAfterState = false;
       }
       if (this.leftOutCapable) {
+        const rawList = Array.isArray(this.appLeftOutRaw) ? this.appLeftOutRaw : [];
         for (const h of this.excludedHosts) {
-          if (!this.appLeftOut.includes(h) && !this.migrationQueue.includes(h) && !this.refusedHosts.has(h)) {
+          if (!rawList.includes(h) && !this.migrationQueue.includes(h) && !this.refusedHosts.has(h) && !this.includeHolds.has(h)) {
             this.migrationQueue.push(h);
           }
         }
-        this.pumpMigration();
+        this.pumpRuleQueue();
       }
       await this.drain();
       return;
+    }
+
+    commitLeftOut(patch, setCfg = this.persistCfg) {
+      this.leftOutTail = this.leftOutTail.catch(() => {}).then(async () => {
+        const DB = globalThis.SolstoneDB;
+        let genAtStart = this.excludedGen;
+
+        if (patch.appLeftOut !== undefined && DB) await DB.put("meta", patch.appLeftOut, "appLeftOut");
+        if (patch.appLeftOutRaw !== undefined && DB) await DB.put("meta", patch.appLeftOutRaw, "appLeftOutRaw");
+        if (patch.appLeftOutEpoch !== undefined && DB) await DB.put("meta", patch.appLeftOutEpoch, "appLeftOutEpoch");
+        if (patch.appLeftOutRev !== undefined && DB) await DB.put("meta", patch.appLeftOutRev, "appLeftOutRev");
+        if (patch.excludedHosts !== undefined && DB) await DB.put("meta", patch.excludedHosts, "excludedHosts");
+
+        const persist = typeof setCfg === "function" ? setCfg : this.persistCfg;
+        if (typeof persist === "function") {
+          await persist(patch);
+        }
+
+        while (this.excludedGen !== genAtStart) {
+          genAtStart = this.excludedGen;
+          if (DB) await DB.put("meta", [...this.excludedHosts], "excludedHosts");
+          if (typeof persist === "function") {
+            await persist({ excludedHosts: [...this.excludedHosts] });
+          }
+        }
+      });
+      return this.leftOutTail;
+    }
+
+    async commitInclude(host, setCfg = this.persistCfg) {
+      this.includeHolds.add(host);
+      try {
+        await this.commitLeftOut({ excludedHosts: this.excludedHosts.filter((h) => h !== host) }, setCfg);
+      } catch (err) {
+        this.includeHolds.delete(host);
+        throw err;
+      }
+      this.excludedHosts = this.excludedHosts.filter((h) => h !== host);
+      this.excludedGen++;
+      this.includeHost(host);
+      await this.commitLeftOut({ excludedHosts: [...this.excludedHosts] }, setCfg);
+      this.includeHolds.delete(host);
+      if (typeof this.syncSiteRegistrations === "function") {
+        this.syncSiteRegistrations().catch(() => {});
+      }
+      this.notify();
+      return { ok: true, host, out: false };
+    }
+
+    includeHost(host) {
+      const H = globalThis.SolstoneHosts;
+      const norm = H?.excludedHostname ? H.excludedHostname(host) : host;
+      const toInclude = new Set([host]);
+      if (norm) toInclude.add(norm);
+      for (const raw of this.appLeftOutRaw || []) {
+        if (H?.excludedHostname && H.excludedHostname(raw) === norm) {
+          toInclude.add(raw);
+        }
+      }
+      for (const h of toInclude) {
+        if (!this.ruleQueue.some((item) => item.host === h && item.out === false)) {
+          this.ruleQueue.push({ host: h, out: false });
+        }
+      }
+      this.pumpRuleQueue();
+    }
+
+    pumpRuleQueue() {
+      if (!this.leftOutCapable || !this.livePort || this.handshake !== "ready") return;
+      if (this.outstandingRule) return;
+      if (this.ruleQueue.length > 0) {
+        const next = this.ruleQueue.shift();
+        this.sendSiteRule(next.host, next.out);
+        return;
+      }
+      this.pumpMigration();
     }
 
     sendSiteRule(host, out) {
@@ -974,11 +1121,26 @@
       if (!this.leftOutCapable || !this.livePort || this.handshake !== "ready" || this.migrationBlocked) return;
       const now = this.now();
       if (this.outstandingRule) {
-        if (globalThis.SolstoneLeftOut?.migrationBlocked(this.outstandingRule, now)) {
+        if (now - this.outstandingRule.sentAt >= 10000 || globalThis.SolstoneLeftOut?.migrationBlocked(this.outstandingRule, now)) {
           this.migrationBlocked = true;
         }
         return;
       }
+      const H = globalThis.SolstoneHosts;
+      while (this.migrationQueue.length > 0) {
+        const candidate = this.migrationQueue[0];
+        const valid = this.excludedHosts.includes(candidate) &&
+          !this.includeHolds.has(candidate) &&
+          !(this.appLeftOutRaw && this.appLeftOutRaw.includes(candidate)) &&
+          (H?.excludedHostname ? H.excludedHostname(candidate) === candidate : true) &&
+          !this.refusedHosts.has(candidate);
+        if (!valid) {
+          this.migrationQueue.shift();
+          continue;
+        }
+        break;
+      }
+      if (this.migrationQueue.length === 0) return;
       const nextHost = globalThis.SolstoneLeftOut?.nextMigration({
         queue: this.migrationQueue,
         refused: this.refusedHosts,
@@ -997,6 +1159,16 @@
             }, waitMs);
           }
         }
+        return;
+      }
+      const isValid = this.excludedHosts.includes(nextHost) &&
+        !this.includeHolds.has(nextHost) &&
+        !(this.appLeftOutRaw && this.appLeftOutRaw.includes(nextHost)) &&
+        (H?.excludedHostname ? H.excludedHostname(nextHost) === nextHost : true) &&
+        !this.refusedHosts.has(nextHost);
+      if (!isValid) {
+        const idx = this.migrationQueue.indexOf(nextHost);
+        if (idx !== -1) this.migrationQueue.splice(idx, 1);
         return;
       }
       this.sendSiteRule(nextHost, true);
@@ -1031,6 +1203,10 @@
       this.hostDelivery = null;
       this.hostFailure = null;
       this.custody = null;
+      this.desktop = null;
+      this.leftOutCapable = false;
+      this.includeHolds.clear();
+      this.ruleQueue = [];
       Outbox.markAllSnapshotRequired().catch(() => {});
       this.notify();
     }
@@ -1177,5 +1353,6 @@
     }
   }
 
+  SolstoneNativePortController.resolveHostName = resolveHostName;
   globalThis.SolstoneNativePort = SolstoneNativePortController;
 })();

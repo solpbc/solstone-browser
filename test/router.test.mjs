@@ -20,6 +20,7 @@ await import(new URL("../extension/lib/native_port.js", import.meta.url));
 await import(new URL("../extension/lib/owner_sites.js", import.meta.url));
 await import(new URL("../extension/lib/tab_age.js", import.meta.url));
 await import(new URL("../extension/lib/page_facts.js", import.meta.url));
+await import(new URL("../extension/lib/actions.js", import.meta.url));
 await import(new URL("../extension/lib/router.js", import.meta.url));
 
 const DB = globalThis.SolstoneDB;
@@ -1061,3 +1062,112 @@ test("router: acknowledgeDisclosure persists held offers before consent and thro
     chrome.permissions.getAll = previous;
   }
 });
+
+test("router: acknowledgeDisclosure returns permissions_unavailable and does not write consent when getAll rejects", async () => {
+  await resetDB();
+  const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+  const port = makePort();
+  port.consentVersion = 0;
+  const previous = chrome.permissions.getAll;
+  try {
+    chrome.permissions.getAll = async () => { throw new Error("permissions_error"); };
+    const deps = { runtimeId: EXT_ID, port, setCfg: async () => {} };
+    const res = await Router.route({ cmd: "acknowledgeDisclosure", version: 1 }, sender, deps);
+    assert.equal(res.ok, false);
+    assert.equal(res.error, "permissions_unavailable");
+    assert.equal(port.consentVersion, 0);
+    assert.equal(await globalThis.SolstoneDB.get("meta", "consentVersion"), undefined);
+  } finally {
+    chrome.permissions.getAll = previous;
+  }
+});
+
+test("router: declineOffer through SolstoneActions.run requires origin and cleans offer and removes grant", async () => {
+  await resetDB();
+  const Actions = globalThis.SolstoneActions;
+  const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+  const port = makePort();
+  port.offeredOrigins = ["https://offer.example"];
+  const removedPermissions = [];
+  const prevRemove = chrome.permissions.remove;
+  chrome.permissions.remove = async (req) => { removedPermissions.push(...req.origins); return true; };
+  try {
+    let sentCmd = null;
+    let errors = [];
+    const effects = {
+      cmd: async (m) => { sentCmd = m; return Router.route(m, sender, { runtimeId: EXT_ID, port, setCfg: async () => {}, checkCleanDeclines: () => {} }); },
+      refresh: async () => {},
+      showError: (err) => { errors.push(err); },
+    };
+    // 1. Sending with only host stays invalid_origin
+    const invalidRes = await Router.route({ cmd: "declineOffer", host: "offer.example" }, sender, { runtimeId: EXT_ID, port, setCfg: async () => {} });
+    assert.equal(invalidRes.ok, false);
+    assert.equal(invalidRes.error, "invalid_origin");
+    assert.ok(port.offeredOrigins.includes("https://offer.example"));
+
+    // 2. Through Actions.run
+    await Actions.run({ id: "offer-decline", origin: "https://offer.example" }, effects);
+    assert.equal(sentCmd?.cmd, "declineOffer");
+    assert.equal(sentCmd?.origin, "https://offer.example");
+    assert.ok(port.declinedHosts.includes("offer.example"));
+    assert.equal(port.offeredOrigins.includes("https://offer.example"), false);
+  } finally {
+    chrome.permissions.remove = prevRemove;
+  }
+});
+
+test("router: adoptOffer through SolstoneActions.run adopts localhost offer to marked http://localhost", async () => {
+  await resetDB();
+  const Actions = globalThis.SolstoneActions;
+  const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+  const port = makePort();
+  port.consentVersion = 1;
+  port.siteMode = "selected";
+  port.offeredOrigins = ["http://localhost"];
+  port.declinedHosts = [];
+  port.excludedHosts = [];
+  port.appLeftOut = [];
+  const prevGetAll = chrome.permissions.getAll;
+  chrome.permissions.getAll = async () => ({ origins: ["*://*.localhost/*"] });
+  try {
+    let sentCmd = null;
+    let errors = [];
+    const effects = {
+      cmd: async (m) => { sentCmd = m; return Router.route(m, sender, { runtimeId: EXT_ID, port, setCfg: async () => {}, registerSite: async () => "ready" }); },
+      refresh: async () => {},
+      showError: (err) => { errors.push(err); },
+    };
+    await Actions.run({ id: "offer-add", origin: "http://localhost" }, effects);
+    assert.equal(sentCmd?.cmd, "adoptOffer");
+    assert.equal(sentCmd?.origin, "http://localhost");
+    assert.ok(port.chosenOrigins.has ? port.chosenOrigins.has("http://localhost") : port.chosenOrigins.includes("http://localhost"));
+    assert.ok(port.siteWideOrigins.includes("http://localhost"));
+    assert.equal(globalThis.SolstoneHosts.originGranted(port, "http://localhost:5015/"), true);
+
+    // Refusals: missing consent
+    port.consentVersion = 0;
+    const refConsent = await Router.route({ cmd: "adoptOffer", origin: "http://localhost" }, sender, { runtimeId: EXT_ID, port, setCfg: async () => {} });
+    assert.equal(refConsent.ok, false);
+
+    // Refusals: left-out host
+    port.consentVersion = 1;
+    port.excludedHosts = ["localhost"];
+    const refLeftOut = await Router.route({ cmd: "adoptOffer", origin: "http://localhost" }, sender, { runtimeId: EXT_ID, port, setCfg: async () => {} });
+    assert.equal(refLeftOut.ok, false);
+
+    // Refusals: declined host
+    port.excludedHosts = [];
+    port.declinedHosts = ["localhost"];
+    const refDeclined = await Router.route({ cmd: "adoptOffer", origin: "http://localhost" }, sender, { runtimeId: EXT_ID, port, setCfg: async () => {} });
+    assert.equal(refDeclined.ok, false);
+
+    // Refusals: getAll no longer shows grant
+    port.declinedHosts = [];
+    chrome.permissions.getAll = async () => ({ origins: [] });
+    const refNoGrant = await Router.route({ cmd: "adoptOffer", origin: "http://localhost" }, sender, { runtimeId: EXT_ID, port, setCfg: async () => {} });
+    assert.equal(refNoGrant.ok, false);
+  } finally {
+    chrome.permissions.getAll = prevGetAll;
+  }
+});
+

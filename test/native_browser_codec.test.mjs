@@ -480,3 +480,18 @@ test("contract 1.4.0 schema acceptance and validations", () => {
   assert.ok(stateMax.length <= globalThis.SolstoneNativeBrowserConstants.CONTROL_MAX);
   assert.equal(Codec.decode(stateMax.bytes, "host_to_extension").status, "accept");
 });
+
+test("codec accepts desktop object with additionalProperties and unknown sites string", () => {
+  const baseState = {
+    type: "state",
+    capture: "permitted",
+    delivery: "idle",
+    freshness_ms: 0,
+    destination_generation: "gen1",
+    period_id: "period1",
+    desktop: { screen: true, activity: false, sites: "unknown_custom_mode", extra_future_prop: 123 },
+  };
+  const res = Codec.decode(Codec.encode(baseState), "host_to_extension");
+  assert.equal(res.status, "accept");
+});
+

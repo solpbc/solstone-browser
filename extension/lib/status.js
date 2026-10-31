@@ -577,14 +577,24 @@
     // An open tab anywhere under the site counts (bank.com covers login.bank.com),
     // except under an older exact-host grant, which covers its host alone.
     const exactOnly = (status.exactOnlyOrigins || []).includes(entry);
+    const siteWide = (status.siteWideOrigins || []).includes(entry);
     const isTabOpen = openTabOrigins.some((origin) => origin === entry ||
-      (status.siteMode !== "all" && globalThis.SolstoneHosts?.originCoveredBy?.(entry, origin, exactOnly)));
+      (status.siteMode !== "all" && globalThis.SolstoneHosts?.originCoveredBy?.(entry, origin, exactOnly, siteWide)));
     const leaseOpen = !!status.lease && Number(status.lease.freshnessMs) > 0;
     const gateOpenFor = (granted) => granted && status.capturePermitted === true && leaseOpen && status.consentVersion === 1 &&
       !status.paused && !status.pressure?.active && status.hostCapture === "permitted" && status.custody?.full !== true;
     const leftOutList = (status.excludedHosts || []).concat(status.appLeftOut || []);
-    if (host && leftOutList.some((site) => globalThis.SolstoneHosts?.hostCovers ? globalThis.SolstoneHosts.hostCovers(site, host) : false)) {
-      return { kind: "excluded", label: "left out", action: null };
+    const coveringSite = host && leftOutList.find((site) => globalThis.SolstoneHosts?.hostCovers ? globalThis.SolstoneHosts.hostCovers(site, host) : false);
+    if (coveringSite) {
+      if (status.siteMode === "all") {
+        return { kind: "excluded", label: "left out", action: null };
+      }
+      const appCovers = (status.appLeftOut || []).some((site) => globalThis.SolstoneHosts?.hostCovers ? globalThis.SolstoneHosts.hostCovers(site, host) : false);
+      let action = null;
+      if (!(appCovers && !status.leftOutCapable)) {
+        action = { id: "include-site", host: coveringSite, label: `include ${coveringSite}` };
+      }
+      return { kind: "excluded", label: "left out", action };
     }
 
     if (status.siteMode === "all") {
@@ -601,7 +611,8 @@
       return { kind: "included", label: "included", action: null };
     }
     const isInactive = inactiveOrigins.includes(entry);
-    const isGranted = grantedOrigins.includes(entry);
+    const isPendingRemove = Array.isArray(status.pendingRemoveOrigins) && status.pendingRemoveOrigins.includes(entry);
+    const isGranted = grantedOrigins.includes(entry) && !isPendingRemove;
 
     if (registration === "failed" || enqueueError) {
       const stored = registration === "failed" ? registration : enqueueError;

@@ -92,3 +92,13 @@ test("safari port: the controller says hello as safari through the shim", () => 
     delete globalThis.chrome;
   }
 });
+
+test("safari port: resolveHostName supports safari_ios_id", () => {
+  const table = globalThis.SolstoneNativeBrowserConstants.HOSTS_AND_IDS;
+  const prodHost = table.production.host;
+  const prodIosId = table.production.safari_ios_id;
+  assert.equal(PortController.resolveHostName(prodIosId), prodHost);
+  assert.equal(PortController.resolveHostName(table.dev.safari_ios_id), null);
+  assert.equal(PortController.resolveHostName(""), null);
+});
+

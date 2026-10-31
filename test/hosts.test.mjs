@@ -284,3 +284,11 @@ test("originGranted respects effective left-out in selected and all-sites mode",
   state.allSitesConsent = 1;
   assert.equal(H.originGranted(state, "https://mail.google.com"), false);
 });
+
+test("grantLevel scheme rule: http does not count for https, https does not count for http", () => {
+  assert.equal(H.grantLevel("example.com", ["http://example.com/*"], false, "https"), null);
+  assert.equal(H.grantLevel("example.com", ["https://example.com/*"], false, "http"), null);
+  assert.equal(H.grantLevel("example.com", ["https://example.com/*"], false, "https"), "exact");
+  assert.equal(H.grantLevel("example.com", ["http://example.com/*"], false, "http"), "exact");
+});
+

@@ -98,7 +98,7 @@
 
   // What the browser grants a chosen site: "site" (it and its subdomains),
   // "exact" (an older grant for the host alone), or null.
-  function grantLevel(host, livePatterns, marked = false) {
+  function grantLevel(host, livePatterns, marked = false, scheme = null) {
     const live = new Set(livePatterns || []);
     const h = matchHostFor(host);
     if (marked) {
@@ -108,7 +108,9 @@
     }
     if (live.has(matchPatternFor(h))) return "site";
     if (live.has(exactPatternFor(h))) return "exact";
-    if (live.has(`https://${h}/*`) || live.has(`http://${h}/*`)) return "exact";
+    const s = scheme ? scheme.replace(/:$/, "").toLowerCase() : null;
+    if ((!s || s === "https") && live.has(`https://${h}/*`)) return "exact";
+    if ((!s || s === "http") && live.has(`http://${h}/*`)) return "exact";
     if (live.has("*://*/*")) return "site";
     return null;
   }
@@ -252,6 +254,7 @@
     // `*.bank.com` says what leaving out bank.com already does.
     const raw = String(input || "").trim().replace(/^(https?:\/\/)?(?:\*|%2a)\./i, "$1");
     if (!raw || /\s/.test(raw)) return null;
+    if (!/^https?:\/\//i.test(raw) && raw.includes("/")) return null;
     try {
       const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
       if (!/^https?:$/.test(url.protocol) || url.username || url.password) return null;
@@ -287,9 +290,11 @@
     }
     const exactOnly = new Set(state.exactOnlyOrigins || []);
     const siteWide = new Set(state.siteWideOrigins || []);
-    return Array.from(state.grantedOrigins || []).some((entry) =>
-      originCoveredBy(entry, url.origin, exactOnly.has(entry), siteWide.has(entry))
-    );
+    const pendingRemove = new Set(state.pendingRemoveOrigins || []);
+    return Array.from(state.grantedOrigins || []).some((entry) => {
+      if (pendingRemove.has(entry)) return false;
+      return originCoveredBy(entry, url.origin, exactOnly.has(entry), siteWide.has(entry));
+    });
   }
 
   function isValidHostInput(input) {

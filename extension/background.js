@@ -141,6 +141,7 @@ async function getCfg() {
     siteWideOrigins: Array.isArray(stored.siteWideOrigins) ? [...stored.siteWideOrigins] : [],
     offeredOrigins: Array.isArray(stored.offeredOrigins) ? [...stored.offeredOrigins] : [],
     appLeftOut: Array.isArray(stored.appLeftOut) ? [...stored.appLeftOut] : [],
+    appLeftOutRaw: Array.isArray(stored.appLeftOutRaw) ? [...stored.appLeftOutRaw] : [],
   };
   if (Array.isArray(stored.declinedHosts)) {
     res.declinedHosts = [...stored.declinedHosts];
@@ -249,12 +250,14 @@ function refreshOpenTabs() {
   }
 }
 
-function broadcastLeaseUpdate(status, epoch = badgeEpoch) {
+function broadcastLeaseUpdate(status = port?.getStatus(), epoch = badgeEpoch) {
   if (!status) return;
   const message = {
     kind: "leaseUpdate", captureEpoch: status.captureEpoch, lease: status.lease,
     paused: status.paused, consentVersion: status.consentVersion,
     grantedOrigins: status.grantedOrigins || [], exactOnlyOrigins: status.exactOnlyOrigins || [],
+    siteWideOrigins: status.siteWideOrigins || [],
+    pendingRemoveOrigins: status.pendingRemoveOrigins || [],
     showIndicator: status.showPageIndicator,
     siteMode: status.siteMode, excludedHosts: status.excludedHosts || [],
     appLeftOut: status.appLeftOut || [],
@@ -346,44 +349,53 @@ async function lapseReservation(targetPort = port) {
   }
 }
 
-async function walkRemoveSiteGrant(targetHost, { removeSiteGrants = true, checkSubdomains = false } = {}) {
-  let perms;
-  try {
-    perms = await chrome.permissions.getAll();
-  } catch (_e) {
-    return [];
+async function walkRemoveSiteGrant(targetHost, options = {}) {
+  let live = Array.isArray(options) ? options : (options?.livePatterns || options?.patterns);
+  if (!live) {
+    try {
+      const perms = await chrome.permissions.getAll();
+      live = perms?.origins || [];
+    } catch (_e) {
+      return [];
+    }
   }
-  const live = perms?.origins || [];
   const removed = [];
   for (const pattern of live) {
+    if (pattern === "*://*/*" || pattern === "<all_urls>") continue;
     const grant = H.classifySiteGrant(pattern);
     if (!grant) continue;
-    const matches = grant.host === targetHost || (checkSubdomains && H.hostCovers(targetHost, grant.host));
+    const matches = grant.host === targetHost || H.hostCovers(targetHost, grant.host);
     if (matches) {
       if (patternHeld(pattern)) continue;
-      if (removeSiteGrants) {
-        try {
-          await removePermission(pattern);
-          removed.push(pattern);
-        } catch (_e) {}
-      }
+      try {
+        await removePermission(pattern);
+        removed.push(pattern);
+      } catch (_e) {}
     }
   }
   return removed;
 }
 
-async function checkCleanDeclines(hosts) {
+async function checkCleanDeclines(hosts, livePatterns = null) {
   if (!port) return;
-  let perms;
-  try { perms = await chrome.permissions.getAll(); } catch (_e) { return; }
-  const live = perms?.origins || [];
+  const toCheck = Array.isArray(hosts) ? hosts : [];
+  if (toCheck.length === 0) return;
+  let live = livePatterns;
+  if (!live) {
+    try {
+      const perms = await chrome.permissions.getAll();
+      live = perms?.origins || [];
+    } catch (_e) {
+      return;
+    }
+  }
   const coveringGrants = [];
   for (const pat of live) {
     const grant = H.classifySiteGrant(pat);
     if (grant) coveringGrants.push(grant);
   }
   const cleanHosts = [];
-  for (const h of hosts || []) {
+  for (const h of toCheck) {
     const hasCovering = coveringGrants.some((grant) => {
       if (grant.host === h) return true;
       if (!grant.exactOnly && H.hostCovers(grant.host, h)) return true;
@@ -557,7 +569,6 @@ async function unregisterSite(host) {
 
   try {
     if (patternNeeded(pattern)) { await registerSite(host); return; }
-    await walkRemoveSiteGrant(matchHost);
   } catch (_e) {
     /* ignore */
   }
@@ -802,6 +813,7 @@ async function doInit() {
   port.excludedHosts = cfg.excludedHosts;
   port.allSitesConsent = cfg.allSitesConsent;
   port.persistCfg = setCfg;
+  port.syncSiteRegistrations = syncSiteRegistrations;
   port.onLapseReservation = () => { lapseReservation(port); };
   port.declinedHostsKnown = Object.prototype.hasOwnProperty.call(cfg, "declinedHosts");
   port.declinedHosts = cfg.declinedHosts ? [...cfg.declinedHosts] : [];
@@ -839,7 +851,7 @@ async function doInit() {
         const u = new URL(origin);
         const pattern = H.matchPatternFor(u.host);
         const isMarked = port.siteWideOrigins ? port.siteWideOrigins.includes(origin) : false;
-        const level = H.grantLevel(u.host, perms.origins, isMarked);
+        const level = H.grantLevel(u.host, perms.origins, isMarked, u.protocol.replace(/:$/, ""));
         if (level) {
           liveGranted.add(origin);
           if (level === "exact") exactOnly.add(origin);
@@ -947,6 +959,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       updateSitePolicy,
       executeBrowserRead,
       refreshSiteAccess,
+      broadcastLeaseUpdate,
       getBrowserIdentity,
     };
     return Router.route(msg, sender, deps);
@@ -1008,8 +1021,11 @@ chrome.permissions.onRemoved.addListener(async (details) => {
     const missing = [];
     for (const o of port.chosenOrigins) {
       try {
-        const host = new URL(o).host;
-        if (!H.grantLevel(host, perms.origins)) missing.push(H.matchPatternFor(host));
+        const u = new URL(o);
+        const host = u.host;
+        const scheme = u.protocol.replace(/:$/, "");
+        const isMarked = Array.isArray(port.siteWideOrigins) && port.siteWideOrigins.includes(o);
+        if (!H.grantLevel(host, perms.origins, isMarked, scheme)) missing.push(H.matchPatternFor(host));
       } catch (_e) {}
     }
     port.drift = missing.length ? { patterns: Array.from(new Set(missing)).sort() } : null;
@@ -1043,8 +1059,11 @@ chrome.permissions.onAdded.addListener(async (details) => {
     const missing = [];
     for (const o of port.chosenOrigins) {
       try {
-        const host = new URL(o).host;
-        if (!H.grantLevel(host, perms.origins)) missing.push(H.matchPatternFor(host));
+        const u = new URL(o);
+        const host = u.host;
+        const scheme = u.protocol.replace(/:$/, "");
+        const isMarked = Array.isArray(port.siteWideOrigins) && port.siteWideOrigins.includes(o);
+        if (!H.grantLevel(host, perms.origins, isMarked, scheme)) missing.push(H.matchPatternFor(host));
       } catch (_e) {}
     }
     port.drift = missing.length ? { patterns: Array.from(new Set(missing)).sort() } : null;
@@ -1110,6 +1129,7 @@ globalThis.SolstoneBackground = {
   doInit,
   ensureInit,
   updateBadge,
+  broadcastLeaseUpdate,
   registerSite,
   unregisterSite,
   removeSiteOrigin,

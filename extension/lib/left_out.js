@@ -4,17 +4,51 @@
 (function () {
   "use strict";
 
-  function applyList({ epoch, rev, savedEpoch, savedRev, savedList = [], localExcluded = [], frameList = [], acceptHost } = {}) {
-    const validFrame = (frameList || []).filter((h) => (typeof acceptHost === "function" ? acceptHost(h) : true));
+  function applyList({
+    epoch,
+    rev,
+    savedEpoch,
+    savedRev,
+    savedList = [],
+    savedRawList = null,
+    localExcluded = [],
+    frameList = [],
+    acceptHost = null,
+    normalizeHost = null,
+  } = {}) {
+    const H = globalThis.SolstoneHosts;
+    const normalize = normalizeHost || ((h) => (H?.excludedHostname ? H.excludedHostname(h) : (typeof acceptHost === "function" && acceptHost(h) ? h : null)));
+
+    const seenRaw = new Set();
+    const frameRaw = [];
+    const frameNorm = [];
+    for (const raw of frameList || []) {
+      if (typeof raw !== "string") continue;
+      const norm = normalize(raw);
+      if (norm) {
+        if (!seenRaw.has(raw)) {
+          seenRaw.add(raw);
+          frameRaw.push(raw);
+        }
+        if (!frameNorm.includes(norm)) {
+          frameNorm.push(norm);
+        }
+      }
+    }
+
+    const savedRaw = Array.isArray(savedRawList) ? [...new Set(savedRawList)] : [...new Set(savedList || [])];
     const saved = [...new Set(savedList || [])];
     const local = [...new Set(localExcluded || [])];
+    const currentRev = typeof rev === "number" ? rev : 0;
+    const priorRev = typeof savedRev === "number" ? savedRev : 0;
 
     // Case 1: No saved epoch
     if (savedEpoch == null) {
       return {
-        list: [...new Set(validFrame)].sort(),
+        list: [...frameNorm].sort(),
+        rawList: frameRaw,
         epoch: epoch || null,
-        rev: typeof rev === "number" ? rev : 0,
+        rev: currentRev,
         localExcluded: local.sort(),
         migrated: [],
         haveSavedList: true,
@@ -22,14 +56,17 @@
     }
 
     const sameEpoch = epoch != null && epoch === savedEpoch;
-    const currentRev = typeof rev === "number" ? rev : 0;
-    const priorRev = typeof savedRev === "number" ? savedRev : 0;
 
-    // Case 2: Same epoch, equal rev -> union of names, localExcluded unchanged
+    // Case 2: Same epoch, equal rev -> additions only
     if (sameEpoch && currentRev === priorRev) {
-      const union = [...new Set([...saved, ...validFrame])].sort();
+      const unionNorm = [...new Set([...saved, ...frameNorm])].sort();
+      const unionRaw = [...savedRaw];
+      for (const r of frameRaw) {
+        if (!unionRaw.includes(r)) unionRaw.push(r);
+      }
       return {
-        list: union,
+        list: unionNorm,
+        rawList: unionRaw,
         epoch: savedEpoch,
         rev: priorRev,
         localExcluded: local.sort(),
@@ -38,14 +75,14 @@
       };
     }
 
-    // Case 3: Same epoch, higher rev -> list becomes frameList.
-    // Saved names missing from frame are removed from localExcluded.
+    // Case 3: Same epoch, higher rev
     if (sameEpoch && currentRev > priorRev) {
-      const frameSet = new Set(validFrame);
-      const missingFromFrame = new Set(saved.filter((h) => !frameSet.has(h)));
-      const nextLocal = local.filter((h) => !missingFromFrame.has(h)).sort();
+      const frameRawSet = new Set(frameRaw);
+      const removedRawStrings = new Set(savedRaw.filter((r) => !frameRawSet.has(r)));
+      const nextLocal = local.filter((h) => !removedRawStrings.has(h)).sort();
       return {
-        list: [...new Set(validFrame)].sort(),
+        list: [...frameNorm].sort(),
+        rawList: frameRaw,
         epoch,
         rev: currentRev,
         localExcluded: nextLocal,
@@ -54,17 +91,18 @@
       };
     }
 
-    // Case 4: Same epoch, lower rev OR different epoch
-    // Names in saved list missing from frame are added to localExcluded (migrated).
-    const frameSet = new Set(validFrame);
-    const missing = saved.filter((h) => !frameSet.has(h));
-    const nextLocal = [...new Set([...local, ...missing])].sort();
+    // Case 4: Epoch differs, or rev lower
+    const frameRawSet = new Set(frameRaw);
+    const missingRaw = savedRaw.filter((r) => !frameRawSet.has(r));
+    const migrated = missingRaw.map((r) => normalize(r)).filter(Boolean);
+    const nextLocal = [...new Set([...local, ...migrated])].sort();
     return {
-      list: [...new Set(validFrame)].sort(),
+      list: [...frameNorm].sort(),
+      rawList: frameRaw,
       epoch: epoch || null,
       rev: currentRev,
       localExcluded: nextLocal,
-      migrated: [...new Set(missing)].sort(),
+      migrated: [...new Set(migrated)].sort(),
       haveSavedList: true,
     };
   }

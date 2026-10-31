@@ -183,7 +183,7 @@ globalThis.SolstoneNativeBrowserSchemas = {
           },
           "desktop": {
             "type": "object",
-            "additionalProperties": false,
+            "additionalProperties": true,
             "required": [
               "screen",
               "activity",
@@ -197,11 +197,9 @@ globalThis.SolstoneNativeBrowserSchemas = {
                 "type": "boolean"
               },
               "sites": {
-                "enum": [
-                  "on",
-                  "needs_access",
-                  "not_checked"
-                ]
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
               }
             }
           },
@@ -439,7 +437,7 @@ globalThis.SolstoneNativeBrowserSchemas = {
           },
           "desktop": {
             "type": "object",
-            "additionalProperties": false,
+            "additionalProperties": true,
             "required": [
               "screen",
               "activity",
@@ -453,11 +451,9 @@ globalThis.SolstoneNativeBrowserSchemas = {
                 "type": "boolean"
               },
               "sites": {
-                "enum": [
-                  "on",
-                  "needs_access",
-                  "not_checked"
-                ]
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
               }
             }
           },

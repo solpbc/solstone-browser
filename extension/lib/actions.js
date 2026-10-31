@@ -69,15 +69,14 @@
       return true;
     }
     if (action.id === "offer-add") {
-      const result = effects.grantSite ? await effects.grantSite(action.origin) : await cmd({ cmd: "addGrantedOrigin", origin: action.origin });
-      if (result?.denied) effects.showDenied ? effects.showDenied(action) : null;
-      else if (result?.error) effects.showError(result.error);
+      const result = await cmd({ cmd: "adoptOffer", origin: action.origin });
+      if (result?.error || result?.ok === false) effects.showError(result?.error || "storage_error");
       await refresh();
       return true;
     }
     if (action.id === "offer-decline") {
-      const result = await cmd({ cmd: "declineOffer", host: action.host });
-      if (result?.error) effects.showError(result.error);
+      const result = await cmd({ cmd: "declineOffer", origin: action.origin });
+      if (result?.error || result?.ok === false) effects.showError(result?.error || "storage_error");
       await refresh();
       return true;
     }

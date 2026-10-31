@@ -11,7 +11,7 @@ const L = globalThis.SolstoneLeftOut;
 const H = globalThis.SolstoneHosts;
 const accept = (h) => H.excludedHostname(h) === h;
 
-test("applyList drops malformed hosts without refusing the frame", () => {
+test("applyList drops malformed hosts without refusing the frame and normalizes raw hosts", () => {
   const result = L.applyList({
     epoch: "e1",
     rev: 1,
@@ -19,11 +19,31 @@ test("applyList drops malformed hosts without refusing the frame", () => {
     savedRev: 0,
     savedList: [],
     localExcluded: [],
-    frameList: ["valid.example", "bad host with space", "another.test/slash", "[::1]"],
+    frameList: ["valid.example", "bad host with space", "another.test/slash", "[::1]", "www.example.com"],
+    normalizeHost: (h) => H.excludedHostname(h),
     acceptHost: accept,
   });
-  assert.deepEqual(result.list, ["[::1]", "valid.example"]);
+  assert.deepEqual(result.list, ["[::1]", "example.com", "valid.example"]);
+  assert.deepEqual(result.rawList, ["valid.example", "[::1]", "www.example.com"]);
   assert.equal(result.haveSavedList, true);
+});
+
+test("applyList: same epoch higher rev removal of raw www.example.com does not delete local example.com", () => {
+  const result = L.applyList({
+    epoch: "e1",
+    rev: 6,
+    savedEpoch: "e1",
+    savedRev: 5,
+    savedList: ["example.com"],
+    savedRawList: ["www.example.com"],
+    localExcluded: ["example.com"],
+    frameList: [],
+    normalizeHost: (h) => H.excludedHostname(h),
+    acceptHost: accept,
+  });
+  assert.deepEqual(result.list, []);
+  assert.deepEqual(result.localExcluded, ["example.com"]);
+  assert.deepEqual(result.migrated, []);
 });
 
 test("applyList: same epoch equal rev unions and removes nothing", () => {

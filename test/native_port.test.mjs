@@ -15,6 +15,7 @@ await import(new URL("../extension/lib/blocks.js", import.meta.url));
 await import(new URL("../extension/lib/hosts.js", import.meta.url));
 await import(new URL("../extension/lib/segment.js", import.meta.url));
 await import(new URL("../extension/lib/gate.js", import.meta.url));
+await import(new URL("../extension/lib/left_out.js", import.meta.url));
 await import(new URL("../extension/lib/native_outbox.js", import.meta.url));
 await import(new URL("../extension/lib/native_port.js", import.meta.url));
 await import(new URL("../extension/lib/owner_sites.js", import.meta.url));
@@ -2146,3 +2147,233 @@ test("port: a dropped connection is never reported as settling", async () => {
   }
   assert.equal(controller.getStatus().hostSettling, false);
 });
+
+test("port: state frame normalizes left_out list and makes originGranted false for example.com and bank.com", async () => {
+  await resetDB();
+  const { controller, mockPort, state } = renewalController([]);
+  await mockPort.receive(state("hello_ack"));
+  controller.consentVersion = 1;
+  controller.siteMode = "selected";
+  controller.chosenOrigins = ["https://example.com", "https://bank.com"];
+  controller.grantedOrigins = new Set(["https://example.com", "https://bank.com"]);
+  await mockPort.receive({
+    ...state("state"),
+    left_out: ["www.example.com", "Bank.com", "bank.com.", "*.bank.com"],
+    left_out_epoch: "E1",
+    left_out_rev: 1,
+  });
+  assert.equal(globalThis.SolstoneHosts.originGranted(controller, "https://example.com"), false);
+  assert.equal(globalThis.SolstoneHosts.originGranted(controller, "https://bank.com"), false);
+});
+
+test("port: epoch reset migrates raw entries into localExcluded, keeping originGranted false", async () => {
+  await resetDB();
+  const { controller, mockPort, state } = renewalController([]);
+  await mockPort.receive(state("hello_ack"));
+  controller.consentVersion = 1;
+  controller.siteMode = "selected";
+  controller.chosenOrigins = ["https://example.com", "https://bank.com"];
+  controller.grantedOrigins = new Set(["https://example.com", "https://bank.com"]);
+  await mockPort.receive({
+    ...state("state"),
+    left_out: ["*.bank.com", "www.example.com"],
+    left_out_epoch: "E1",
+    left_out_rev: 1,
+  });
+  await mockPort.receive({
+    ...state("state"),
+    left_out: [],
+    left_out_epoch: "E2",
+    left_out_rev: 1,
+  });
+  assert.equal(globalThis.SolstoneHosts.originGranted(controller, "https://bank.com"), false);
+  assert.equal(globalThis.SolstoneHosts.originGranted(controller, "https://example.com"), false);
+  assert.ok(controller.excludedHosts.includes("bank.com"));
+  assert.ok(controller.excludedHosts.includes("example.com"));
+});
+
+test("port: include sends both raw forms one at a time", async () => {
+  await resetDB();
+  const { controller, mockPort, state } = renewalController([]);
+  await mockPort.receive({
+    ...state("hello_ack"),
+    left_out: ["www.example.com"],
+    left_out_epoch: "E1",
+    left_out_rev: 1,
+  });
+  assert.equal(controller.leftOutCapable, true);
+  mockPort.sent.length = 0;
+  if (controller.includeHost) controller.includeHost("example.com");
+  else if (controller.sendSiteRule) controller.sendSiteRule("example.com", false);
+  assert.equal(mockPort.sent.length, 1);
+  const rule1 = mockPort.sent[0];
+  assert.equal(rule1.type, "site_rule");
+  assert.equal(rule1.out, false);
+  await mockPort.receive({
+    ...state("state"),
+    site_rule_ack: rule1.id,
+    left_out: ["www.example.com"],
+  });
+  assert.equal(mockPort.sent.length, 2);
+  const rule2 = mockPort.sent[1];
+  assert.equal(rule2.type, "site_rule");
+  assert.equal(rule2.out, false);
+  const sentHosts = [rule1.host, rule2.host].sort();
+  assert.deepEqual(sentHosts, ["example.com", "www.example.com"]);
+});
+
+test("port: regression guard - frame [] at rev 6 does not delete local example.com", async () => {
+  await resetDB();
+  const { controller, mockPort, state } = renewalController([]);
+  await mockPort.receive(state("hello_ack"));
+  controller.consentVersion = 1;
+  controller.siteMode = "selected";
+  controller.chosenOrigins = ["https://example.com"];
+  controller.grantedOrigins = new Set(["https://example.com"]);
+  controller.excludedHosts = ["example.com"];
+  await mockPort.receive({
+    ...state("state"),
+    left_out: ["www.example.com"],
+    left_out_epoch: "E1",
+    left_out_rev: 5,
+  });
+  await mockPort.receive({
+    ...state("state"),
+    left_out: [],
+    left_out_epoch: "E1",
+    left_out_rev: 6,
+  });
+  assert.equal(globalThis.SolstoneHosts.originGranted(controller, "https://example.com"), false);
+  assert.ok(controller.excludedHosts.includes("example.com"));
+});
+
+test("port: include(x.com) awaiting save when new-epoch frame drops bank.com serializes cleanly", async () => {
+  await resetDB();
+  const { controller, mockPort, state } = renewalController([]);
+  await mockPort.receive(state("hello_ack"));
+  controller.consentVersion = 1;
+  controller.siteMode = "selected";
+  controller.chosenOrigins = ["https://bank.com", "https://x.com"];
+  controller.grantedOrigins = new Set(["https://bank.com", "https://x.com"]);
+  controller.excludedHosts = ["x.com"];
+  let cfg = null;
+  controller.persistCfg = async (p) => {
+    cfg = { ...cfg, ...p };
+  };
+
+  await mockPort.receive({
+    ...state("state"),
+    left_out: ["bank.com"],
+    left_out_epoch: "E1",
+    left_out_rev: 1,
+  });
+  await controller.leftOutTail;
+
+  const originalPut = DB.put;
+  let putCount = 0;
+  DB.put = async (...args) => {
+    if (args[0] === "meta" && args[2] === "excludedHosts") {
+      putCount++;
+      if (putCount === 1) {
+        const H = globalThis.SolstoneHosts;
+        const res = globalThis.SolstoneLeftOut.applyList({
+          epoch: "E2",
+          rev: 1,
+          savedEpoch: controller.appLeftOutEpoch,
+          savedRev: controller.appLeftOutRev,
+          savedList: controller.appLeftOut,
+          savedRawList: controller.appLeftOutRaw,
+          localExcluded: controller.excludedHosts,
+          frameList: [],
+          normalizeHost: (h) => (H ? H.excludedHostname(h) : h),
+        });
+        controller.excludedHosts = res.localExcluded;
+        controller.appLeftOut = res.list;
+        controller.appLeftOutRaw = res.rawList;
+        controller.appLeftOutEpoch = res.epoch;
+        controller.appLeftOutRev = res.rev;
+        controller.excludedGen++;
+      }
+    }
+    return originalPut.apply(DB, args);
+  };
+
+  try {
+    await controller.commitInclude("x.com");
+
+    assert.ok(controller.excludedHosts.includes("bank.com"));
+    assert.equal(controller.excludedHosts.includes("x.com"), false);
+    assert.equal(globalThis.SolstoneHosts.originGranted(controller, "https://bank.com"), false);
+
+    const metaExcluded = await DB.get("meta", "excludedHosts");
+    assert.ok(metaExcluded && metaExcluded.includes("bank.com"));
+    assert.equal(metaExcluded.includes("x.com"), false);
+    if (cfg?.excludedHosts) {
+      assert.ok(cfg.excludedHosts.includes("bank.com"));
+      assert.equal(cfg.excludedHosts.includes("x.com"), false);
+    }
+  } finally {
+    DB.put = originalPut;
+  }
+});
+
+test("port: AC8 migration sends one at a time at 1s pacing and does not retry refused hosts", async () => {
+  await resetDB();
+  const { controller, mockPort, state } = renewalController([]);
+  let nowTime = 10000;
+  controller.now = () => nowTime;
+  controller.handshakeStartedAt = nowTime;
+  controller.leftOutCapable = true;
+  controller.excludedHosts = Array.from({ length: 80 }, (_, i) => `site${i}.example`);
+  mockPort.sent.length = 0;
+  await mockPort.receive({
+    ...state("hello_ack"),
+    left_out: [],
+    left_out_epoch: "E1",
+    left_out_rev: 1,
+  });
+
+  assert.equal(mockPort.sent.length, 1);
+  const firstRule = mockPort.sent[0];
+  assert.equal(firstRule.type, "site_rule");
+  assert.equal(firstRule.out, true);
+
+  nowTime += 500;
+  controller.pumpMigration();
+  assert.equal(mockPort.sent.length, 1);
+
+  await mockPort.receive({
+    ...state("state"),
+    site_rule_ack: firstRule.id,
+    left_out: [],
+  });
+
+  assert.equal(mockPort.sent.length, 1);
+  nowTime += 1000;
+  controller.pumpMigration();
+  assert.equal(mockPort.sent.length, 2);
+  const secondRule = mockPort.sent[1];
+  assert.notEqual(secondRule.host, firstRule.host);
+});
+
+test("port: AC8 nothing is sent on a connection whose frames lack left_out", async () => {
+  await resetDB();
+  const { controller, mockPort, state } = renewalController([]);
+  controller.leftOutCapable = true;
+  controller.excludedHosts = ["site1.example"];
+  await mockPort.receive({
+    ...state("hello_ack"),
+    left_out: [],
+  });
+  assert.equal(controller.leftOutCapable, true);
+
+  const mockPort2 = new MockPort();
+  controller.connectNative = () => mockPort2;
+  controller.connect();
+  await mockPort2.receive(state("hello_ack"));
+  assert.equal(controller.leftOutCapable, false);
+  mockPort2.sent.length = 0;
+  controller.pumpMigration();
+  assert.equal(mockPort2.sent.length, 0);
+});
+

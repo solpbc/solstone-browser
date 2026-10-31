@@ -179,7 +179,7 @@
         },
         "desktop": {
           "type": "object",
-          "additionalProperties": false,
+          "additionalProperties": true,
           "required": [
             "screen",
             "activity",
@@ -193,11 +193,9 @@
               "type": "boolean"
             },
             "sites": {
-              "enum": [
-                "on",
-                "needs_access",
-                "not_checked"
-              ]
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
             }
           }
         },
@@ -435,7 +433,7 @@
         },
         "desktop": {
           "type": "object",
-          "additionalProperties": false,
+          "additionalProperties": true,
           "required": [
             "screen",
             "activity",
@@ -449,11 +447,9 @@
               "type": "boolean"
             },
             "sites": {
-              "enum": [
-                "on",
-                "needs_access",
-                "not_checked"
-              ]
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
             }
           }
         },

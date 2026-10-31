@@ -391,18 +391,18 @@ test("secondary leave-out, include rules, and note keys in popup arrange", () =>
   const pLeftAppIncapable = page(leftOutAppIncapable, { origin: "https://example.com", host: "example.com", ok: true, kind: "web" });
   assert.equal(pLeftAppIncapable.siteAction, null);
 
-  // 6. Note keys: desktop notes appear on page Note
+  // 6. Note keys: desktop notes appear on page Note for not-added page
   const withDesktop = state({
     siteMode: "selected",
-    chosenOrigins: ["https://example.com"],
-    desktop: { screen: false, activity: true, sites: "on" },
+    chosenOrigins: [],
+    desktop: { screen: true, activity: false, sites: "on" },
   });
   const pDesktop = page(withDesktop, { origin: "https://example.com", host: "example.com", ok: true, kind: "web" });
-  assert.equal(pDesktop.note, globalThis.SolstoneCopy.desktopScreenOff);
+  assert.equal(pDesktop.note, globalThis.SolstoneCopy.desktopScreenOn);
 
   // But desktop note does not override private, restricted, or unknown
   const pPrivate = page(withDesktop, { origin: "", host: "example.com", ok: false, kind: "private" });
-  assert.notEqual(pPrivate.note, globalThis.SolstoneCopy.desktopScreenOff);
+  assert.notEqual(pPrivate.note, globalThis.SolstoneCopy.desktopScreenOn);
 });
 
 test("grantSite succeeds post-grant with consentVersion === 1 even if addSiteEligible is false post-grant", async () => {
@@ -421,4 +421,69 @@ test("grantSite succeeds post-grant with consentVersion === 1 even if addSiteEli
   });
   assert.deepEqual(calls, ["intendAddOrigin", "permission", "getState", "addGrantedOrigin"]);
   assert.deepEqual(result, { ok: true });
+});
+
+test("popup_view: site-wide page shows added site state, not not added", () => {
+  const pageSec = (st, p) => View.arrange(derived(), st, p).find((s) => s.id === "page");
+  const s = state({
+    siteMode: "selected",
+    chosenOrigins: ["https://measure.test"],
+    grantedOrigins: ["https://measure.test"],
+    siteWideOrigins: ["https://measure.test"],
+  });
+  const p = pageSec(s, { origin: "http://measure.test:8766", host: "measure.test", ok: true, kind: "web" });
+  assert.notEqual(p.state, "not added");
+  assert.equal(p.siteAction?.id, "remove-site");
+});
+
+test("popup_view: note keys partition by kind and assert pageNoteKey only", () => {
+  const pageSec = (st, p) => View.arrange(derived(), st, p).find((s) => s.id === "page");
+
+  // not-added: screen true
+  const s1 = state({ siteMode: "selected", chosenOrigins: [], desktop: { screen: true, activity: false, sites: "on" } });
+  assert.equal(pageSec(s1, { origin: "https://x.com", host: "x.com", ok: true, kind: "web" }).pageNoteKey, "desktopScreenOn");
+
+  // not-added: activity true, screen not true
+  const s2 = state({ siteMode: "selected", chosenOrigins: [], desktop: { screen: false, activity: true, sites: "on" } });
+  assert.equal(pageSec(s2, { origin: "https://x.com", host: "x.com", ok: true, kind: "web" }).pageNoteKey, "desktopActivityOn");
+
+  // not-added: otherwise empty
+  const s3 = state({ siteMode: "selected", chosenOrigins: [], desktop: null });
+  assert.equal(pageSec(s3, { origin: "https://x.com", host: "x.com", ok: true, kind: "web" }).pageNoteKey, "");
+
+  // left-out: app covers & sites on
+  const s4 = state({ siteMode: "selected", appLeftOut: ["x.com"], desktop: { screen: true, activity: true, sites: "on" } });
+  assert.equal(pageSec(s4, { origin: "https://x.com", host: "x.com", ok: true, kind: "web" }).pageNoteKey, "appLeftOutSitesOn");
+
+  // left-out: app covers & sites needs_access
+  const s5 = state({ siteMode: "selected", appLeftOut: ["x.com"], desktop: { screen: true, activity: true, sites: "needs_access" } });
+  assert.equal(pageSec(s5, { origin: "https://x.com", host: "x.com", ok: true, kind: "web" }).pageNoteKey, "appLeftOutNeedsAccess");
+
+  // left-out: app covers & sites not_checked
+  const s6 = state({ siteMode: "selected", appLeftOut: ["x.com"], desktop: { screen: true, activity: true, sites: "not_checked" } });
+  assert.equal(pageSec(s6, { origin: "https://x.com", host: "x.com", ok: true, kind: "web" }).pageNoteKey, "appLeftOutNotChecked");
+
+  // left-out: app covers & desktop null (app away)
+  const s7 = state({ siteMode: "selected", appLeftOut: ["x.com"], desktop: null });
+  assert.equal(pageSec(s7, { origin: "https://x.com", host: "x.com", ok: true, kind: "web" }).pageNoteKey, "appLeftOutAppAway");
+
+  // left-out: app does not cover (local only or migrated) even when desktop.sites is on
+  const s8 = state({ siteMode: "selected", appLeftOut: [], excludedHosts: ["x.com"], desktop: { screen: true, activity: true, sites: "on" } });
+  assert.equal(pageSec(s8, { origin: "https://x.com", host: "x.com", ok: true, kind: "web" }).pageNoteKey, "extensionLeftOut");
+});
+
+test("popup_view: grantChosenSites requests exactPatternFor for exact-only entries", async () => {
+  let requested = [];
+  const s = state({
+    siteMode: "selected",
+    chosenOrigins: ["https://example.com", "https://sub.bank.com"],
+    exactOnlyOrigins: ["https://example.com"],
+    siteWideOrigins: ["https://sub.bank.com"],
+  });
+  await View.grantChosenSites(["https://example.com", "https://sub.bank.com"], {
+    status: s,
+    cmd: async () => ({ ok: true }),
+    requestPermission: async (req) => { requested = req.origins; return true; },
+  });
+  assert.deepEqual(requested.sort(), ["*://*.sub.bank.com/*", "*://example.com/*"].sort());
 });

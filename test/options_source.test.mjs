@@ -691,3 +691,9 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   // 9. Checkbox marker label
   assert.match(html, /show a small solstone mark on pages you've added/);
 });
+
+test("options source: renderOffersBlock buttons go through SolstoneActions.run", () => {
+  assert.match(optionsSource, /renderOffersBlock[\s\S]*?SolstoneActions\.run/);
+  assert.doesNotMatch(optionsSource, /renderOffersBlock[\s\S]*?View\.grantSite/);
+});
+

@@ -19,7 +19,9 @@
     const host = originHost(origin);
     const hosts = globalThis.SolstoneHosts;
     if (!host) return null;
-    if (hosts?.grantLevel) return hosts.grantLevel(host, livePatterns, marked);
+    let scheme = null;
+    try { scheme = new URL(origin).protocol.replace(":", ""); } catch (_e) {}
+    if (hosts?.grantLevel) return hosts.grantLevel(host, livePatterns, marked, scheme);
     const live = new Set(livePatterns || []);
     return live.has("*://*/*") || live.has(matchPatternFor(origin)) ? "site" : null;
   }
@@ -64,13 +66,18 @@
         state.exactOnly = (state.exactOnly || []).filter((item) => item !== origin);
         state.siteWide = (state.siteWide || []).filter((item) => item !== origin);
         if (state.reservation?.origin === origin) state.reservation = null;
+        state.declinedHosts = state.declinedHosts ? new Set(state.declinedHosts) : new Set();
         try {
           const uh = new URL(origin).hostname;
           if (uh) {
-            state.declinedHosts = state.declinedHosts ? new Set(state.declinedHosts) : new Set();
             state.declinedHosts.add(uh);
           }
         } catch (_e) {}
+        if (Array.isArray(event.coveringHosts)) {
+          for (const h of event.coveringHosts) {
+            if (h) state.declinedHosts.add(h);
+          }
+        }
         effects.push("publish-closed");
         break;
       case "decline-offer":

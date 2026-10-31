@@ -451,3 +451,21 @@ test("a reported app pause still yields each closed cause", () => {
     assert.notEqual(derived.headline, "status unavailable");
   }
 });
+
+test("siteRow: site-wide entry with open tab is on-now, not not-taken-in", () => {
+  const status = mockStatus({
+    siteMode: "selected",
+    chosenOrigins: ["https://measure.test"],
+    grantedOrigins: ["https://measure.test"],
+    siteWideOrigins: ["https://measure.test"],
+    openTabs: { known: true, openOrigins: ["http://measure.test:8766"] },
+    capturePermitted: true,
+    lease: { token: "t", freshnessMs: 10000, receivedAt: 100 },
+    consentVersion: 1,
+    hostCapture: "permitted",
+  });
+  const row = S.siteRow("https://measure.test", status);
+  assert.equal(row.kind, "on-now");
+  assert.equal(row.label, "on now");
+});
+

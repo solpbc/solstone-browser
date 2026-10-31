@@ -1,5 +1,5 @@
 {
-  "bundle_version": "1.4.0",
+  "bundle_version": "1.3.0",
   "wire_protocol": 1,
   "journal": {
     "id": "solstone-journal-format:browser-jsonl",
@@ -31,8 +31,7 @@
   "directions": {
     "extension_to_host": [
       "hello",
-      "batch",
-      "site_rule"
+      "batch"
     ],
     "host_to_extension": [
       "hello_ack",
@@ -244,12 +243,7 @@
       "period_id",
       "failure",
       "custody",
-      "version",
-      "left_out",
-      "left_out_epoch",
-      "left_out_rev",
-      "desktop",
-      "site_rule_ack"
+      "version"
     ],
     "unsupported": [
       "type",
@@ -265,23 +259,7 @@
       "period_id",
       "failure",
       "custody",
-      "version",
-      "left_out",
-      "left_out_epoch",
-      "left_out_rev",
-      "desktop",
-      "site_rule_ack"
-    ],
-    "site_rule": [
-      "type",
-      "id",
-      "host",
-      "out"
-    ],
-    "desktop": [
-      "screen",
-      "activity",
-      "sites"
+      "version"
     ],
     "batch": [
       "type",

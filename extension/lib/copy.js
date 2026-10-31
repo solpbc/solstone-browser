@@ -35,8 +35,8 @@
   const PLACE = (() => {
     const nav = typeof navigator !== "undefined" ? navigator : {};
     const ua = nav.userAgent || "";
-    if (/iPad/.test(ua) || (nav.platform === "MacIntel" && nav.maxTouchPoints > 1)) return "this iPad";
-    if (/iPhone|iPod/.test(ua)) return "this iPhone";
+    if (/iPad/.test(ua) || (nav.platform === "MacIntel" && nav.maxTouchPoints > 1)) return "this ipad";
+    if (/iPhone|iPod/.test(ua)) return "this iphone";
     return "this computer";
   })();
   const MOBILE = PLACE !== "this computer";
@@ -57,18 +57,22 @@ the solstone extension takes in nothing from private windows, even where your br
 pause any time in the solstone extension. pausing the solstone app stops this extension too, unless you turn that off in settings. pausing doesn't hold back what's already taken in. if you remove a site, nothing new comes from it; what's already in your journal stays there.
 
 no analytics. no telemetry. no phone home. nobody counted.`;
-  const MOBILE_WHILE_CLOSED = `the solstone extension keeps taking in the sites you add while the solstone app is closed. what it takes in waits on ${PLACE} and goes into your journal the next time you open the solstone app.`;
+  const MOBILE_WHILE_CLOSED = `the solstone extension keeps taking in the sites you choose while the solstone app is closed. what it takes in waits on ${PLACE} and goes into your journal the next time you open the solstone app.`;
   const DISCLOSURE_BODY = MOBILE
     ? DESKTOP_DISCLOSURE
       .replace("to the solstone app on this computer. from there it goes into your journal over the link the solstone app already uses.",
         `to the solstone app on ${PLACE}. from there it goes into your journal over the link the solstone app already uses. ${MOBILE_WHILE_CLOSED}`)
-      .replace("pausing the solstone app stops this extension too, unless you turn that off in settings.", "pausing the solstone app stops this extension too.")
+      .replace("pausing the solstone app stops this extension too, unless you turn that off in settings.", "pausing Safari in the solstone app stops this extension too.")
     : DESKTOP_DISCLOSURE;
 
   const STEP1_CANT_REACH_BODY = `the solstone extension works with the solstone app on ${PLACE}, and nothing is taken in without it. if the solstone app isn't on ${PLACE} yet, get it at solstone.app. this page moves on by itself once the solstone app answers.`;
-  const STEP1_OPEN_APP_BODY = `the solstone extension works with the solstone app on ${PLACE}, and nothing is taken in without it. open the solstone app to go on. this page moves on by itself once it answers.`;
+  const STEP1_OPEN_APP_BODY = MOBILE
+    ? `the solstone extension works with the solstone app on ${PLACE}, and nothing is taken in without it. the solstone app isn't answering right now. this page moves on by itself once it answers.`
+    : `the solstone extension works with the solstone app on ${PLACE}, and nothing is taken in without it. open the solstone app to go on. this page moves on by itself once it answers.`;
   const STEP2_PENDING = "you'll agree to this once the step above is done.";
-  const STEP1_NOT_PAIRED_BODY = `pair the solstone app on ${PLACE} with your journal. this page moves on by itself once it is.`;
+  const STEP1_NOT_PAIRED_BODY = MOBILE
+    ? `pair the solstone app on ${PLACE} with your journal and confirm its mark. this page moves on by itself once it is.`
+    : `pair the solstone app on ${PLACE} with your journal. this page moves on by itself once it is.`;
   const STEP1_INTAKE_OFF_BODY = "turn them on under sources in the solstone app's settings. this page moves on by itself.";
   const TRUNCATION_ATTENTION = "part of what you shared on this site was too long to keep";
 
@@ -270,7 +274,10 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       missingBody: safari
         ? "Safari allows this only in its own settings. nothing new is taken in until you allow it:"
         : "nothing new is taken in until it does. allow it, or switch back to sites you add.",
-      steps: safari ? [
+      steps: safari && MOBILE ? [
+        "in Settings, open Apps, then Safari, then Extensions, then solstone.",
+        "set Other Websites to Allow.",
+      ] : safari ? [
         "in Safari, choose Safari \u203a Settings, then Websites.",
         "under Extensions on the left, choose solstone.",
         "set For other websites to Allow.",
@@ -281,7 +288,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       checking: `checking ${bName}\u2026`,
       nowAllowed: `${bName} now allows all websites. all sites are on.`,
       stillMissing: safari
-        ? "Safari still isn't allowing all websites. set For other websites to Allow."
+        ? (MOBILE ? "Safari still isn't allowing all websites. set Other Websites to Allow." : "Safari still isn't allowing all websites. set For other websites to Allow.")
         : `${bName} still isn't allowing all websites.`,
       declined: "permission declined. nothing new is taken in until you allow it.",
       failedTitle: "couldn't start on your sites",

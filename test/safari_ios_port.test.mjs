@@ -68,12 +68,12 @@ function copyFor(navigator) {
 
 test("on iPhone the words name the phone and say reading continues while the app is closed", () => {
   const phone = copyFor({ userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X)", platform: "iPhone" });
-  assert.equal(phone.PLACE, "this iPhone");
-  assert.match(phone.DISCLOSURE_BODY, /solstone app on this iPhone\./);
-  assert.match(phone.DISCLOSURE_BODY, /the solstone extension keeps taking in the sites you add while the solstone app is closed/);
+  assert.equal(phone.PLACE, "this iphone");
+  assert.match(phone.DISCLOSURE_BODY, /solstone app on this iphone\./);
+  assert.match(phone.DISCLOSURE_BODY, /the solstone extension keeps taking in the sites you choose while the solstone app is closed/);
   assert.doesNotMatch(phone.DISCLOSURE_BODY, /this computer|unless you turn that off/);
   const pad = copyFor({ userAgent: "Mozilla/5.0 (Macintosh)", platform: "MacIntel", maxTouchPoints: 5 });
-  assert.equal(pad.PLACE, "this iPad");
+  assert.equal(pad.PLACE, "this ipad");
 });
 
 test("a computer keeps its words unchanged", () => {

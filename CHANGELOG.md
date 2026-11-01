@@ -6,6 +6,16 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ## [Unreleased]
 
+## [0.5.1] (2026-11-01)
+
+### Changed
+
+- in Firefox, which version of Firefox you use no longer goes into your journal. that the browser is Firefox still does.
+
+### Fixed
+
+- in Firefox, adding a site from settings or from the popup now asks Firefox for access. before, Firefox never asked, and the extension said "permission declined. nothing added."
+
 ## [0.5.0] (2026-11-01)
 
 ### Added

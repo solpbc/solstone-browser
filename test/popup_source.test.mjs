@@ -94,6 +94,11 @@ class FakeNode {
     this.disabled = false;
     this.onclick = null;
     this.listeners = {};
+    this.scrolledIntoView = 0;
+  }
+
+  scrollIntoView() {
+    this.scrolledIntoView += 1;
   }
 
   addEventListener(type, listener) {
@@ -335,10 +340,13 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
     return { ok: true };
   };
 
+  const scrolledBefore = nodes.actionMessage.scrolledIntoView;
   const failedAdd = nodes.pageSiteAction.onclick();
   nodes.disclosureConfirm.listeners.click();
   await failedAdd;
   assert.equal(nodes.actionMessage.textContent, "Chrome doesn't let extensions work on this page");
+  // The message sits at the end of a popup that scrolls: it's brought into view.
+  assert.ok(nodes.actionMessage.scrolledIntoView > scrolledBefore);
 
   await nodes.pauseAction.onclick();
   assert.equal(nodes.actionMessage.textContent, "");

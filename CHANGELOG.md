@@ -6,6 +6,10 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ## [Unreleased]
 
+### Fixed
+
+- in the popup, the message about what you just did, like adding a site Safari won't allow yet or removing one, now scrolls into view. before, it could sit below the part of the popup you can see, so you might not have seen it.
+
 ## [0.5.2] (2026-11-01)
 
 ### Fixed

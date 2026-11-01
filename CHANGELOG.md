@@ -6,6 +6,8 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ## [Unreleased]
 
+## [0.5.2] (2026-11-01)
+
 ### Fixed
 
 - in Safari, a site you added that sits under another site you added, like mail.example.com under example.com, no longer shows as "paused by Safari" while its pages are going into your journal. if you remove the wider site, the one under it keeps going into your journal.

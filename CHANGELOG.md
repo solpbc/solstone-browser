@@ -6,6 +6,12 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ## [Unreleased]
 
+### Fixed
+
+- in Safari, a site you added that sits under another site you added, like mail.example.com under example.com, no longer shows as "paused by Safari" while its pages are going into your journal. if you remove the wider site, the one under it keeps going into your journal.
+- in Safari on a mac, adding a site while Safari already allows a site under it now says why Safari didn't ask and how to allow it in Safari's settings. before, it didn't say why.
+- in Chrome, Edge and Firefox, "allow all … sites" in settings, for a site that covers only its exact address, now asks your browser for all its sites and pages. before, it asked again for that one address, so it kept covering only that address. in Safari, the button is gone, and settings says to remove the site and add it again.
+
 ## [0.5.1] (2026-11-01)
 
 ### Changed

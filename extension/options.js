@@ -72,6 +72,7 @@
       status: state,
       cmd,
       requestPermission: (request) => chrome.permissions.request(request),
+      getAllPermissions: () => chrome.permissions.getAll(),
       removePermission: (request) => chrome.permissions.remove(request),
     };
   }
@@ -189,7 +190,8 @@
     await refresh();
     if (inputElement && typeof inputElement.focus === "function") inputElement.focus();
     if (result.denied) {
-      announce(Copy.ADD_DENIED, "bad");
+      const blocked = result.blockedBy ? Copy.addBlockedBelow(state?.brand, rawHost, result.blockedBy) : "";
+      announce(blocked || Copy.ADD_DENIED, "bad");
     } else if (result.error) {
       showActionError(result.error);
     } else if (result.ok) {
@@ -642,6 +644,7 @@
         const words = Copy.exactOnlyCopy(state?.brand, exactOnly.map((origin) => Hosts.displayOrigin(origin)));
         $("exactOnlyLine").textContent = words.line;
         $("exactOnlyBtn").textContent = words.label;
+        $("exactOnlyBtn").hidden = !words.label;
       }
     }
 
@@ -906,7 +909,7 @@
   if ($("exactOnlyBtn")) $("exactOnlyBtn").addEventListener("click", async () => {
     clearAnnouncement();
     const exactOnly = state?.exactOnlyOrigins || [];
-    const result = await View.grantChosenSites(exactOnly, siteEffects());
+    const result = await View.grantChosenSites(exactOnly, siteEffects(), { widen: true });
     if (result.denied) announce(Copy.exactOnlyCopy(state?.brand, exactOnly.map((origin) => Hosts.displayOrigin(origin))).declined, "bad");
     else if (result.error) showActionError(result.error);
     await refresh();

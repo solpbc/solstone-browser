@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 
 const root = new URL("../", import.meta.url);
 const html = await readFile(new URL("extension/popup.html", root), "utf8");
@@ -517,4 +518,9 @@ test("an open popup shows the app's answer even when the status channel stays si
   nodes.pageNote.textContent = "hidden";
   await timers.shift()();
   assert.equal(nodes.pageNote.textContent, "hidden");
+});
+
+test("the popup reads the browser's grants after a failed add, through its own effects", () => {
+  const source = readFileSync(new URL("../extension/popup.js", import.meta.url), "utf8");
+  assert.match(source, /getAllPermissions: \(\) => chrome\.permissions\.getAll\(\)/);
 });

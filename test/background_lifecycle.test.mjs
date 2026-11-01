@@ -2463,3 +2463,124 @@ test("lifecycle: removing a chosen sub-site itself gives up its own grant", asyn
   assert.ok(removed.includes("https://sub.example.com/*"));
   assert.equal(port.chosenOrigins.has("https://sub.example.com"), false);
 });
+
+// How much of a site is read is stored, and widens only with the site's own
+// whole-site grant. Safari drops a site's own grant when its parent is allowed.
+async function startScoped(cfg, live, { beforeInit } = {}) {
+  const mock = createMockChrome();
+  mock.storageData.cfg = Object.assign({ paused: false, showPageIndicator: false }, cfg);
+  mock.grantedPermissions.clear();
+  for (const pattern of live) mock.grantedPermissions.add(pattern);
+  const sandbox = createSandbox(mock);
+  if (beforeInit) beforeInit(mock);
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  const bg = sandbox.SolstoneBackground;
+  await bg.ensureInit();
+  await new Promise((resolve) => setImmediate(resolve));
+  return { mock, sandbox, bg };
+}
+const SUB = "https://x.p2.test";
+const read = (sandbox, bg, origin) => sandbox.SolstoneHosts.originGranted(bg.port, origin);
+
+test("scope: a stored exact-only site under its parent's grant reads only its own address", async () => {
+  const { mock, sandbox, bg } = await startScoped({ chosenOrigins: [SUB], exactOnlyOrigins: [SUB] }, ["*://*.p2.test/*"]);
+  assert.equal(bg.port.grantedOrigins.has(SUB), true);
+  assert.equal(bg.port.exactOnlyOrigins.has(SUB), true);
+  assert.equal(read(sandbox, bg, SUB), true);
+  assert.equal(read(sandbox, bg, "https://y.x.p2.test"), false);
+  assert.deepEqual([...mock.storageData.cfg.exactOnlyOrigins], [SUB]);
+});
+
+test("scope: the stored answer decides, not the grants alone", async () => {
+  let { bg } = await startScoped({ chosenOrigins: [SUB], exactOnlyOrigins: [] }, ["*://*.p2.test/*"]);
+  assert.equal(bg.port.exactOnlyOrigins.has(SUB), false);
+  ({ bg } = await startScoped({ chosenOrigins: [SUB], exactOnlyOrigins: [SUB] }, []));
+  assert.equal(bg.port.grantedOrigins.has(SUB), false);
+  assert.equal(bg.port.exactOnlyOrigins.has(SUB), true);
+});
+
+test("scope: a start with no stored answer works one out and saves it, and other saves keep it", async () => {
+  const { mock, bg } = await startScoped({ chosenOrigins: [SUB] }, ["*://*.p2.test/*"]);
+  assert.deepEqual([...mock.storageData.cfg.exactOnlyOrigins], [SUB]);
+  await bg.setCfg({ paused: true });
+  assert.deepEqual([...mock.storageData.cfg.exactOnlyOrigins], [SUB]);
+});
+
+for (const order of ["parent first", "own removal first"]) {
+  test(`scope: Safari folding a site into its parent keeps it granted and exact (${order})`, async () => {
+    const { mock, sandbox, bg } = await startScoped({ chosenOrigins: [SUB], exactOnlyOrigins: [SUB] }, ["*://x.p2.test/*"]);
+    const add = async () => {
+      mock.grantedPermissions.add("*://*.p2.test/*");
+      await mock.listeners.onAddedPerm[0]({ origins: ["*://*.p2.test/*"] });
+    };
+    const remove = async () => {
+      mock.grantedPermissions.delete("*://x.p2.test/*");
+      await mock.listeners.onRemovedPerm[0]({ origins: ["*://x.p2.test/*"] });
+    };
+    if (order === "parent first") { await add(); await remove(); } else { mock.grantedPermissions.add("*://*.p2.test/*"); await remove(); await add(); }
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(bg.port.grantedOrigins.has(SUB), true);
+    assert.equal(bg.port.exactOnlyOrigins.has(SUB), true);
+    assert.equal(read(sandbox, bg, "https://y.x.p2.test"), false);
+    await bg.setCfg({});
+    assert.deepEqual([...mock.storageData.cfg.exactOnlyOrigins], [SUB]);
+  });
+}
+
+test("scope: a removal whose snapshot shows only the removed grant leaves the site ungranted", async () => {
+  const { mock, bg } = await startScoped({ chosenOrigins: [SUB], exactOnlyOrigins: [] }, ["*://*.x.p2.test/*"]);
+  mock.chrome.permissions.getAll = async () => ({ origins: ["*://*.x.p2.test/*"] });
+  await mock.listeners.onRemovedPerm[0]({ origins: ["*://*.x.p2.test/*"] });
+  assert.equal(bg.port.grantedOrigins.has(SUB), false);
+});
+
+for (const stored of [["https://a.p3.test", "https://b.p3.test"], undefined]) {
+  test(`scope: a grant change during startup can't widen a stored exact-only site (${stored ? "stored" : "first start"})`, async () => {
+    const A = "https://a.p3.test", B = "https://b.p3.test";
+    const live = ["*://a.p3.test/*", "*://*.p3.test/*"];
+    let mockRef, entered, stalled;
+    const cfg = { chosenOrigins: [A, B] };
+    if (stored) cfg.exactOnlyOrigins = stored;
+    const run = startScoped(cfg, live, {
+      beforeInit(mock) {
+        mockRef = mock;
+        entered = deferred(); stalled = deferred();
+        const original = mock.chrome.permissions.getAll;
+        let calls = 0;
+        mock.chrome.permissions.getAll = async () => {
+          const value = await original();
+          if (++calls === 1) { entered.resolve(); await stalled.promise; }
+          return value;
+        };
+      },
+    });
+    await entered.promise;
+    mockRef.grantedPermissions.add("*://*.unrelated.test/*");
+    await mockRef.listeners.onAddedPerm[0]({ origins: ["*://*.unrelated.test/*"] });
+    stalled.resolve();
+    const { sandbox, bg } = await run;
+    assert.equal(bg.port.exactOnlyOrigins.has(B), true);
+    assert.equal(read(sandbox, bg, "https://y.b.p3.test"), false);
+    await bg.setCfg({});
+    assert.ok(mockRef.storageData.cfg.exactOnlyOrigins.includes(B));
+  });
+}
+
+test("scope: a removal whose save fails keeps the stored mark with the stored entry", async () => {
+  const { mock, sandbox, bg } = await startScoped({ chosenOrigins: [SUB], exactOnlyOrigins: [SUB] }, ["*://*.p2.test/*"]);
+  const Router = sandbox.SolstoneRouter;
+  const sender = { id: mock.chrome.runtime.id, url: `chrome-extension://${mock.chrome.runtime.id}/options.html` };
+  const original = mock.chrome.storage.local.set;
+  // Only the write that takes the site off the list fails.
+  mock.chrome.storage.local.set = async (value) => {
+    if (value?.cfg && !value.cfg.chosenOrigins.includes(SUB)) throw new Error("fixture storage failure");
+    return original(value);
+  };
+  await Router.route({ cmd: "removeGrantedOrigin", origin: SUB }, sender, {
+    runtimeId: mock.chrome.runtime.id, port: bg.port, setCfg: bg.setCfg,
+  }).catch(() => {});
+  await new Promise((resolve) => setImmediate(resolve));
+  mock.chrome.storage.local.set = original;
+  assert.deepEqual([...mock.storageData.cfg.chosenOrigins], [SUB]);
+  assert.deepEqual([...mock.storageData.cfg.exactOnlyOrigins], [SUB]);
+});

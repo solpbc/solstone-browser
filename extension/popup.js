@@ -132,6 +132,7 @@
       status: state,
       cmd,
       requestPermission: (request) => chrome.permissions.request(request),
+      getAllPermissions: () => chrome.permissions.getAll(),
       removePermission: (request) => chrome.permissions.remove(request),
     };
   }
@@ -199,7 +200,10 @@
       disclose: presentDisclosure,
     }));
     if (result.cancelled) return;
-    if (result.denied) showActionMessage("permission declined. nothing added.");
+    if (result.denied) {
+      const blocked = result.blockedBy ? Copy.addBlockedBelow(state?.brand, Hosts.matchHostFor(page.host), result.blockedBy) : "";
+      showActionMessage(blocked || "permission declined. nothing added.");
+    }
     else if (result.error) showActionError(result.error);
     await refresh();
   }

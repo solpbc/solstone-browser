@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 
 const root = new URL("../", import.meta.url);
 const html = await readFile(new URL("extension/options.html", root), "utf8");
@@ -195,6 +196,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   let dismissResponse = {ok:true};
   let permissionAnswer = true;
   let permissionRequests = 0;
+  let lastPermissionRequest = null;
   let removeResponse = { ok: true };
   const sentMessages = [];
   const appTabs = [];
@@ -252,7 +254,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
     },
     tabs: { create: (info) => appTabs.push(info) },
     permissions: {
-      request: async () => { permissionRequests += 1; return permissionAnswer; },
+      request: async (request) => { permissionRequests += 1; lastPermissionRequest = request; return permissionAnswer; },
     },
   };
 
@@ -553,8 +555,11 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   assert.equal(nodes.exactOnlyLine.textContent, "old.example covers only that address. to include all old.example sites and pages, allow them in Chrome.");
   assert.equal(nodes.exactOnlyBtn.textContent, "allow all old.example sites");
   before = sentMessages.length;
+  assert.equal(nodes.exactOnlyBtn.hidden, false);
   await nodes.exactOnlyBtn.listeners.click();
   assert.ok(sentMessages.slice(before).some((message) => message.cmd === "refreshSiteAccess"));
+  // The bar widens: it asks for the whole site, not the address it already has.
+  assert.deepEqual([...lastPermissionRequest.origins], ["*://*.old.example/*"]);
 
   // When on-now (extras activeSites has origin)
   liveState = optionsState({
@@ -701,3 +706,9 @@ test("options source: renderOffersBlock buttons go through SolstoneActions.run",
   assert.doesNotMatch(optionsSource, /renderOffersBlock[\s\S]*?View\.grantSite/);
 });
 
+
+test("settings reads the browser's grants after a failed add, through its own effects", () => {
+  const source = readFileSync(new URL("../extension/options.js", import.meta.url), "utf8");
+  assert.match(source, /getAllPermissions: \(\) => chrome\.permissions\.getAll\(\)/);
+  assert.match(source, /\$\("exactOnlyBtn"\)\.hidden = !words\.label/);
+});

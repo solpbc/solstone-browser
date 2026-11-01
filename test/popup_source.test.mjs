@@ -445,3 +445,76 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   assert.ok(nodes.actionMessage.textContent);
   assert.equal(nodes.siteIssueRows.children.length, visibleRows, "failed dismissal leaves the row rendered");
 });
+
+test("an open popup shows the app's answer even when the status channel stays silent", async (t) => {
+  const timers = [];
+  const originalTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn) => { timers.push(fn); return timers.length; };
+  t.after(() => { globalThis.setTimeout = originalTimeout; });
+  const ids = [
+    "aboutBlock", "aboutCopy", "aboutMessage", "actionMessage", "verdict", "verdictDot", "verdictHeadline", "verdictSub",
+    "verdictNote", "verdictReason", "verdictActions", "siteIssues", "siteIssueRows", "pageHost", "pageNote",
+    "currentPageState", "pageSiteAction", "pageSiteSecondary", "pauseAction", "siteCount", "siteCountText",
+    "disclosure", "disclosureConfirm", "disclosureCancel", "allSitesLink", "settingsLink", "headerMark",
+  ];
+  const nodes = Object.fromEntries(ids.map((id) => [id, new FakeNode(id)]));
+  nodes.disclosure.hidden = true;
+  globalThis.document = {
+    visibilityState: "visible",
+    getElementById: (id) => nodes[id],
+    createElement: () => new FakeNode(),
+    addEventListener() {},
+  };
+  const host = "example.com";
+  const desktop = { screen: true, activity: true, sites: "on" };
+  let liveState = popupState({ brand: "safari", captureEpoch: 5, chosenOrigins: [], grantedOrigins: [], excludedHosts: [host], appLeftOut: [], desktop });
+  let connects = 0;
+  globalThis.chrome = {
+    runtime: {
+      getManifest: () => ({ version: "0.4.0" }),
+      sendMessage(message, callback) { callback(message.cmd === "getState" ? { ok: true, ...liveState } : { ok: true }); },
+      openOptionsPage() {},
+      // Safari's failure: the channel opens and never delivers.
+      connect() {
+        connects += 1;
+        return { onMessage: { addListener() {} }, onDisconnect: { addListener() {} } };
+      },
+    },
+    tabs: { query: async () => [{ id: 3, url: `https://${host}/` }], create() {} },
+    permissions: { request: async () => true, contains: async () => true },
+  };
+
+  await import(new URL("../extension/popup.js?silent-channel", import.meta.url));
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  const Copy = globalThis.SolstoneCopy;
+  assert.equal(nodes.pageNote.textContent, Copy.extensionLeftOut);
+  assert.equal(timers.length, 1, "the open popup schedules one read");
+
+  // The app answers: the background now has the site in the app's list, and
+  // nothing arrives on the channel.
+  liveState = { ...liveState, appLeftOut: [host] };
+  await timers.shift()();
+  assert.equal(nodes.pageNote.textContent, Copy.appLeftOutSitesOn("safari"));
+  assert.equal(timers.length, 1, "the read is scheduled again");
+
+  // An unchanged state is not repainted, so focus and controls stay put.
+  nodes.pageNote.textContent = "unchanged";
+  await timers.shift()();
+  assert.equal(nodes.pageNote.textContent, "unchanged");
+
+  // A restarted background starts its epoch over: the popup resubscribes and
+  // still shows the newer state.
+  const before = connects;
+  liveState = { ...liveState, captureEpoch: 1, appLeftOut: [] };
+  await timers.shift()();
+  assert.equal(connects, before + 1);
+  assert.equal(nodes.pageNote.textContent, Copy.extensionLeftOut);
+
+  // A hidden popup doesn't read.
+  globalThis.document.visibilityState = "hidden";
+  liveState = { ...liveState, captureEpoch: 2, appLeftOut: [host] };
+  nodes.pageNote.textContent = "hidden";
+  await timers.shift()();
+  assert.equal(nodes.pageNote.textContent, "hidden");
+});

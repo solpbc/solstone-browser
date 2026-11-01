@@ -41,6 +41,7 @@
   const SITES_CARD_ACTIONS = new Set(["open-settings", "allow-all-sites", "retry-all-sites", "allow-again-all"]);
   let state = null;
   let disclosureResolve = null;
+  let disclosureConfirm = null;
   let allSitesDisclosure = false;
   let disclosureReturnFocus = null;
   let accessCheck = null;
@@ -82,17 +83,23 @@
 
   function closeDisclosure(confirmed) {
     if (!disclosureResolve) return;
+    // Runs inside the confirming click, before anything else, so the
+    // browser's permission prompt opens from the owner's gesture.
+    const confirm = disclosureConfirm;
+    disclosureConfirm = null;
+    const outcome = confirmed && confirm ? confirm() : confirmed;
     if ($("siteDisclosure")) $("siteDisclosure").hidden = true;
     if ($("sitesMain")) $("sitesMain").hidden = false;
     const resolve = disclosureResolve;
     disclosureResolve = null;
     focus(disclosureReturnFocus || "newHost");
     disclosureReturnFocus = null;
-    resolve(confirmed);
+    resolve(outcome);
   }
 
-  function presentDisclosure(host, allSites = false) {
+  function presentDisclosure(host, confirm = null, allSites = false) {
     allSitesDisclosure = allSites;
+    disclosureConfirm = typeof confirm === "function" ? confirm : null;
     const copy = allSites
       ? Copy.allSitesCopy(state?.brand, { excludedCount: (state?.excludedHosts || []).length, chosenCount: chosenList().length })
       : Disclosure.addSite(host, state);
@@ -844,7 +851,7 @@
     if (state?.siteMode === "all" && state.allSitesConsent === Hosts.ALL_SITES_CONSENT_VERSION) return;
     clearAnnouncement();
     disclosureReturnFocus = $("modeAllBtn");
-    await presentDisclosure(null, true);
+    await presentDisclosure(null, null, true);
   });
   $("modeSelectedBtn").addEventListener("click", async () => {
     clearAnnouncement();

@@ -194,6 +194,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   let reloadCount = 0;
   let dismissResponse = {ok:true};
   let permissionAnswer = true;
+  let permissionRequests = 0;
   let removeResponse = { ok: true };
   const sentMessages = [];
   const appTabs = [];
@@ -251,7 +252,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
     },
     tabs: { create: (info) => appTabs.push(info) },
     permissions: {
-      request: async () => permissionAnswer,
+      request: async () => { permissionRequests += 1; return permissionAnswer; },
     },
   };
 
@@ -446,7 +447,10 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   await globalThis.SolstoneOptions.refresh();
   nodes.newHost.value = "mail.google.com";
   let pending = nodes.addForm.listeners.submit({ preventDefault() {} });
+  const requestsBeforeConfirm = permissionRequests;
   nodes.siteDisclosureConfirm.listeners.click();
+  // Firefox honours the request only while the confirming click is handled.
+  assert.equal(permissionRequests, requestsBeforeConfirm + 1);
   await pending;
   assert.equal(nodes.actionMessage.textContent, "all mail.google.com sites and pages added.");
   // The sheet says the whole site before anything is asked of the browser.

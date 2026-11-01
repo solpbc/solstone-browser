@@ -135,7 +135,7 @@ test("addSite confirms before intent and permission in exact order", async () =>
   const calls = [];
   const result = await View.addSite("mail.google.com", {
     status: { consentVersion: 1, addSiteEligible: true },
-    disclose: async (host) => { calls.push(["disclose", host]); return true; },
+    disclose: async (host, confirm) => { calls.push(["disclose", host]); return confirm(); },
     cmd: async (message) => {
       calls.push([message.cmd, message.origin || message.host]);
       if (message.cmd === "getState") return { consentVersion: 1, addSiteEligible: true };
@@ -157,7 +157,7 @@ test("addSite from a page origin names the host on the sheet and grants the orig
   const calls = [];
   const result = await View.addSite("https://httpbin.org", {
     status: { consentVersion: 1, addSiteEligible: true },
-    disclose: async (host) => { calls.push(["disclose", host]); return true; },
+    disclose: async (host, confirm) => { calls.push(["disclose", host]); return confirm(); },
     cmd: async (message) => {
       calls.push([message.cmd, message.origin]);
       if (message.cmd === "getState") return { consentVersion: 1, addSiteEligible: true };
@@ -172,6 +172,27 @@ test("addSite from a page origin names the host on the sheet and grants the orig
     ["getState", undefined],
     ["addGrantedOrigin", "https://httpbin.org"],
   ]);
+  assert.deepEqual(result, { ok: true });
+});
+
+test("addSite asks the browser inside the sheet's confirming click", async () => {
+  // Firefox honours a permission request only while the click is being handled,
+  // so the request has to start before confirm returns.
+  const calls = [];
+  const result = await View.addSite("bank.example", {
+    status: { consentVersion: 1, addSiteEligible: true },
+    disclose: (_host, confirm) => {
+      const outcome = confirm();
+      calls.push("confirm returned");
+      return Promise.resolve(outcome);
+    },
+    cmd: async (message) => {
+      if (message.cmd === "getState") return { consentVersion: 1, addSiteEligible: true };
+      return { ok: true };
+    },
+    requestPermission: async () => { calls.push("permission"); return true; },
+  });
+  assert.deepEqual(calls, ["permission", "confirm returned"]);
   assert.deepEqual(result, { ok: true });
 });
 
@@ -191,7 +212,7 @@ test("a declined grant clears add intent", async () => {
   const calls = [];
   const result = await View.addSite("example.com", {
     status: { consentVersion: 1, addSiteEligible: true },
-    disclose: async () => true,
+    disclose: async (_host, confirm) => confirm(),
     cmd: async (message) => {
       calls.push(message.cmd);
       return { ok: true };

@@ -112,6 +112,12 @@
     if ((!s || s === "https") && live.has(`https://${h}/*`)) return "exact";
     if ((!s || s === "http") && live.has(`http://${h}/*`)) return "exact";
     if (live.has("*://*/*")) return "site";
+    // A wider site grant covers the names under it. Firefox doesn't record a
+    // request that a wider grant already covers, so it lists only the wider one.
+    for (const pattern of live) {
+      const site = patternSiteHost(pattern);
+      if (site && site !== h && hostCovers(site, h)) return "site";
+    }
     return null;
   }
 

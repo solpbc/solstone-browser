@@ -63,6 +63,7 @@
   let state = null;
   let page = { origin: "", host: "", ok: false, kind: "" };
   let disclosureResolve = null;
+  let disclosureConfirm = null;
   let previousActiveElement = null;
   let paintSequence = 0;
   let appliedCaptureEpoch = -1;
@@ -254,6 +255,11 @@
 
   function closeDisclosure(confirmed) {
     if (!disclosureResolve) return;
+    // Runs inside the confirming click, before anything else, so the
+    // browser's permission prompt opens from the owner's gesture.
+    const confirm = disclosureConfirm;
+    disclosureConfirm = null;
+    const outcome = confirmed && confirm ? confirm() : confirmed;
     $("disclosure").hidden = true;
     $("popupMain").hidden = false;
     $("popupFooter").hidden = false;
@@ -262,11 +268,12 @@
     if (previousActiveElement && typeof previousActiveElement.focus === "function") {
       previousActiveElement.focus();
     }
-    resolve(confirmed);
+    resolve(outcome);
   }
 
-  function presentDisclosure(host) {
+  function presentDisclosure(host, confirm = null) {
     previousActiveElement = document.activeElement;
+    disclosureConfirm = typeof confirm === "function" ? confirm : null;
     const copy = Disclosure.addSite(host, state);
     $("disclosureTitle").textContent = copy.title;
     $("disclosureWhat").textContent = copy.what;

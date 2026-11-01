@@ -292,3 +292,12 @@ test("grantLevel scheme rule: http does not count for https, https does not coun
   assert.equal(H.grantLevel("example.com", ["http://example.com/*"], false, "http"), "exact");
 });
 
+
+test("grantLevel: a wider site grant covers a chosen name under it", () => {
+  // Firefox lists only the wider grant when a request is already covered by it.
+  assert.equal(H.grantLevel("login.bank.com", ["*://*.bank.com/*"]), "site");
+  assert.equal(H.grantLevel("a.b.bank.com", ["*://*.bank.com/*"]), "site");
+  assert.equal(H.grantLevel("notbank.com", ["*://*.bank.com/*"]), null);
+  assert.equal(H.grantLevel("bank.com.evil.net", ["*://*.bank.com/*"]), null);
+  assert.equal(H.grantLevel("bank.com", ["*://*.login.bank.com/*"]), null);
+});

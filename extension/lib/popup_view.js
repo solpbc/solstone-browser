@@ -268,9 +268,12 @@
     if (effects.status?.consentVersion !== 1 || effects.status?.addSiteEligible !== true) {
       return { ok: false, cancelled: true, ineligible: true };
     }
-    const confirmed = await effects.disclose(sheetHost(host));
-    if (!confirmed) return { ok: false, cancelled: true };
-    return grantSite(host, effects);
+    // The sheet calls confirm inside the owner's confirming click, so the
+    // browser's prompt opens from that click. Firefox refuses a permission
+    // request made after the click's handler has returned.
+    const outcome = await effects.disclose(sheetHost(host), () => grantSite(host, effects));
+    if (!outcome) return { ok: false, cancelled: true };
+    return outcome;
   }
 
   async function grantAllSites(effects) {

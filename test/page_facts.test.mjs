@@ -94,11 +94,17 @@ test("readDomFacts: visibilityState and hasFocus", () => {
   assert.equal(hiddenUnfocused.hasFocus, false);
 });
 
-test("mapBrowser: Firefox with and without version", () => {
+test("mapBrowser: Firefox sends its family and never its version", () => {
   assert.deepEqual(PF.mapBrowser({ browserInfo: { name: "Firefox", version: "135.0" } }), {
     vendor: "firefox",
-    version: "135.0",
   });
+  assert.deepEqual(
+    PF.mapBrowser({
+      browserInfo: { name: "Firefox", version: "135.0" },
+      userAgent: "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0",
+    }),
+    { vendor: "firefox" }
+  );
   assert.deepEqual(PF.mapBrowser({ browserInfo: { name: "firefox", version: "" } }), {
     vendor: "firefox",
   });

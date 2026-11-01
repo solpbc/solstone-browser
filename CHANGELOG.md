@@ -6,6 +6,8 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ## [Unreleased]
 
+## [0.5.0] (2026-11-01)
+
 ### Added
 
 - on the sites you share, the solstone extension now also takes in whether the tab was in front, whether its window had focus, whether audio or video was playing, the page's language, which browser it is, and how long the tab has been open with the extension running, and all of it goes into your journal.
@@ -13,9 +15,9 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ### Changed
 
-- a site you already allowed in your browser stays allowed. after you agree, sites you add picks it up, or offers it first so you can leave it out. removing a site or leaving it out stays that way, including when the browser keeps a wider permission. leave this site out works when you add sites one by one and when you share all sites, and a site the solstone app leaves out stays left out here too.
 - adding bank.com now shares all bank.com sites and pages, like www.bank.com and login.bank.com, and the confirmation says so before anything is shared. to share only part of a site, add that address, like mail.google.com. a site you added before this update keeps covering only its exact address until you allow the rest in settings.
-- in all sites mode, leaving out bank.com now leaves out all bank.com sites and pages, like www.bank.com and login.bank.com, including sites you left out before this update. typing `www.bank.com` or `*.bank.com` means bank.com. before, Chrome and Edge saved a typed `*.bank.com` as left out, though it left nothing out; that entry now covers bank.com, as you meant.
+- the extension no longer takes back a site you allowed it on in your browser. once you've agreed to share, a site you allow in your browser is added to "sites you add", and the extension tells you. one you allowed before that is offered first, so you can choose "don't add". removing a site or leaving it out stays that way, including when the browser keeps a wider permission. "leave this site out" now works in both "sites you add" and "all sites".
+- in "all sites", leaving out bank.com now leaves out all bank.com sites and pages, like www.bank.com and login.bank.com, including sites you left out before this update. typing `www.bank.com` or `*.bank.com` means bank.com. before, Chrome and Edge saved a typed `*.bank.com` as left out, though it left nothing out; that entry now covers bank.com, as you meant.
 
 ### Fixed
 

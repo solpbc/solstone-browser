@@ -88,7 +88,7 @@ const driver = (adapterName) => `(() => {
   const A = window.SolstoneAdapters, S = window.SolstoneSkim;
   const adapter = A[${JSON.stringify(adapterName)}] || A.GENERIC;
   const root = A.pickRoot(adapter, document);
-  const blocks = S.skim(root, adapter);
+  const { blocks } = S.skim(root, adapter);
   return { rootTag: root && root.tagName, n: blocks.length, blocks };
 })()`;
 
@@ -174,6 +174,16 @@ async function main() {
     check("paragraph text present", () => assert.ok(allText(art).includes("most invasive capture is also the most legally bound")));
     check("link carries host attr, not full url", () =>
       assert.ok(hasBlock(art, (b) => b.type === "link" && b.attrs && b.attrs.linkHost === "solpbc.org")));
+    check("an inline link stays in its sentence", () =>
+      assert.ok(hasBlock(art, (b) => b.type === "text" && b.text === "See the benefit purpose for the covenant text.")));
+    check("an inline link is not also its own block", () =>
+      assert.ok(!hasBlock(art, (b) => b.type === "link" && b.text === "benefit purpose")));
+    check("hidden inline text stays out of the sentence", () =>
+      assert.ok(!allText(art).includes("SECRET-HIDDEN-INLINE") && allText(art).includes("Hidden words stay out of the sentence.")));
+    check("a box-less wrapper's children read, its hidden child does not", () => {
+      assert.ok(allText(art).includes("Text inside a box-less wrapper still reads."));
+      assert.ok(!allText(art).includes("SECRET-HIDDEN-IN-WRAPPER"));
+    });
     check("nav skipped (no 'Home' link)", () => assert.ok(!hasBlock(art, (b) => b.type === "link" && b.text === "Home")));
 
     console.log("\nsample gmail blocks:");

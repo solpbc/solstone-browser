@@ -6,8 +6,13 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ## [Unreleased]
 
+### Changed
+
+- a link inside a sentence now stays in that sentence, and the site that link points to no longer goes into your journal. before, the sentence went into your journal with a gap and the link went in alone on its own line, and long pages ran out of room sooner.
+
 ### Fixed
 
+- some pages, like ones on news and documentation sites, could reach your journal with almost none of their text. their text now goes into your journal.
 - the status check no longer says you're paired while the app is still waiting for your answer.
 
 ## [0.5.3] (2026-11-01)

@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- A generic article page: exercises the generic fallback walker (heading,
-     paragraphs, a link with a host). -->
+     paragraphs, inline and standalone links, a box-less wrapper). -->
 <html>
   <head><meta charset="utf-8" /><title>On structural trust — example.org</title></head>
   <body>
@@ -9,6 +9,10 @@
       <h1>On structural trust</h1>
       <p>The most invasive capture is also the most legally bound.</p>
       <p>See the <a href="https://solpbc.org/charter">benefit purpose</a> for the covenant text.</p>
+      <p><a href="https://solpbc.org/charter">Read the charter</a></p>
+      <p>Hidden words stay <span style="display:none">SECRET-HIDDEN-INLINE</span> out of the sentence.</p>
+      <div style="display:contents"><p>Text inside a box-less wrapper still reads.</p>
+        <p style="visibility:hidden">SECRET-HIDDEN-IN-WRAPPER</p></div>
     </main>
   </body>
 </html>

@@ -697,8 +697,8 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   await nodes.statusActions.children[0].listeners.click();
   assert.equal(reloadCount, 1);
 
-  // 9. Checkbox marker label
-  assert.match(html, /show a small solstone mark on pages you've added/);
+  // 9. The welcome checkbox sits inside its own label
+  assert.match(html, /<label class="marker-label"[^>]*>\s*<input type="checkbox" id="welcomeShowPageIndicator"/);
 });
 
 test("options source: renderOffersBlock buttons go through SolstoneActions.run", () => {

@@ -6,6 +6,10 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ## [Unreleased]
 
+### Fixed
+
+- the status check no longer says you're paired while the app is still waiting for your answer.
+
 ## [0.5.3] (2026-11-01)
 
 ### Fixed
@@ -206,8 +210,8 @@ First tagged release. Observer behavior is unchanged from 0.0.7.
   loop. `make set-version V=x.y.z` bumps all three version sites; a guard blocks a
   drifted build. See [RELEASE.md](RELEASE.md).
 - **Testing.** `npm run e2e` (headless content-script → SW → relay integration,
-  incl. the dynamic-registration + clean-load assertions) and
-  [test/GUIDED.md](test/GUIDED.md) (real-Chrome walkthrough).
+  incl. the dynamic-registration + clean-load assertions) and a real-Chrome
+  walkthrough.
 
 ## 0.0.7 — 2026-06-30 (prototype, dogfooded)
 

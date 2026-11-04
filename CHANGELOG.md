@@ -6,6 +6,8 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ## [Unreleased]
 
+## [0.5.4] (2026-11-04)
+
 ### Changed
 
 - the button that takes a site off your left-out list now says stop leaving out. before, it said include, which read like adding the site to your shared sites.

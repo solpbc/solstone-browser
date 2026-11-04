@@ -343,7 +343,7 @@ test("in all sites a page under a left-out site is left out, and leaving a www p
   assert.equal(leftPage.state, "left out");
   assert.equal(leftPage.siteAction.id, "include-site");
   assert.equal(leftPage.siteAction.site, "bank.com");
-  assert.equal(leftPage.siteAction.label, "include bank.com");
+  assert.equal(leftPage.siteAction.label, "stop leaving bank.com out");
   const open = state({ ...base, excludedHosts: [] });
   const wwwPage = View.arrange(derived(open), open, { origin: "https://www.bank.com", host: "www.bank.com", ok: true, kind: "web" })
     .find((section) => section.id === "page");
@@ -539,5 +539,8 @@ test("a left-out page covered by the app names the app, not the screen, when nei
   const base = { appLeftOut: ["bank.com"], excludedHosts: [] };
   assert.equal(C.popupNoteKey(Object.assign({}, base, { desktop: { screen: false, activity: false, sites: "needs_access" } }), page, "left-out"), "appLeftOutAppAway");
   assert.equal(C.popupNoteKey(Object.assign({}, base, { desktop: { screen: true, activity: false, sites: "needs_access" } }), page, "left-out"), "appLeftOutNeedsAccess");
+  assert.equal(C.popupNoteKey(Object.assign({}, base, { appLeftOut: ["bank.com"], desktop: { screen: true, activity: true, sites: "needs_access" } }), page, "not-added"), "desktopNeedsAccess");
+  assert.equal(C.popupNoteKey(Object.assign({}, base, { appLeftOut: [], desktop: { screen: true, activity: true, sites: "needs_access" } }), page, "not-added"), "desktopScreenOn");
+  assert.equal(C.popupNoteKey(Object.assign({}, base, { desktop: { screen: true, activity: true, sites: "on" } }), page, "not-added"), "desktopScreenOn");
   assert.equal(C.popupNoteKey(Object.assign({}, base, { desktop: { screen: true, activity: true, sites: "on" } }), page, "left-out"), "appLeftOutSitesOn");
 });

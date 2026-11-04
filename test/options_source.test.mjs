@@ -531,8 +531,8 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
 
   // Leaving out and putting back name the whole site, except a local name.
   for (const [excludedHosts, said] of [
-    [["bank.com"], "all bank.com sites and pages are included again."],
-    [["localhost"], "localhost included again."],
+    [["bank.com"], "all bank.com sites and pages are no longer left out."],
+    [["localhost"], "localhost is no longer left out."],
   ]) {
     liveState = optionsState({ consentVersion: 1, siteMode: "all", allSitesConsent: 1, broadGranted: true, excludedHosts });
     await globalThis.SolstoneOptions.refresh();

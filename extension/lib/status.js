@@ -604,7 +604,7 @@
       const appCovers = (status.appLeftOut || []).some((site) => globalThis.SolstoneHosts?.hostCovers ? globalThis.SolstoneHosts.hostCovers(site, host) : false);
       let action = null;
       if (!(appCovers && !status.leftOutCapable)) {
-        action = { id: "include-site", host: coveringSite, label: `include ${coveringSite}` };
+        action = { id: "include-site", host: coveringSite, label: `stop leaving ${coveringSite} out` };
       }
       return { kind: "excluded", label: "left out", action };
     }

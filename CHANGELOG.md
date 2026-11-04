@@ -8,6 +8,8 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ### Changed
 
+- the button that takes a site off your left-out list now says stop leaving out. before, it said include, which read like adding the site to your shared sites.
+- on Safari, a site left out while the solstone app can't check addresses now says the app is keeping out more than that site.
 - a link inside a sentence now stays in that sentence, and the site that link points to no longer goes into your journal. before, the sentence went into your journal with a gap and the link went in alone on its own line, and long pages ran out of room sooner.
 
 ### Fixed

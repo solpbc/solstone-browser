@@ -51,7 +51,7 @@ test("contentScriptRegistrationSatisfied absorbs only an existing requested id",
 });
 
 test("an offer that can't be added says why in owner words", () => {
-  assert.equal(F.classify("site_excluded", { brand: "safari" }), "this site is left out. include it first.");
+  assert.equal(F.classify("site_excluded", { brand: "safari" }), "this site is left out. stop leaving it out first.");
   assert.equal(F.classify("declined", { brand: "safari" }), "you chose not to add this site. to add it, allow it in Safari again.");
   assert.equal(F.classify("permissions_unavailable", { brand: "chrome" }), "couldn't check what Chrome allows. try again.");
 });

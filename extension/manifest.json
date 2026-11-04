@@ -58,9 +58,9 @@
     "default_popup": "popup.html",
     "default_title": "solstone",
     "default_icon": {
-      "16": "icons/icon16.png",
-      "48": "icons/icon48.png",
-      "128": "icons/icon128.png"
+      "16": "icons/icon-connecting-16.png",
+      "48": "icons/icon-connecting-48.png",
+      "128": "icons/icon-connecting-128.png"
     }
   },
   "options_page": "options.html",

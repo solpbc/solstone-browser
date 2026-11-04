@@ -1608,6 +1608,46 @@ test("lifecycle: a settling status reaches content scripts but not the owner's s
   assert.equal(posted.length,before.posted+1);
 });
 
+test("lifecycle: a settling status never interrupts a paint, so icon and title agree", async () => {
+  const {mock,bg,sandbox}=await startWorker(), stalled=deferred(), entered=deferred();
+  let calls=0, icon=null, title=null;
+  mock.chrome.action.setIcon=async value=>{
+    if (++calls===1) {entered.resolve(); await stalled.promise;}
+    icon=value.path[16];
+  };
+  mock.chrome.action.setTitle=async value=>{title=value.title;};
+  const {closed}=states(bg);
+  const painting=bg.updateBadge(closed);
+  await entered.promise;
+  await bg.updateBadge({...closed, connected:true, handshake:"ready", hostSettling:true});
+  stalled.resolve(); await painting;
+  assert.equal(icon,"icons/icon-offline-16.png");
+  assert.equal(title,sandbox.SolstoneStatus.iconState(closed).title);
+});
+
+test("lifecycle: the browser regaining focus tries the app now, a few seconds apart", async () => {
+  const mock=createMockChrome(), focus=[];
+  mock.chrome.windows={WINDOW_ID_NONE:-1, onFocusChanged:{addListener:fn=>focus.push(fn)}};
+  let tries=0;
+  const connectNative=mock.chrome.runtime.connectNative;
+  mock.chrome.runtime.connectNative=(...args)=>{tries++; return connectNative(...args);};
+  const sandbox=createSandbox(mock);
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  const bg=sandbox.SolstoneBackground, p=await bg.ensureInit();
+  const settle=()=>new Promise(r=>setImmediate(r));
+  const drop=()=>p.handlePortDisconnect(p.opEpoch,p.connectionGeneration,p.connectionToken);
+  drop();
+  const before=tries;
+  focus[0](-1); await settle();
+  assert.equal(tries,before,"focus leaving the browser tries nothing");
+  focus[0](1); await settle();
+  assert.equal(tries,before+1);
+  focus[0](1); await settle();
+  assert.equal(tries,before+1,"a connected port isn't retried");
+  drop(); focus[0](1); await settle();
+  assert.equal(tries,before+1,"tries wait a few seconds apart");
+});
+
 test("lifecycle: a surface opened mid-renewal shows the settled state, not \"can't reach\"", async () => {
   const {mock,bg,sandbox}=await startWorker(); const p=bg.port;
   const epoch=p.opEpoch,gen=p.connectionGeneration,token=p.connectionToken;

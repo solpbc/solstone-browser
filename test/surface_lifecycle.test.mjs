@@ -18,22 +18,26 @@ class Node {
 }
 function harness(surface){
  const nodes={};const node=id=>nodes[id]??=new Node();
- let live={...base},status,disconnect,connects=0,timers=[],messages=[],hold=false,callback,holdTab=false,tabCallback;
- const context=vm.createContext({window:{addEventListener(){}},URL,console,setTimeout:fn=>{timers.push(fn);return timers.length;},clearTimeout(){},document:{getElementById:node,createElement:()=>new Node(),addEventListener(){}},chrome:{runtime:{getManifest:()=>({version:'0.2.0'}),sendMessage(m,cb){messages.push(m);if(m.cmd==='getState'){if(hold){hold=false;callback=cb;}else cb(live);}else cb({ok:true});},connect(){connects++;return {onMessage:{addListener(fn){status=fn;}},onDisconnect:{addListener(fn){disconnect=fn;}}};},openOptionsPage(){},reload(){}},tabs:{query(){if(holdTab){holdTab=false;return new Promise(r=>tabCallback=r);}return Promise.resolve([{url:origin}]);},create(){}},permissions:{request:async()=>true}}});
+ let live={...base},status,disconnect,connects=0,timers=[],messages=[],hold=false,callback,holdTab=false,tabCallback,clock=1e6;
+ const context=vm.createContext({window:{addEventListener(){}},URL,console,Date:class extends Date{static now(){return clock;}},setTimeout:(fn,ms)=>{fn.ms=ms;timers.push(fn);return timers.length;},clearTimeout(){},document:{getElementById:node,createElement:()=>new Node(),addEventListener(){}},chrome:{runtime:{getManifest:()=>({version:'0.2.0'}),sendMessage(m,cb){messages.push(m);if(m.cmd==='getState'){if(hold){hold=false;callback=cb;}else cb(live);}else cb({ok:true});},connect(){connects++;return {onMessage:{addListener(fn){status=fn;}},onDisconnect:{addListener(fn){disconnect=fn;}}};},openOptionsPage(){},reload(){}},tabs:{query(){if(holdTab){holdTab=false;return new Promise(r=>tabCallback=r);}return Promise.resolve([{url:origin}]);},create(){}},permissions:{request:async()=>true}}});
  for(const p of ['lib/copy.js','lib/about.js','lib/hosts.js','lib/status.js','lib/failures.js','lib/disclosure.js','lib/popup_view.js','lib/actions.js',surface+'.js'])vm.runInContext(fs.readFileSync(root+p,'utf8'),context,{filename:p});
- return {context,nodes,node,messages,reconnect(){timers.shift()?.();},get live(){return live;},set live(v){live=v;},status(s){status({type:'status',status:s});},disconnect(){disconnect();},hold(){hold=true;},settle(s){callback(s);},holdTab(){holdTab=true;},settleTab(){tabCallback([{url:origin}]);},get connects(){return connects;},headline(){return node(surface==='popup'?'verdictHeadline':'statusStateChip').textContent;}};
+ return {context,nodes,node,messages,timers,advance(ms){clock+=ms;},wake(){for(const fn of timers.splice(0))fn();},reconnect(){timers.shift()?.();},get live(){return live;},set live(v){live=v;},status(s){status({type:'status',status:s});},disconnect(){disconnect();},hold(){hold=true;},settle(s){callback(s);},holdTab(){holdTab=true;},settleTab(){tabCallback([{url:origin}]);},get connects(){return connects;},headline(){return node(surface==='popup'?'verdictHeadline':'statusStateChip').textContent;}};
 }
 
-for (const surface of ["options", "popup"]) test(`${surface} closes immediately and renews status after worker restart`, async () => {
+for (const surface of ["options", "popup"]) test(`${surface} holds what it shows while the background restarts, then shows the truth`, async () => {
  const h=harness(surface); await tick();
- const connected=h.headline(); h.hold(); h.disconnect(); await tick();
- assert.notEqual(h.headline(),connected);
- const closed={...base,captureEpoch:1,connected:false,handshake:"closed",hostCapture:null,hostDelivery:null,lease:null,custody:null,capturePermitted:false,addSiteEligible:false};
- const expected=h.context.SolstoneStatus.derive(closed).headline;
- assert.equal(h.headline(),expected);
- h.status(base); await tick(); assert.equal(h.headline(),expected); // obsolete port
- h.settle(closed); await tick(); assert.equal(h.headline(),expected);
+ const S=h.context.SolstoneStatus;
+ const connected=h.headline(); h.advance(2000);
+ h.hold(); h.disconnect(); await tick();
+ assert.equal(h.headline(),connected,"a restarting background doesn't flash can't reach");
+ assert.equal(h.timers[0].ms,0,"it resubscribes at once");
  h.reconnect(); assert.equal(h.connects,2);
+ // No answer within the hold: the truth is that nothing has been heard yet.
+ h.advance(S.LINK.graceMs); h.wake();
+ const restarting=S.derive(S.withdrawn(base,true));
+ assert.equal(restarting.kind,"connecting");
+ assert.equal(h.headline(),restarting.headline);
+ h.advance(S.LINK.downDwellMs);
  h.status({...base,captureEpoch:2}); await tick(); assert.equal(h.headline(),connected);
 });
 test("popup paints closed authority while active-tab lookup is pending",async()=>{

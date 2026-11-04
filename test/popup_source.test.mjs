@@ -24,7 +24,8 @@ test("popup HTML fixes the section order and heading contract", () => {
 });
 
 test("popup consumes the upstream status derivations without recreating them", () => {
-  assert.match(popupSource, /Status\.derive\(state, extras\)/);
+  assert.match(popupSource, /Status\.present\(link, state, extras, Date\.now\(\)\)/);
+  assert.match(popupSource, /Status\.derive\(shown, extras\)/);
   assert.match(viewSource, /SolstoneStatus\.siteRow\(/);
   assert.doesNotMatch(popupSource, /cfg\.key|localRegistered|journalUrl|journalPermission|journalIntent/);
 });

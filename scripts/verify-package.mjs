@@ -272,8 +272,13 @@ function assertRequiredArchiveFiles(root, filesSet, label) {
 // the source only where Safari's runtime does: no Chrome identity or Gecko
 // settings, an event-page background, and the minimum Safari that loads a
 // Developer ID extension outside the App Store.
+// App Store Connect refuses a Safari web extension whose description is over 112
+// characters. Chrome's store shows the source manifest's longer description.
+const SAFARI_DESCRIPTION = "on sites you choose, it takes in page text, addresses and rough layout, and all of it goes into your journal.";
+
 export function safariManifest(sourceManifest) {
   const manifest = structuredClone(sourceManifest);
+  manifest.description = SAFARI_DESCRIPTION;
   delete manifest.key;
   delete manifest.update_url;
   delete manifest.minimum_chrome_version;
@@ -286,6 +291,7 @@ export function verifySafariArtifact({ root = ROOT, stagePath } = {}) {
   const sourceManifest = readJson(join(root, "extension", "manifest.json"), "source manifest");
   const manifest = readJson(join(stagePath, "manifest.json"), "Safari manifest");
   assert.deepStrictEqual(manifest, safariManifest(sourceManifest), "Safari manifest must be the Safari overlay of the source");
+  assert.ok(manifest.description.length <= 112, "Safari build: description exceeds the App Store's 112-character limit");
   assertRuntimeFiles(manifest, (file) => existsSync(join(stagePath, file)), "Safari build");
   // Safari reads its generated background page's scripts as Latin-1, so code
   // (outside comments) must spell every non-ASCII character as an escape.

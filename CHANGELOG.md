@@ -6,6 +6,12 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ## [Unreleased]
 
+## [0.5.6] (2026-11-05)
+
+### Fixed
+
+- on iphone and ipad, the settings page now fits the screen, so its text and buttons are full size.
+
 ## [0.5.5] (2026-11-05)
 
 ### Fixed

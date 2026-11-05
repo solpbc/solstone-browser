@@ -6,6 +6,8 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ## [Unreleased]
 
+## [0.5.5] (2026-11-05)
+
 ### Fixed
 
 - the toolbar icon, the popup and settings no longer say "on" before the solstone app has answered, and no longer flash "can't reach the solstone app" while the extension restarts in the background. when you open the solstone app and come back to your browser, they show that right away. before, that could take up to a minute.

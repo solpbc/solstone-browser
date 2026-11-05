@@ -131,6 +131,24 @@ test("arrange preserves exact origins and exposes truncation as a separate atten
   assert.equal(httpPage.state, "not added");
 });
 
+test("addSite goes straight to the browser's prompt when told to skip the sheet", async () => {
+  const calls = [];
+  const result = await View.addSite("second.example", {
+    status: { consentVersion: 1, addSiteEligible: true },
+    skipSheet: true,
+    disclose: async () => { calls.push(["disclose"]); return { ok: false }; },
+    cmd: async (message) => {
+      calls.push([message.cmd]);
+      if (message.cmd === "getState") return { consentVersion: 1, addSiteEligible: true };
+      return { ok: true };
+    },
+    requestPermission: async () => { calls.push(["permission"]); return true; },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(calls.some(([name]) => name === "disclose"), false);
+  assert.ok(calls.some(([name]) => name === "permission"));
+});
+
 test("addSite confirms before intent and permission in exact order", async () => {
   const calls = [];
   const result = await View.addSite("mail.google.com", {

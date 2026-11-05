@@ -190,6 +190,21 @@ test("lifecycle (ordered scripts): manifest scripts load in order and initialize
   assert.ok(port.inst);
 });
 
+for (const device of [
+  { name: "iPhone", navigator: { userAgent: "Mozilla/5.0 (iPhone)", platform: "iPhone", maxTouchPoints: 5 }, agreed: 1 },
+  { name: "a Mac", navigator: { userAgent: "Mozilla/5.0 (Macintosh)", platform: "MacIntel", maxTouchPoints: 0 }, agreed: 0 },
+]) {
+  test(`a fresh install on ${device.name} ${device.agreed ? "needs no separate agreement" : "still needs the agreement"}`, async () => {
+    const mock = createMockChrome();
+    const sandbox = createSandbox(mock, true);
+    sandbox.indexedDB = new IDBFactory();
+    sandbox.navigator = device.navigator;
+    vm.runInNewContext(readExtFile("background.js"), sandbox);
+    const port = await sandbox.SolstoneBackground.ensureInit();
+    assert.equal(port.consentVersion, device.agreed);
+  });
+}
+
 for (const isWorker of [true, false]) {
   test(`tab age survives ${isWorker ? "worker" : "ordered-script"} recreation with a reset performance clock`, async () => {
     const session = {};

@@ -112,6 +112,39 @@ test("handshake: sends hello on connect and accepts valid hello_ack", async () =
   assert.equal(controller.everConnected, true);
 });
 
+for (const standingAuthority of [true, false]) {
+  test(`port: ${standingAuthority ? "standing authority outlasts the freshness window until the next answer" : "a lease lapses at its deadline"}`, async () => {
+    await resetDB();
+    const mockPort = new MockPort();
+    let clock = 1000;
+    const controller = new PortController({
+      connectNative: () => mockPort,
+      runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+      manifestVersion: "0.2.0",
+      brand: "safari",
+      inst: "inst-standing-test-12345",
+      now: () => clock,
+      standingAuthority,
+    });
+    controller.connect();
+    await mockPort.receive({ type: "hello_ack", capture: "permitted", delivery: "idle", freshness_ms: 5000,
+      destination_generation: "gen-alpha", period_id: "period-1" });
+    assert.ok(controller.lease);
+    clock += 60000;
+    await controller.poll();
+    const status = controller.getStatus();
+    assert.equal(status.lease?.standing === true, standingAuthority);
+    assert.equal(status.hostCapture === "permitted", standingAuthority);
+    assert.equal(mockPort.sent.length, 1, "nothing polls the handler while the port is live");
+    if (standingAuthority) {
+      await mockPort.receive({ type: "state", capture: "not_paired", delivery: "idle", freshness_ms: 0,
+        destination_generation: null, period_id: null });
+      assert.equal(controller.lease, null, "the next answer can take authority back");
+      assert.equal(controller.getStatus().hostCapture, "not_paired");
+    }
+  });
+}
+
 test("port: freshness closes at the deadline", () => {
   const receivedAt = 10000;
   const freshnessMs = 5000;

@@ -29,6 +29,14 @@ async function resetDB() {
   await DB.clear("meta");
 }
 
+test("evaluateLease: a standing lease has no clock, and any other lease still does", () => {
+  const stale = { token: "tok", generation: "gen", receivedAt: 1000, freshnessMs: 5000 };
+  assert.equal(Gate.evaluateLease(stale, 100000).ok, false);
+  assert.equal(Gate.evaluateLease({ ...stale, standing: true }, 100000).ok, true);
+  assert.equal(Gate.evaluateLease({ ...stale, standing: "true" }, 100000).ok, false);
+  assert.equal(Gate.evaluateLease({ generation: "gen", standing: true }, 100000).ok, false);
+});
+
 test("computeDecision: closed when extension is paused", () => {
   const res = Gate.computeDecision({
     paused: true,

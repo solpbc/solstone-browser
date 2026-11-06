@@ -287,6 +287,13 @@ export function safariManifest(sourceManifest) {
   return manifest;
 }
 
+// The iPhone and iPad app's copy of the Safari build. Those never repaint the toolbar,
+// so it starts as the normal logo; a Mac starts on connecting until the app answers.
+export function iosSafariManifest(safari) {
+  return { ...safari, action: { ...safari.action,
+    default_icon: { 16: "icons/icon16.png", 48: "icons/icon48.png", 128: "icons/icon128.png" } } };
+}
+
 export function verifySafariArtifact({ root = ROOT, stagePath } = {}) {
   const sourceManifest = readJson(join(root, "extension", "manifest.json"), "source manifest");
   const manifest = readJson(join(stagePath, "manifest.json"), "Safari manifest");

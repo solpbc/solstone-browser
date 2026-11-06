@@ -205,6 +205,29 @@ for (const device of [
   });
 }
 
+for (const device of [
+  { name: "iPhone", navigator: { userAgent: "Mozilla/5.0 (iPhone)", platform: "iPhone", maxTouchPoints: 5 }, paints: false },
+  { name: "a Mac", navigator: { userAgent: "Mozilla/5.0 (Macintosh)", platform: "MacIntel", maxTouchPoints: 0 }, paints: true },
+]) {
+  test(`the toolbar on ${device.name} ${device.paints ? "shows state" : "keeps its logo whatever the state"}`, async () => {
+    const mock = createMockChrome();
+    const sandbox = createSandbox(mock, true);
+    sandbox.indexedDB = new IDBFactory();
+    sandbox.navigator = device.navigator;
+    vm.runInNewContext(readExtFile("background.js"), sandbox);
+    const bg = sandbox.SolstoneBackground;
+    await bg.ensureInit();
+    let calls = 0;
+    mock.chrome.action.setIcon = async () => { calls++; };
+    mock.chrome.action.setBadgeText = async () => { calls++; };
+    mock.chrome.action.setTitle = async () => { calls++; };
+    const status = { ...states(bg).permitted, connectionGeneration: 1, handshake: "ready" };
+    await bg.updateBadge(status);
+    await bg.updateBadge(status);
+    assert.equal(calls > 0, device.paints);
+  });
+}
+
 for (const isWorker of [true, false]) {
   test(`tab age survives ${isWorker ? "worker" : "ordered-script"} recreation with a reset performance clock`, async () => {
     const session = {};

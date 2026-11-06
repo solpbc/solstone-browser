@@ -30,3 +30,12 @@ test("manifest permission and injection surfaces stay pinned", () => {
   assert.equal(Object.hasOwn(manifest, "optional_permissions"), false);
   assert.equal(Object.hasOwn(manifest, "content_scripts"), false);
 });
+
+test("iPhone and iPad start on the normal logo, because they never repaint it; every other build starts on connecting", async () => {
+  const { safariManifest, iosSafariManifest } = await import("../scripts/verify-package.mjs");
+  const safari = safariManifest(manifest);
+  assert.match(safari.action.default_icon["16"], /connecting/);
+  const ios = iosSafariManifest(safari);
+  assert.deepStrictEqual(ios.action.default_icon, { 16: "icons/icon16.png", 48: "icons/icon48.png", 128: "icons/icon128.png" });
+  assert.equal(ios.action.default_popup, manifest.action.default_popup);
+});

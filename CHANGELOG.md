@@ -6,6 +6,12 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ## [Unreleased]
 
+## [0.5.8] (2026-11-05)
+
+### Changed
+
+- more changes only for the solstone extension in Safari on iphone and ipad, which isn't out yet. nothing changes in Chrome, Firefox or Safari on a mac.
+
 ## [0.5.7] (2026-11-05)
 
 ### Changed

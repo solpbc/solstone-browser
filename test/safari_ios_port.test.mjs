@@ -7,17 +7,17 @@ import { readFileSync } from "node:fs";
 import { webcrypto } from "node:crypto";
 
 function rig(sendNativeMessage) {
-  let tick, cleared = false;
+  let timers = 0;
   const context = vm.createContext({ navigator: { userAgent: "iPhone", platform: "iPhone" }, crypto: webcrypto,
-    setInterval(fn) { tick = fn; return 1; }, clearInterval() { cleared = true; } });
+    setInterval() { timers++; return 1; }, setTimeout() { timers++; return 1; } });
   for (const file of ["safari_port.js", "safari_ios_port.js"]) {
     vm.runInContext(readFileSync(new URL(`../extension/lib/${file}`, import.meta.url), "utf8"), context);
   }
   const port = context.SolstoneSafariPort.connect({ sendNativeMessage }, "app.solstone.browser");
-  return { port, tick: () => tick(), cleared: () => cleared };
+  return { port, tick: () => port.refresh(), timers: () => timers };
 }
 
-test("iOS serializes replies, coalesces polls and ignores replies after disconnect", async () => {
+test("iOS serializes replies, coalesces refreshes and ignores replies after disconnect", async () => {
   const posted = [], received = [];
   let resolve;
   const r = rig((host, request) => {
@@ -39,7 +39,26 @@ test("iOS serializes replies, coalesces polls and ignores replies after disconne
   resolve({ v: 1, c: r.port.id, f: ["late"] });
   await new Promise(done => setImmediate(done));
   assert.deepEqual(received, ["first", "second"]);
-  assert.equal(r.cleared(), true);
+});
+
+test("iOS exchanges only when asked: no hello, batch or refresh means no message and no timer", async () => {
+  const posted = [];
+  const r = rig(async (_host, request) => { posted.push(request); return { v: 1, c: request.c, f: [] }; });
+  await new Promise(done => setImmediate(done));
+  assert.equal(posted.length, 0);
+  assert.equal(r.timers(), 0);
+  r.port.postMessage({ type: "hello" });
+  await new Promise(done => setImmediate(done));
+  assert.equal(posted.length, 1);
+  assert.equal(r.timers(), 0);
+  r.port.refresh();
+  await new Promise(done => setImmediate(done));
+  assert.equal(posted.length, 2);
+  assert.equal(posted[1].f, undefined);
+  r.port.disconnect();
+  r.port.refresh();
+  await new Promise(done => setImmediate(done));
+  assert.equal(posted.length, 2);
 });
 
 test("iOS closes once when the native exchange fails or replies to another connection", async () => {
@@ -73,7 +92,8 @@ test("on iPhone the words name the phone and say reading continues while the app
   assert.match(phone.DISCLOSURE_BODY, /the solstone extension keeps taking in the sites you choose while the solstone app is closed/);
   assert.doesNotMatch(phone.DISCLOSURE_BODY, /this computer|unless you turn that off/);
   assert.match(phone.DISCLOSURE_BODY, /takes in nothing from private browsing/);
-  assert.match(phone.DISCLOSURE_BODY, /pausing Safari in the solstone app stops this extension too\./);
+  assert.doesNotMatch(phone.DISCLOSURE_BODY, /pausing (Safari in )?the solstone app/);
+  assert.match(phone.DISCLOSURE_BODY, /pause any time in the solstone extension\. pausing doesn't hold back/);
   assert.match(phone.step3Body("safari"), /Safari's page menu/);
   const pad = copyFor({ userAgent: "Mozilla/5.0 (Macintosh)", platform: "MacIntel", maxTouchPoints: 5 });
   assert.equal(pad.PLACE, "this ipad");

@@ -2,7 +2,9 @@
 // Copyright (c) 2026 sol pbc
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import vm from "node:vm";
 
 await import(new URL("../extension/lib/copy.js", import.meta.url));
 await import(new URL("../extension/lib/hosts.js", import.meta.url));
@@ -561,4 +563,47 @@ test("a left-out page covered by the app names the app, not the screen, when nei
   assert.equal(C.popupNoteKey(Object.assign({}, base, { appLeftOut: [], desktop: { screen: true, activity: true, sites: "needs_access" } }), page, "not-added"), "desktopScreenOn");
   assert.equal(C.popupNoteKey(Object.assign({}, base, { desktop: { screen: true, activity: true, sites: "on" } }), page, "not-added"), "desktopScreenOn");
   assert.equal(C.popupNoteKey(Object.assign({}, base, { desktop: { screen: true, activity: true, sites: "on" } }), page, "left-out"), "appLeftOutSitesOn");
+});
+
+test("on a phone the popup is one site, one action and one row: the rest needs the owner or lives in settings", () => {
+  const load = (navigator) => {
+    const context = vm.createContext({ navigator, URL });
+    for (const file of ["copy.js", "hosts.js", "status.js", "popup_view.js"]) {
+      vm.runInContext(readFileSync(new URL(`../extension/lib/${file}`, import.meta.url), "utf8"), context);
+    }
+    return context.SolstonePopupView;
+  };
+  const state = { brand: "safari", consentVersion: 1, addSiteEligible: true, hostCapture: "permitted", capturePermitted: true,
+    connected: true, handshake: "ready", everConnected: true, connectionGeneration: 1, siteMode: "selected", chosenOrigins: [], grantedOrigins: [],
+    lease: { token: "t", generation: "g", receivedAt: 1, freshnessMs: 5000, standing: true }, custody: { full: false }, pressure: {} };
+  const page = { origin: "https://eff.org", host: "eff.org", ok: true, kind: "web" };
+  const section = (sections, id) => sections.find((item) => item.id === id);
+  const phone = load({ userAgent: "Mozilla/5.0 (iPhone)", platform: "iPhone", maxTouchPoints: 5 });
+  const onPhone = phone.arrange(null, state, page);
+  assert.equal(section(onPhone, "verdict").quiet, true);
+  assert.equal(section(onPhone, "page").siteAction.id, "add-site");
+  assert.equal(section(onPhone, "page").siteSecondary, null);
+  assert.equal(section(onPhone, "page").pauseAction, null);
+  assert.equal(section(onPhone, "siteIssues"), undefined);
+  assert.equal(section(phone.arrange(null, { ...state, paused: true }, page), "page").pauseAction.label, "resume");
+  const unpaired = section(phone.arrange(null, { ...state, hostCapture: "not_paired", capturePermitted: false, addSiteEligible: false, lease: null }, page), "verdict");
+  assert.notEqual(unpaired.quiet, true);
+  const mac = load({ userAgent: "Mozilla/5.0 (Macintosh)", platform: "MacIntel", maxTouchPoints: 0 });
+  const onMac = mac.arrange(null, state, page);
+  assert.equal(section(onMac, "verdict").quiet, false);
+  assert.equal(section(onMac, "page").siteSecondary.id, "leave-out");
+});
+
+test("no phone add passes through a sheet, from the popup or from settings", () => {
+  const popup = readFileSync(new URL("../extension/popup.js", import.meta.url), "utf8");
+  const options = readFileSync(new URL("../extension/options.js", import.meta.url), "utf8");
+  assert.match(popup, /skipSheet: Copy\.MOBILE === true,/);
+  assert.match(options, /skipSheet: Copy\.MOBILE === true \}/);
+});
+
+test("a phone's description doesn't mention a choice the phone doesn't offer", () => {
+  const context = vm.createContext({ navigator: { userAgent: "Mozilla/5.0 (iPhone)", platform: "iPhone", maxTouchPoints: 5 } });
+  vm.runInContext(readFileSync(new URL("../extension/lib/copy.js", import.meta.url), "utf8"), context);
+  assert.doesNotMatch(context.SolstoneCopy.DISCLOSURE_BODY, /all sites|leave sites out|sites you leave out/);
+  assert.match(context.SolstoneCopy.DISCLOSURE_BODY, /you add sites one at a time\./);
 });

@@ -3960,7 +3960,7 @@ async function drainUi() {
   for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setImmediate(resolve));
 }
 
-function openShareUi(booted, files, forward) {
+function openShareUi(booted, files, forward, pageUrl = "https://example.com/") {
   const sent = [];
   const replies = [];
   const { document, cache } = uiDocument();
@@ -3972,8 +3972,23 @@ function openShareUi(booted, files, forward) {
     setTimeout() { return 0; },
     clearTimeout() {},
     Date,
+    URL,
   };
   sandbox.globalThis = sandbox;
+  vm.runInNewContext("globalThis.ArrayCtor = Array;", sandbox);
+  // Status crosses from the background realm. Array.isArray there is false
+  // for those arrays, so copy them with this page's Array before the callback.
+  function revive(value) {
+    if (value == null || typeof value !== "object") return value;
+    if (typeof value.length === "number" && typeof value.slice === "function") {
+      const copy = new sandbox.ArrayCtor();
+      for (let i = 0; i < value.length; i += 1) copy.push(revive(value[i]));
+      return copy;
+    }
+    const copy = {};
+    for (const key of Object.keys(value)) copy[key] = revive(value[key]);
+    return copy;
+  }
   sandbox.chrome = {
     runtime: {
       id: booted.mock.chrome.runtime.id,
@@ -3986,8 +4001,9 @@ function openShareUi(booted, files, forward) {
           return;
         }
         booted.mock.listeners.onMessage[0](message, pinExt(booted.mock), (response) => {
-          replies.push({ cmd: copy.cmd, response });
-          callback?.(response);
+          const revived = revive(response);
+          replies.push({ cmd: copy.cmd, response: revived });
+          callback?.(revived);
         });
       },
       connect() {
@@ -3997,9 +4013,15 @@ function openShareUi(booted, files, forward) {
       reload() {},
       lastError: null,
     },
-    tabs: { query: async () => [{ id: 7, url: "https://example.com/" }], create() {} },
+    tabs: { create() {} },
     permissions: { request: async () => true },
   };
+  // The array has to be born in this page's realm. Destructuring a list from
+  // the test realm yields nothing, so the popup would keep an unknown page.
+  vm.runInNewContext(
+    `(pageUrl) => { chrome.tabs.query = async () => [{ id: 7, url: pageUrl, active: true }]; }`,
+    sandbox,
+  )(pageUrl);
   for (const file of files) vm.runInNewContext(readExtFile(file), sandbox, { filename: file });
   return { sandbox, sent, replies, document, cache };
 }
@@ -4197,5 +4219,124 @@ test("upgrade: a thrown grant read does not end the fence", async () => {
   const them = await pinSend(booted.mock, { cmd: "shareThemToo", shown: ["*://*/*"] });
   assert.equal(booted.bg.port.fence === null, false);
   assert.equal(them.error, "permissions_unavailable");
+});
+
+async function bootPlainBank() {
+  const mock = createMockChrome();
+  setGrants(mock, ["https://bank.com/*"]);
+  mock.storageData.cfg = { siteGrant: "live", fence: null, excludedHosts: [] };
+  const booted = await bootPin(mock);
+  booted.bg.port.connectionGeneration = 1;
+  booted.bg.port.handshake = "closed";
+  booted.bg.port.consentVersion = 1;
+  return booted;
+}
+
+function countRemoves(mock) {
+  let removes = 0;
+  const orig = mock.chrome.permissions.remove.bind(mock.chrome.permissions);
+  mock.chrome.permissions.remove = async (request) => {
+    removes += 1;
+    return orig(request);
+  };
+  return () => removes;
+}
+
+test("removal: a thrown grant list does not remove, and the pages say they could not check", async () => {
+  const booted = await bootPlainBank();
+  const removes = countRemoves(booted.mock);
+  booted.mock.options.getAllThrows = true;
+  const result = await pinSend(booted.mock, { cmd: "removeGrantedOrigin", origin: "https://bank.com" });
+  assert.equal(result.error, "permissions_unavailable");
+  assert.equal(result.ok, false);
+  assert.equal(removes(), 0);
+  assert.equal(booted.bg.port.fence, null);
+  assert.equal(booted.mock.grantedPermissions.has("https://bank.com/*"), true);
+
+  for (const surface of [
+    { files: POPUP_UI, pageUrl: "https://bank.com/account", click: (ui) => ui.document.getElementById("pageSiteAction") },
+    { files: OPTIONS_UI, pageUrl: "https://example.com/", click: (ui) => findClick(ui.cache, "remove") },
+  ]) {
+    const page = await bootPlainBank();
+    page.mock.options.getAllThrows = true;
+    const ui = openShareUi(page, surface.files, () => true, surface.pageUrl);
+    await drainUi();
+    const button = surface.click(ui);
+    assert.ok(button);
+    assert.equal(button.textContent, surface.files === POPUP_UI ? "remove this site" : "remove");
+    await (button.onclick ? button.onclick() : button.listeners.click());
+    await drainUi();
+    const sentence = ui.document.getElementById("actionMessage").textContent;
+    assert.equal(sentence, ui.sandbox.SolstoneCopy.actionFailure("permissions_unavailable", page.bg.port.brand));
+    assert.equal(sentence.includes("removed"), false);
+  }
+});
+
+test("removal: a thrown reread drops this removal's tombstones and keeps an earlier one", async () => {
+  const booted = await bootPlainBank();
+  booted.bg.port.tombstones.add("https://kept.example/*");
+  const listener = booted.mock.listeners.onRemovedPerm[0];
+  booted.mock.listeners.onRemovedPerm[0] = (details) => {
+    const pending = listener(details);
+    booted.mock.options.getAllThrows = true;
+    return pending;
+  };
+  let seenDuring = false;
+  const orig = booted.mock.chrome.permissions.remove.bind(booted.mock.chrome.permissions);
+  booted.mock.chrome.permissions.remove = async (request) => {
+    const result = await orig(request);
+    seenDuring = booted.bg.port.tombstones.has("https://bank.com/*");
+    return result;
+  };
+  const result = await pinSend(booted.mock, { cmd: "removeGrantedOrigin", origin: "https://bank.com" });
+  assert.equal(result.error, "permissions_unavailable");
+  assert.equal(result.ok, false);
+  assert.equal(seenDuring, true);
+  assert.equal(booted.bg.port.tombstones.has("https://bank.com/*"), false);
+  assert.equal(booted.bg.port.tombstones.has("https://kept.example/*"), true);
+  assert.equal(booted.bg.port.excludedHosts.includes("bank.com"), false);
+});
+
+test("removal: a fenced remove whose grant list throws declines the host and does not remove", async () => {
+  const booted = await bootFence(
+    ["https://bank.com", "https://shop.com"],
+    ["*://*.bank.com/*", "*://*.shop.com/*"],
+  );
+  const removes = countRemoves(booted.mock);
+  booted.mock.options.getAllThrows = true;
+  const removed = await pinSend(booted.mock, { cmd: "removeGrantedOrigin", origin: "https://bank.com" });
+  assert.equal(removed.ok, true);
+  assert.equal(removed.origin, "https://bank.com");
+  assert.equal(removes(), 0);
+  assert.equal(booted.bg.port.fence.entries.includes("https://bank.com"), false);
+  assert.equal(booted.bg.port.fence.entries.includes("https://shop.com"), true);
+  assert.equal(booted.bg.port.fence.declined.includes("bank.com"), true);
+  assert.equal(booted.mock.storageData.cfg.fence.declined.includes("bank.com"), true);
+  assert.equal(booted.bg.port.excludedHosts.includes("bank.com"), false);
+
+  booted.mock.options.getAllThrows = false;
+  const beyond = booted.sandbox.SolstoneHosts.beyondExample(
+    booted.bg.port.fence,
+    Array.from(booted.bg.port.livePatterns),
+    [...(booted.bg.port.excludedHosts || []), ...(booted.bg.port.appLeftOut || [])],
+  );
+  const shared = await pinSend(booted.mock, { cmd: "shareThemToo", shown: Array.from(beyond.shown) });
+  assert.equal(shared.result, "shared");
+  assert.equal(booted.bg.port.fence, null);
+  assert.equal(booted.bg.port.excludedHosts.includes("bank.com"), true);
+  assert.equal(booted.bg.port.excludedHosts.includes("shop.com"), false);
+
+  const every = await bootFence(["https://bank.com"], ["*://*/*"], { sawMore: true });
+  const everyRemoves = countRemoves(every.mock);
+  every.mock.options.getAllThrows = true;
+  const dropped = await pinSend(every.mock, { cmd: "removeGrantedOrigin", origin: "https://bank.com" });
+  assert.equal(dropped.ok, true);
+  assert.equal(everyRemoves(), 0);
+  assert.equal(every.bg.port.fence.declined.includes("bank.com"), true);
+  every.mock.options.getAllThrows = false;
+  const sharedEvery = await pinSend(every.mock, { cmd: "shareEverySite" });
+  assert.equal(sharedEvery.result, "shared");
+  assert.equal(every.bg.port.fence, null);
+  assert.equal(every.bg.port.excludedHosts.includes("bank.com"), true);
 });
 

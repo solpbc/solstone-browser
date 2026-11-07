@@ -185,13 +185,17 @@
   }
 
   // The browser's list, with no tombstone filter. Removal judges this.
-  // Intents and the gate stay on the filtered read.
+  // Intents and the gate stay on the filtered read. A throw is the only failure;
+  // a missing or non-array list is an empty success.
   async function listedOrigins() {
     try {
       const perms = await chrome.permissions.getAll();
-      if (Array.isArray(perms?.origins)) return perms.origins.filter((pattern) => typeof pattern === "string");
-    } catch (_e) {}
-    return [];
+      const origins = perms?.origins;
+      if (!Array.isArray(origins)) return { ok: true, origins: [] };
+      return { ok: true, origins: origins.filter((pattern) => typeof pattern === "string") };
+    } catch (_e) {
+      return { ok: false, error: "permissions_unavailable" };
+    }
   }
 
   // Non-broad grants whose row is this origin, as the browser spells them.
@@ -231,6 +235,16 @@
         port.fence.siteWide = (port.fence.siteWide || []).filter((e) => !coveringEntries.includes(e));
         port.notify();
 
+        if (!listed.ok) {
+          const declined = Array.isArray(port.fence.declined) ? [...port.fence.declined] : [];
+          if (host && !declined.includes(host)) declined.push(host);
+          port.fence.declined = declined;
+          if (deps.setCfg) await deps.setCfg({ fence: port.fence });
+          port.notify();
+          deps.refreshOpenTabs?.();
+          return { ok: true, origin };
+        }
+
         const remainingHosts = new Set();
         for (const e of port.fence.entries) {
           try { remainingHosts.add(new URL(e).hostname); } catch (_e) {}
@@ -239,7 +253,7 @@
           try {
             const eh = new URL(e).hostname;
             const needed = [...remainingHosts].some((rh) => rh === eh || H.hostCovers(eh, rh));
-            if (!needed) await removePatterns(patternsForOrigin(listed, e));
+            if (!needed) await removePatterns(patternsForOrigin(listed.origins, e));
           } catch (_e) {}
         }
         if (typeof deps.beginRead === "function") {
@@ -253,14 +267,23 @@
         return { ok: true, origin };
       }
 
-      const toRemove = patternsForOrigin(listed, origin);
+      if (!listed.ok) return { ok: false, error: "permissions_unavailable" };
+
+      const toRemove = patternsForOrigin(listed.origins, origin);
       if (!port.tombstones) port.tombstones = new Set();
+      const keptTombstones = new Set(port.tombstones);
       for (const pattern of toRemove) port.tombstones.add(pattern);
       await removePatterns(toRemove);
 
       const still = await listedOrigins();
-      for (const pattern of still) port.tombstones.delete(pattern);
-      const stillCovered = still.some((pattern) => H.plainAllow(pattern, url));
+      if (!still.ok) {
+        for (const pattern of [...port.tombstones]) {
+          if (!keptTombstones.has(pattern)) port.tombstones.delete(pattern);
+        }
+        return { ok: false, error: "permissions_unavailable" };
+      }
+      for (const pattern of still.origins) port.tombstones.delete(pattern);
+      const stillCovered = still.origins.some((pattern) => H.plainAllow(pattern, url));
       if (stillCovered) {
         const pageHost = H.storedExcludedHostname(host);
         if (!Array.isArray(port.excludedHosts)) port.excludedHosts = [];

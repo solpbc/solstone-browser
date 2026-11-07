@@ -551,7 +551,10 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   assert.equal(sentMessages.findLast((message) => message.cmd === "addGrantedOrigin").origin, "https://github.com");
 
   // A site already on the list is named as such, with no sheet and no prompt.
-  liveState = optionsState({ consentVersion: 1, chosenOrigins: ["https://mail.google.com"], grantedOrigins: ["https://mail.google.com"] });
+  liveState = optionsState({
+    consentVersion: 1,
+    fence: { entries: ["https://mail.google.com"], exact: [], siteWide: [] },
+  });
   await globalThis.SolstoneOptions.refresh();
   let before = sentMessages.length;
   nodes.newHost.value = "https://mail.google.com/mail/u/0/";

@@ -2011,6 +2011,8 @@ test("a stored add intent joins login.bank.com on a site grant, and share every 
   await bg.setCfg({ addIntent: { origin: "https://login.bank.com", at: 42 } });
   assert.equal(mock.storageData.cfg.addIntent.origin, "https://login.bank.com");
   assert.equal(mock.storageData.cfg.addIntent.at, 42);
+  // doInit's read forgets an intent older than ten minutes. This clock keeps at 42.
+  bg.port.wallNow = () => 42;
   await bg.doInit();
   assert.equal(bg.port.addIntent.origin, "https://login.bank.com");
   assert.equal(bg.port.addIntent.at, 42);
@@ -2049,12 +2051,22 @@ test("a stored add intent joins login.bank.com on a site grant, and share every 
   assert.equal(port.addIntent.at, clock);
 
   port.addIntent = { origin: "https://login.bank.com", at: clock - 600001 };
+  await bg.setCfg({ addIntent: port.addIntent });
   mock.grantedPermissions.add("*://*.bank.com/*");
   await bg.beginRead();
   assert.equal(port.fence.entries.includes("https://login.bank.com"), false);
-  assert.equal(port.addIntent.origin, "https://login.bank.com");
-  assert.equal(port.addIntent.at, clock - 600001);
+  assert.equal(port.addIntent, null);
+  assert.equal(mock.storageData.cfg.addIntent, null);
   assert.ok(port.fence.declined.includes("bank.com"));
+
+  port.addIntent = { origin: "https://login.bank.com", at: clock + 1 };
+  await bg.setCfg({ addIntent: port.addIntent });
+  await bg.beginRead();
+  assert.equal(port.fence.entries.includes("https://login.bank.com"), false);
+  assert.equal(port.addIntent && port.addIntent.origin, "https://login.bank.com");
+  assert.equal(port.addIntent && port.addIntent.at, clock + 1);
+  assert.equal(mock.storageData.cfg.addIntent && mock.storageData.cfg.addIntent.origin, "https://login.bank.com");
+  assert.equal(mock.storageData.cfg.addIntent && mock.storageData.cfg.addIntent.at, clock + 1);
 
   mock.grantedPermissions.delete("*://*.bank.com/*");
   mock.grantedPermissions.add("*://*/*");

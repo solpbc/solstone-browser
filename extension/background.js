@@ -741,6 +741,14 @@ function beginSafariWatch() {
 
 // A page click stores an intent, then asks the browser. The next read joins the
 // site only when that intent is still fresh and a site grant, not a broad one, covers it.
+// A negative age stays stored. Only an age past ten minutes is forgotten.
+function addIntentExpired() {
+  const intent = port.addIntent;
+  if (!intent || typeof intent !== "object" || typeof intent.origin !== "string") return false;
+  if (!Number.isFinite(intent.at)) return false;
+  return port.wallNow() - intent.at > 600000;
+}
+
 function completeAddIntent(applied) {
   const intent = port.addIntent;
   if (!intent || typeof intent !== "object" || typeof intent.origin !== "string") return null;
@@ -764,11 +772,13 @@ async function applySnapshot(applied, tombstoneFiltered, options = {}) {
   let fenceEnded = false;
   let fenceEntriesChanged = false;
   let intentTaken = false;
+  let intentExpired = false;
   let nextFence = port.fence;
   let nextExcluded = port.excludedHosts;
   let fenceWrite = null;
 
   if (port.fence !== null && typeof port.fence === "object") {
+    intentExpired = addIntentExpired();
     const admitted = completeAddIntent(applied);
     let working = port.fence;
     if (admitted) {
@@ -786,14 +796,14 @@ async function applySnapshot(applied, tombstoneFiltered, options = {}) {
       nextExcluded = finished.excludedHosts;
       fenceEnded = true;
       fenceWrite = { fence: null, excludedHosts: finished.excludedHosts };
-      if (intentTaken) fenceWrite.addIntent = null;
+      if (intentTaken || intentExpired) fenceWrite.addIntent = null;
     } else {
       const updatedFence = res.fence;
       const fenceChanged = JSON.stringify(working) !== JSON.stringify(updatedFence);
       nextFence = updatedFence;
-      if (fenceChanged || intentTaken) {
+      if (fenceChanged || intentTaken || intentExpired) {
         fenceWrite = { fence: updatedFence };
-        if (intentTaken) fenceWrite.addIntent = null;
+        if (intentTaken || intentExpired) fenceWrite.addIntent = null;
       }
       if (updatedFence !== null) {
         const curEntries = updatedFence.entries || [];
@@ -817,7 +827,7 @@ async function applySnapshot(applied, tombstoneFiltered, options = {}) {
 
   if (fenceWrite) {
     port.fence = nextFence;
-    if (intentTaken) port.addIntent = null;
+    if (intentTaken || intentExpired) port.addIntent = null;
     if (fenceEnded) {
       port.excludedHosts = nextExcluded;
       if (typeof port.excludedGen === "number") port.excludedGen += 1;

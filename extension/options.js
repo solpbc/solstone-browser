@@ -129,8 +129,6 @@
 
   function chosenList() {
     if (state?.fence && Array.isArray(state.fence.entries)) return state.fence.entries;
-    if (Array.isArray(state && state.chosenOrigins)) return state.chosenOrigins;
-    if (Array.isArray(state && state.grantedOrigins)) return state.grantedOrigins;
     if (Array.isArray(state && state.livePatterns)) {
       const H = globalThis.SolstoneHosts;
       const res = [];
@@ -155,18 +153,6 @@
     clearAnnouncement();
     fieldError("");
     const raw = inputElement ? inputElement.value : "";
-    if (state?.siteMode === "all") {
-      const host = Hosts.excludedHostname(raw.trim());
-      if (!host) {
-        if (raw.trim()) { fieldError(Copy.FIELD_ERROR); focus(inputElement); }
-        return;
-      }
-      const result = await cmd({ cmd: "setLeftOut", host, out: true });
-      if (result.error) showActionError(result.error);
-      else { inputElement.value = ""; announce(Copy.leftOutAnnouncement(host), "ok"); }
-      await refresh();
-      return;
-    }
     const origin = Hosts.chosenOrigin(raw);
     if (!origin) {
       if (raw.trim()) { fieldError(Copy.FIELD_ERROR); focus(inputElement); }
@@ -253,12 +239,6 @@
     const list = $(containerId);
     if (!list) return;
     list.replaceChildren();
-    if (state?.siteMode === "all" && allowlist.length === 0 && containerId === "siteList") {
-      const empty = document.createElement("p");
-      empty.className = "muted";
-      empty.textContent = "no sites left out.";
-      list.append(empty);
-    }
 
     for (const entry of allowlist) {
       // A chosen origin shows its port and an http:// scheme, so two entries
@@ -267,8 +247,7 @@
       let hostname = entry;
       try { if (entry.startsWith("http")) hostname = new URL(entry).hostname; } catch (_e) {}
 
-      const excluded = state?.siteMode === "all";
-      const rowState = excluded ? { kind: "excluded", label: "left out" } : Status.siteRow(entry, state);
+      const rowState = Status.siteRow(entry, state);
       const row = document.createElement("div");
       row.className = "site";
       const copyEl = document.createElement("div");
@@ -292,9 +271,9 @@
       }
       const remove = document.createElement("button");
       remove.type = "button";
-      remove.textContent = excluded ? "stop leaving out" : "remove";
+      remove.textContent = "remove";
       if (typeof remove.setAttribute === "function") remove.setAttribute("aria-label", `${remove.textContent} ${host}`);
-      remove.addEventListener("click", () => runSiteAction({ id: excluded ? "include-site" : "remove-site", host: hostname, label: host, origin: entry }));
+      remove.addEventListener("click", () => runSiteAction({ id: "remove-site", host: hostname, label: host, origin: entry }));
       actions.append(remove);
       row.append(copyEl, actions);
       list.append(row);
@@ -397,10 +376,7 @@
     if ($("step3Heading")) $("step3Heading").textContent = "choose your first site";
     const step3Open = consentGiven;
     if ($("step3Content")) $("step3Content").hidden = !step3Open;
-    if ($("step3Check")) {
-      const chosenList = Array.isArray(state && state.chosenOrigins) ? state.chosenOrigins : [];
-      $("step3Check").hidden = !step3Open || chosenList.length === 0;
-    }
+    if ($("step3Check")) $("step3Check").hidden = true;
     if ($("step3Body") && Copy) {
       $("step3Body").textContent = Copy.step3Body(state ? state.brand : "");
     }
@@ -745,7 +721,7 @@
         if ($("accessChecking")) $("accessChecking").textContent = "";
         if ($("accessAllow")) {
           $("accessAllow").hidden = false;
-          $("accessAllow").textContent = "stop sharing every site";
+          $("accessAllow").textContent = Copy.STOP_SHARING_EVERY_SITE;
         }
       }
     } else {
@@ -964,12 +940,6 @@
     if ($("optionsMark")) {
       $("optionsMark").src = `brand/mark-${Copy.MOBILE === true ? "healthy" : derived.mark || "healthy"}.svg`;
     }
-
-    const chosen = Array.isArray(state && state.chosenOrigins)
-      ? state.chosenOrigins
-      : Array.isArray(state && state.grantedOrigins)
-      ? state.grantedOrigins
-      : [];
 
     const isWelcome = !state || state.consentVersion !== 1;
 

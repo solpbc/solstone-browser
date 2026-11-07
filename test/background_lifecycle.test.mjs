@@ -4369,3 +4369,37 @@ test("removal: a fenced remove whose grant list throws declines the host and doe
   assert.equal(every.bg.port.excludedHosts.includes("bank.com"), true);
 });
 
+test("a popup status connection and the alarm each read a revocation", async () => {
+  async function revokeWhileHeld(startRead) {
+    const booted = await bootPlainBank();
+    const granted = booted.sandbox.SolstoneHosts.originGranted(booted.bg.port, "https://bank.com");
+    assert.equal(granted, true);
+    booted.mock.hold("permissions.getAll");
+    startRead(booted);
+    const held = await Promise.race([
+      booted.mock.held("permissions.getAll"),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("read did not start")), 500)),
+    ]);
+    booted.mock.grantedPermissions.delete("https://bank.com/*");
+    held.release();
+    booted.mock.unhold("permissions.getAll");
+    await drainUi();
+    assert.equal((await pinHello(booted.mock, "https://bank.com")).error, "origin_not_granted");
+  }
+
+  await revokeWhileHeld((booted) => {
+    const id = booted.mock.chrome.runtime.id;
+    booted.mock.listeners.onConnect[0]({
+      name: "status",
+      sender: { id, url: `chrome-extension://${id}/popup.html` },
+      disconnect() {},
+      postMessage() {},
+      onDisconnect: { addListener() {} },
+    });
+  });
+
+  await revokeWhileHeld((booted) => {
+    booted.mock.listeners.onAlarm[0]({ name: "native-port" });
+  });
+});
+

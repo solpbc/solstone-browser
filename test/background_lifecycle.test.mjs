@@ -4403,3 +4403,22 @@ test("a popup status connection and the alarm each read a revocation", async () 
   });
 });
 
+test("content-script matches compare as a set", async () => {
+  const { mock, bg } = await startWorker({ siteGrant: "live", fence: null }, { noGrants: true });
+  mock.grantedPermissions.add("https://bank.com/*");
+  await bg.beginRead();
+  mock.grantedPermissions.add("*://bank.com/*");
+  await bg.beginRead();
+  const scripts = await mock.chrome.scripting.getRegisteredContentScripts();
+  assert.equal(scripts.length, 1);
+  assert.deepEqual(scripts[0].matches, ["*://bank.com/*", "https://bank.com/*"]);
+  let registers = 0;
+  const orig = mock.chrome.scripting.registerContentScripts;
+  mock.chrome.scripting.registerContentScripts = async (...args) => {
+    registers += 1;
+    return orig(...args);
+  };
+  await bg.beginRead();
+  assert.equal(registers, 0);
+});
+

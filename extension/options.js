@@ -339,13 +339,23 @@
     const every = document.createElement("button");
     every.type = "button";
     every.id = "firstRunEverySite";
-    every.className = "primary";
     every.hidden = !buttonsLive;
     every.textContent = rules === "chrome" ? "agree and share every site" : "share every site";
     if (rules === "chrome") every.dataset.act = "agree";
     every.addEventListener("click", () => runFirstRunEverySite());
+    if (Hosts?.everySiteLive?.(st?.livePatterns) === true) {
+      // One-at-a-time would be a false promise. Chrome says so before the agreeing click.
+      if (rules === "chrome") {
+        const already = document.createElement("p");
+        already.id = "firstRunAlreadyAllowed";
+        already.textContent = Copy.alreadyAllowedBody(st?.brand);
+        block.append(everyBody, already, every);
+      } else {
+        block.append(everyBody, every);
+      }
+      return;
+    }
     block.append(everyBody, every);
-    if (Hosts?.everySiteLive?.(st?.livePatterns) === true) return;
     const oneBody = document.createElement("p");
     oneBody.textContent = Copy.oneSiteQuestionBody();
     const one = document.createElement("button");

@@ -5340,6 +5340,33 @@ async function pairClean(booted) {
   return port.fence;
 }
 
+test("agreement: the first-run answers are equal, and an already-allowed Chrome welcome says so before the click", async () => {
+  const twoState = paintable({ agreementRules: "chrome", consentVersion: 0, consentAccepted: false, livePatterns: [] });
+  const twoUi = await scriptedOptions(() => twoState);
+  const every = findIds(twoUi.cache, "firstRunEverySite")[0];
+  const one = findIds(twoUi.cache, "firstRunOneSite")[0];
+  assert.ok(every && one);
+  assert.equal(every.className || "", one.className || "");
+  assert.equal(hasId(twoUi.cache, "firstRunAlreadyAllowed"), false);
+
+  const liveState = paintable({ agreementRules: "chrome", consentVersion: 0, consentAccepted: false, livePatterns: ["*://*/*"] });
+  const liveUi = await scriptedOptions(() => liveState);
+  assert.equal(hasId(liveUi.cache, "firstRunOneSite"), false);
+  assert.equal(hasId(liveUi.cache, "firstRunAlreadyAllowed"), true);
+  const agree = findIds(liveUi.cache, "firstRunEverySite")[0];
+  assert.equal(agree.dataset.act, "agree");
+  agree.listeners.click();
+  await settleUi();
+  assert.equal(liveUi.sent.filter((message) => message.cmd === "acknowledgeDisclosure").length, 1);
+  assert.equal(liveUi.sent.filter((message) => message.cmd === "answerFirstRun").length, 0);
+
+  for (const rules of ["firefox", "safari"]) {
+    const other = paintable({ agreementRules: rules, brand: rules, consentVersion: 2, consentAccepted: true, firstRunAnswered: false, livePatterns: [] });
+    const otherUi = await scriptedOptions(() => other);
+    assert.equal(hasId(otherUi.cache, "firstRunAlreadyAllowed"), false);
+  }
+});
+
 test("agreement: every site appearing while the question is open", async () => {
   const chromeState = paintable({
     agreementRules: "chrome",
@@ -5690,6 +5717,19 @@ test("agreement: a version-1 chrome fence stays through two clean reads", async 
     mock.storageData.cfg = { chosenOrigins: ["https://news.com"] };
     const booted = await bootStored(mock, { prepare: pinRuntime(mock, runtime) });
     assert.equal(booted.bg.port.consentVersion, 2);
+    assert.ok(booted.bg.port.fence);
+    assert.equal(await pairClean(booted), null);
+  }
+
+  // 0.5.9 owners on Firefox and Safari already stored consent 1. They keep both ways of ending.
+  for (const runtime of ["firefox", "safari"]) {
+    const mock = createMockChrome();
+    setGrants(mock, ["*://*.news.com/*"]);
+    mock.storageData.cfg = acceptedCfg(newsFence());
+    const booted = await bootStored(mock, { consent: 1, prepare: pinRuntime(mock, runtime) });
+    assert.equal(booted.bg.port.consentVersion, 1);
+    assert.notEqual(booted.bg.port.agreementRules, "chrome");
+    assert.equal(booted.bg.port.getStatus().versionOneFence, false);
     assert.ok(booted.bg.port.fence);
     assert.equal(await pairClean(booted), null);
   }

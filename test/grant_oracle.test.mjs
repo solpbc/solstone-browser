@@ -420,8 +420,11 @@ test("siteMode all reads stay on the fence applier, and a clean read auto-ends",
       assert.equal(first.fence.sawMore, false);
       assert.equal(first.fence.cleanAt, wall);
       assert.equal(later.ended, true);
-      assert.equal(later.fence, null);
-      const after = NewHosts.applySnapshotToFence(later.fence, row.livePatterns, { wallNow: wall + 120000 });
+      assert.ok(later.fence);
+      assert.equal(later.fence.cleanAt, wall);
+      const finished = NewHosts.finishFence(later.fence, row.livePatterns, []);
+      assert.equal(finished.fence, null);
+      const after = NewHosts.applySnapshotToFence(null, row.livePatterns, { wallNow: wall + 120000 });
       assert.equal(after.fence, null);
       assert.equal(after.ended, false);
     } else {

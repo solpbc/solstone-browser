@@ -178,6 +178,15 @@
     return host === site || (coversSubdomains(site) && host.endsWith(`.${site}`));
   }
 
+  // A left-out name covers that site and every name under it, including a local
+  // name such as myhost.local. Declined hosts stay on hostCovers.
+  function leftOutCovers(site, hostname) {
+    const named = siteHostname(site);
+    const page = siteHostname(hostname);
+    if (!named || !page) return false;
+    return page === named || page.endsWith("." + named);
+  }
+
   // Whether a page origin falls under a chosen site origin: same scheme and
   // port, and the site's host or a name under it. `exactOnly` limits an older
   // grant to the host alone. `siteWide` ignores scheme and port.
@@ -506,7 +515,7 @@
 
     const rawHost = u.hostname.toLowerCase();
     const effectiveLeftOut = [...(excludedHosts || []), ...(appLeftOut || [])];
-    if (effectiveLeftOut.some((site) => hostCovers(site, rawHost))) return false;
+    if (effectiveLeftOut.some((site) => leftOutCovers(site, rawHost))) return false;
 
     const declined = fence.declined || [];
     if (declined.some((site) => hostCovers(site, rawHost))) return false;
@@ -581,13 +590,8 @@
       return fenceAllows(state.fence, url, state.livePatterns, state.excludedHosts, state.appLeftOut);
     }
 
-    const siteHost = siteHostname(url.hostname);
     const leftOutHosts = [...(state.excludedHosts || []), ...(state.appLeftOut || [])];
-    const isLeftOut = leftOutHosts.some((site) => {
-      const exh = siteHostname(site);
-      return siteHost === exh || siteHost.endsWith(`.${exh}`);
-    });
-    if (isLeftOut) return false;
+    if (leftOutHosts.some((site) => leftOutCovers(site, url.hostname))) return false;
 
     if (Array.isArray(state.livePatterns)) {
       return state.livePatterns.some((pattern) => plainAllow(pattern, url));
@@ -697,11 +701,8 @@
       if (cleanAt === null) {
         cleanAt = wallNow;
         updatedFence.cleanAt = cleanAt;
-      } else if (wallNow >= cleanAt) {
-        if (wallNow - cleanAt >= 60000) {
-          ended = true;
-          updatedFence = null;
-        }
+      } else if (wallNow >= cleanAt && wallNow - cleanAt >= 60000) {
+        ended = true;
       }
     }
 
@@ -787,6 +788,7 @@
     grantLevel,
     exactScope,
     hostCovers,
+    leftOutCovers,
     originCoveredBy,
     siteForOrigin,
     siteHostname,

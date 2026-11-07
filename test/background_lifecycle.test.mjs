@@ -2155,3 +2155,279 @@ test("excludedHosts, appLeftOut, and fence survive getCfg's drop of old fields a
   assert.equal(Object.hasOwn(mock.storageData.cfg, "siteMode"), false);
 });
 
+function extensionSender(mock) {
+  const id = mock.chrome.runtime.id;
+  return { id, url: `chrome-extension://${id}/options.html` };
+}
+
+test("lifecycle: failed leave-out save keeps the gate false", async () => {
+  const { mock, sandbox, bg } = await startWorker({ siteGrant: "live", fence: null }, { noGrants: true });
+  mock.grantedPermissions.add("*://*/*");
+  await bg.beginRead();
+  const port = bg.port;
+  const H = sandbox.SolstoneHosts;
+  assert.equal(H.originGranted(port, "https://bank.example"), true);
+  port.excludedHosts = undefined;
+  const queued = port.ruleQueue.length;
+  const res = await sandbox.SolstoneRouter.route(
+    { cmd: "setLeftOut", host: "bank.example", out: true },
+    extensionSender(mock),
+    { runtimeId: mock.chrome.runtime.id, port, setCfg: async () => { throw new Error("disk full"); } },
+  );
+  assert.equal(res.ok, false);
+  assert.equal(res.error, "storage_error");
+  assert.equal(H.originGranted(port, "https://bank.example"), false);
+  assert.ok(port.excludedHosts.includes("bank.example"));
+  assert.equal(port.ruleQueue.length, queued);
+});
+
+test("lifecycle: failed include save stays left out", async () => {
+  const { mock, sandbox, bg } = await startWorker({
+    siteGrant: "live", fence: null, excludedHosts: ["example.com"],
+  }, { noGrants: true });
+  mock.grantedPermissions.add("*://*/*");
+  await bg.beginRead();
+  const port = bg.port;
+  const H = sandbox.SolstoneHosts;
+  const gen = port.excludedGen;
+  const queued = port.ruleQueue.length;
+  assert.equal(H.originGranted(port, "https://example.com"), false);
+  const res = await sandbox.SolstoneRouter.route(
+    { cmd: "setLeftOut", host: "example.com", out: false },
+    extensionSender(mock),
+    { runtimeId: mock.chrome.runtime.id, port, setCfg: async () => { throw new Error("disk full"); } },
+  );
+  assert.equal(res.ok, false);
+  assert.equal(res.error, "storage_error");
+  assert.ok(port.excludedHosts.includes("example.com"));
+  assert.equal(port.excludedGen, gen);
+  assert.equal(port.ruleQueue.length, queued);
+  assert.equal(H.originGranted(port, "https://example.com"), false);
+});
+
+test("lifecycle: after a restart, an app reset keeps every site the app had left out", async () => {
+  const { mock, sandbox, bg } = await startWorker({
+    siteGrant: "live",
+    fence: null,
+    appLeftOut: ["bank.com"],
+    appLeftOutRaw: ["*.bank.com"],
+    appLeftOutEpoch: "E1",
+    appLeftOutRev: 5,
+  }, { noGrants: true });
+  const port = bg.port;
+  await deliverState(port, { left_out: [], left_out_epoch: "E2", left_out_rev: 1 });
+  await port.leftOutTail;
+  assert.ok(port.excludedHosts.includes("bank.com"));
+  mock.grantedPermissions.add("*://*/*");
+  await bg.beginRead();
+  assert.equal(sandbox.SolstoneHosts.originGranted(port, "https://bank.com"), false);
+  const saved = Array.from(mock.storageData.cfg.excludedHosts || []);
+  assert.ok(saved.includes("bank.com"));
+
+  const second = await startWorker({
+    siteGrant: "live",
+    fence: null,
+    excludedHosts: saved,
+    appLeftOut: [],
+    appLeftOutRaw: [],
+    appLeftOutEpoch: "E2",
+    appLeftOutRev: 1,
+  }, { noGrants: true });
+  second.mock.grantedPermissions.add("*://*/*");
+  await second.bg.beginRead();
+  assert.equal(second.sandbox.SolstoneHosts.originGranted(second.bg.port, "https://bank.com"), false);
+});
+
+test("lifecycle: after a restart, an app-side removal at a higher rev is applied and not re-sent", async () => {
+  const { mock, bg } = await startWorker({
+    siteGrant: "live",
+    fence: null,
+    excludedHosts: ["bank.com"],
+    appLeftOut: ["bank.com"],
+    appLeftOutRaw: ["bank.com"],
+    appLeftOutEpoch: "E1",
+    appLeftOutRev: 5,
+  }, { noGrants: true });
+  const port = bg.port;
+  const sent = [];
+  port.livePort = { postMessage: (message) => sent.push(message) };
+  await deliverState(port, { left_out: [], left_out_epoch: "E1", left_out_rev: 6 });
+  await port.leftOutTail;
+  assert.equal(port.excludedHosts.includes("bank.com"), false);
+  assert.equal(sent.some((message) => message.type === "site_rule" && message.host === "bank.com" && message.out === true), false);
+  assert.equal(Array.from(mock.storageData.cfg.excludedHosts || []).includes("bank.com"), false);
+});
+
+test("lifecycle: an owner rule waits behind one already in flight, and a stuck one times out", async () => {
+  const { bg } = await startWorker({ siteGrant: "live", fence: null }, { noGrants: true });
+  const port = bg.port;
+  const sent = [];
+  port.livePort = { postMessage: (message) => sent.push(message) };
+  port.handshake = "ready";
+  port.leftOutCapable = true;
+  port.outstandingRule = { id: 1, host: "a.com", out: true, sentAt: port.now() };
+  port.queueSiteRule("y.com", true);
+  assert.equal(sent.length, 0);
+  port.outstandingRule.sentAt = port.now() - 11000;
+  port.pumpRuleQueue();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].host, "y.com");
+  assert.equal(port.migrationBlocked, true);
+});
+
+test("lifecycle: an in-flight older frame keeps the leave-out, and a restart still leaves it out", async () => {
+  const { mock, sandbox, bg } = await startWorker({
+    siteGrant: "live",
+    fence: null,
+    excludedHosts: [],
+    appLeftOut: ["bank.com"],
+    appLeftOutRaw: ["*.bank.com"],
+    appLeftOutEpoch: "E1",
+    appLeftOutRev: 5,
+  }, { noGrants: true });
+  mock.grantedPermissions.add("*://*/*");
+  await bg.beginRead();
+  const port = bg.port;
+  const H = sandbox.SolstoneHosts;
+  assert.equal(H.originGranted(port, "https://news.example"), true);
+  const left = await sandbox.SolstoneRouter.route(
+    { cmd: "setLeftOut", host: "news.example", out: true },
+    extensionSender(mock),
+    { runtimeId: mock.chrome.runtime.id, port, setCfg: bg.setCfg },
+  );
+  assert.equal(left.ok, true);
+  assert.ok(port.excludedHosts.includes("news.example"));
+  assert.equal(H.originGranted(port, "https://news.example"), false);
+  assert.ok(port.ruleQueue.some((item) => item.host === "news.example" && item.out === true));
+
+  const DB = sandbox.SolstoneDB;
+  const originalPut = DB.put;
+  let release = () => {};
+  let entered = () => {};
+  const gate = new Promise((resolve) => { release = resolve; });
+  const hit = new Promise((resolve) => { entered = resolve; });
+  let stalled = false;
+  DB.put = async function (...args) {
+    if (!stalled && args[0] === "meta") {
+      stalled = true;
+      entered();
+      await gate;
+    }
+    return originalPut.apply(this, args);
+  };
+
+  try {
+    const pending = port.commitLeftOut({
+      appLeftOut: port.appLeftOut,
+      appLeftOutRaw: port.appLeftOutRaw,
+      appLeftOutEpoch: port.appLeftOutEpoch,
+      appLeftOutRev: port.appLeftOutRev,
+      excludedHosts: [],
+    });
+    await hit;
+    assert.ok(port.excludedHosts.includes("news.example"));
+    await deliverState(port, { left_out: [], left_out_epoch: "E2", left_out_rev: 1 });
+    assert.ok(port.excludedHosts.includes("news.example"));
+    assert.ok(port.excludedHosts.includes("bank.com"));
+    release();
+    await pending;
+    const saved = Array.from(mock.storageData.cfg.excludedHosts || []);
+    await port.leftOutTail;
+
+    const restarted = await startWorker({
+      siteGrant: "live",
+      fence: null,
+      excludedHosts: saved,
+      appLeftOut: [],
+      appLeftOutRaw: [],
+      appLeftOutEpoch: "E2",
+      appLeftOutRev: 1,
+    }, { noGrants: true });
+    restarted.mock.grantedPermissions.add("*://*/*");
+    await restarted.bg.beginRead();
+    assert.equal(restarted.sandbox.SolstoneHosts.originGranted(restarted.bg.port, "https://news.example"), false);
+    assert.equal(restarted.sandbox.SolstoneHosts.originGranted(restarted.bg.port, "https://bank.com"), false);
+  } finally {
+    release();
+    DB.put = originalPut;
+  }
+});
+
+test("lifecycle: every site excludes a left-out host, and an app list change closes an open tab", async () => {
+  const { mock, sandbox, bg } = await startWorker({ siteGrant: "live", fence: null }, { noGrants: true });
+  mock.grantedPermissions.add("*://*/*");
+  mock.tabsList.splice(0, mock.tabsList.length, { id: 7, url: "https://news.example/story", status: "complete" });
+  await bg.beginRead();
+  const before = await mock.chrome.scripting.getRegisteredContentScripts();
+  const initial = before.find((script) => script.id === "cs-all-sites");
+  assert.ok(initial);
+  assert.equal(initial.excludeMatches, undefined);
+
+  const executed = [];
+  const origExec = mock.chrome.scripting.executeScript;
+  mock.chrome.scripting.executeScript = async (options) => {
+    executed.push(options);
+    return origExec(options);
+  };
+  await deliverState(bg.port, { left_out: ["news.example"], left_out_epoch: "E1", left_out_rev: 1 });
+  await bg.port.leftOutTail;
+  let updated;
+  for (let i = 0; i < 10; i++) {
+    const scripts = await mock.chrome.scripting.getRegisteredContentScripts();
+    updated = scripts.find((script) => script.id === "cs-all-sites");
+    if (updated?.excludeMatches?.includes("*://*.news.example/*")) break;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.ok(updated);
+  assert.ok(updated.excludeMatches.includes("*://*.news.example/*"));
+  assert.equal(executed.some((call) => call?.target?.tabId === 7), false);
+  assert.equal(sandbox.SolstoneHosts.originGranted(bg.port, "https://news.example"), false);
+
+  const hello = await new Promise((resolve) => mock.listeners.onMessage[0](
+    { kind: "hello", realmToken: "r", documentKey: "0123456789abcdef0123456789abcdef" },
+    { id: mock.chrome.runtime.id, tab: { id: 7 }, frameId: 0, url: "https://news.example/story", origin: "https://news.example" },
+    resolve,
+  ));
+  assert.equal(hello.ok, false);
+  assert.equal(hello.error, "origin_not_granted");
+});
+
+test("lifecycle: auto-end after a restart leaves out a declined host from that read", async () => {
+  const first = await startWorker({
+    siteGrant: "live",
+    fence: {
+      entries: ["https://bank.com"],
+      exact: [],
+      exactKnown: true,
+      siteWide: [],
+      declined: ["mail.bank.com"],
+      answered: false,
+      sawMore: false,
+      cleanAt: 1_000_000,
+    },
+    excludedHosts: [],
+  }, { noGrants: true });
+  assert.ok(first.bg.port.fence);
+  assert.equal(first.bg.port.fence.cleanAt, 1_000_000);
+  assert.equal(first.bg.port.livePatterns.length, 0);
+
+  first.mock.grantedPermissions.add("*://*.bank.com/*");
+  first.bg.port.wallNow = () => 1_000_000 + 60000;
+  await first.bg.beginRead();
+  assert.equal(first.bg.port.fence, null);
+  assert.ok(first.bg.port.excludedHosts.includes("mail.bank.com"));
+  assert.equal(first.sandbox.SolstoneHosts.originGranted(first.bg.port, "https://mail.bank.com"), false);
+  const saved = Array.from(first.mock.storageData.cfg.excludedHosts || []);
+  assert.ok(saved.includes("mail.bank.com"));
+  assert.equal(first.mock.storageData.cfg.fence, null);
+
+  const second = await startWorker({
+    siteGrant: "live",
+    fence: null,
+    excludedHosts: saved,
+  }, { noGrants: true });
+  second.mock.grantedPermissions.add("*://*.bank.com/*");
+  await second.bg.beginRead();
+  assert.equal(second.sandbox.SolstoneHosts.originGranted(second.bg.port, "https://mail.bank.com"), false);
+});
+

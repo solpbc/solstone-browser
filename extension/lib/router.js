@@ -257,6 +257,7 @@
           const exh = H.storedExcludedHostname(targetHost);
           if (exh && !port.excludedHosts.includes(exh)) {
             port.excludedHosts = [...port.excludedHosts, exh].sort();
+            if (typeof port.excludedGen === "number") port.excludedGen += 1;
             if (deps.setCfg) await deps.setCfg({ excludedHosts: port.excludedHosts });
           }
           port.notify();
@@ -434,31 +435,34 @@
           const host = H && H.excludedHostname ? H.excludedHostname(msg.host) : null;
           if (!host || host !== msg.host) return { ok: false, error: "invalid_host" };
           const out = !!msg.out;
+          if (!Array.isArray(port.excludedHosts)) port.excludedHosts = [];
 
           if (out) {
             if (!port.excludedHosts.includes(host)) {
               port.excludedHosts = [...port.excludedHosts, host].sort();
             }
+            if (typeof port.excludedGen === "number") port.excludedGen += 1;
             if (deps.setCfg) {
               try { await deps.setCfg({ excludedHosts: [...port.excludedHosts] }); }
               catch (_e) { return { ok: false, error: "storage_error" }; }
             }
+            if (typeof port.queueSiteRule === "function") port.queueSiteRule(host, true);
             port.notify();
             await deps.syncSiteRegistrations?.();
             return { ok: true, host, out: true };
-          } else {
-            port.excludedHosts = port.excludedHosts.filter((h) => h !== host);
-            if (deps.setCfg) {
-              try { await deps.setCfg({ excludedHosts: [...port.excludedHosts] }); }
-              catch (_e) { return { ok: false, error: "storage_error" }; }
-            }
-            port.notify();
-            if (typeof port.includeHost === "function") {
-              port.includeHost(host);
-            }
-            await deps.syncSiteRegistrations?.();
-            return { ok: true, host, out: false };
           }
+
+          const next = port.excludedHosts.filter((h) => h !== host);
+          if (deps.setCfg) {
+            try { await deps.setCfg({ excludedHosts: [...next] }); }
+            catch (_e) { return { ok: false, error: "storage_error" }; }
+          }
+          port.excludedHosts = next;
+          if (typeof port.excludedGen === "number") port.excludedGen += 1;
+          if (typeof port.includeHost === "function") port.includeHost(host);
+          port.notify();
+          await deps.syncSiteRegistrations?.();
+          return { ok: true, host, out: false };
         }
 
         case "setPaused": {

@@ -712,22 +712,33 @@ async function applySnapshot(applied, tombstoneFiltered, options = {}) {
       tombstoneFiltered,
       leftOutHosts: Array.from(new Set([...(port.excludedHosts || []), ...(port.appLeftOut || [])])),
     });
-    const updatedFence = res.fence;
-    const fenceChanged = JSON.stringify(port.fence) !== JSON.stringify(updatedFence);
-    if (fenceChanged || intentTaken) {
-      port.fence = updatedFence;
-      const patch = { fence: updatedFence };
+    if (res.ended) {
+      const finished = H.finishFence(res.fence, applied, port.excludedHosts);
+      port.fence = finished.fence;
+      port.excludedHosts = finished.excludedHosts;
+      if (typeof port.excludedGen === "number") port.excludedGen += 1;
+      const patch = { fence: null, excludedHosts: port.excludedHosts };
       if (intentTaken) patch.addIntent = null;
       await setCfg(patch);
-      port.notify();
-    }
-    if (prevFence !== null && port.fence === null) {
       fenceEnded = true;
-    }
-    if (port.fence !== null) {
-      const curEntries = port.fence.entries || [];
-      if (curEntries.length !== prevFenceEntries.length || !curEntries.every((e, i) => e === prevFenceEntries[i])) {
-        fenceEntriesChanged = true;
+    } else {
+      const updatedFence = res.fence;
+      const fenceChanged = JSON.stringify(port.fence) !== JSON.stringify(updatedFence);
+      if (fenceChanged || intentTaken) {
+        port.fence = updatedFence;
+        const patch = { fence: updatedFence };
+        if (intentTaken) patch.addIntent = null;
+        await setCfg(patch);
+        port.notify();
+      }
+      if (prevFence !== null && port.fence === null) {
+        fenceEnded = true;
+      }
+      if (port.fence !== null) {
+        const curEntries = port.fence.entries || [];
+        if (curEntries.length !== prevFenceEntries.length || !curEntries.every((e, i) => e === prevFenceEntries[i])) {
+          fenceEntriesChanged = true;
+        }
       }
     }
   }
@@ -961,6 +972,9 @@ async function doInit() {
     port.platform = platform;
     port.requestSnapshots = requestSnapshots;
   }
+
+  port.persistCfg = setCfg;
+  port.syncSiteRegistrations = syncSiteRegistrations;
 
   port.livePatterns = [];
   port.tombstones = new Set();

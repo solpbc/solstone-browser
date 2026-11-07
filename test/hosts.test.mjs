@@ -223,6 +223,33 @@ test("a named site covers every address under it; a local name stays exact", () 
   assert.equal(H.siteForOrigin(["https://bank.com"], "https://other.com"), null);
 });
 
+test("myhost.local left out covers a.myhost.local for a plain owner and under a fence", () => {
+  assert.equal(H.hostCovers("myhost.local", "a.myhost.local"), false);
+  assert.equal(H.leftOutCovers("myhost.local", "a.myhost.local"), true);
+  assert.equal(H.leftOutCovers("myhost.local", "myhost.local"), true);
+  assert.equal(H.leftOutCovers("myhost.local", "other.local"), false);
+
+  const open = { fence: null, livePatterns: ["*://*/*"] };
+  assert.equal(H.originGranted(open, "https://a.myhost.local"), true);
+  assert.equal(H.originGranted({ ...open, excludedHosts: ["myhost.local"] }, "https://a.myhost.local"), false);
+  assert.equal(H.originGranted({ ...open, excludedHosts: ["myhost.local"] }, "https://myhost.local"), false);
+
+  const fence = {
+    entries: ["https://a.myhost.local"],
+    exact: [],
+    exactKnown: true,
+    siteWide: [],
+    declined: [],
+  };
+  const fenced = { fence, livePatterns: ["*://*/*"] };
+  assert.equal(H.originGranted(fenced, "https://a.myhost.local"), true);
+  assert.equal(H.originGranted({ ...fenced, excludedHosts: ["myhost.local"] }, "https://a.myhost.local"), false);
+  assert.equal(H.originGranted({
+    fence: { ...fence, declined: ["myhost.local"] },
+    livePatterns: ["*://*/*"],
+  }, "https://a.myhost.local"), true);
+});
+
 test("an origin is shown with its port, and with http:// when it isn't https", () => {
   assert.equal(H.displayOrigin("https://example.com"), "example.com");
   assert.equal(H.displayOrigin("https://localhost:5015"), "localhost:5015");

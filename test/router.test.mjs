@@ -1219,6 +1219,7 @@ test("router: unfenced removeGrantedOrigin with covering pattern results in left
     assert.equal(res.ok, true);
     assert.equal(res.result, "left_out_instead");
     assert.ok(port.excludedHosts.includes("bank.com"));
+    assert.equal(port.excludedGen, 1);
 
     // Page is not granted after the call returns
     assert.equal(SolstoneHosts.originGranted(port, "https://login.bank.com"), false);
@@ -1264,6 +1265,7 @@ test("router: unfenced remove under *://*/* where remove returns false and getAl
     assert.equal(res.ok, true);
     assert.equal(res.result, "left_out_instead");
     assert.ok(port.excludedHosts.includes("example.com"));
+    assert.equal(port.excludedGen, 1);
     assert.equal(SolstoneHosts.originGranted(port, "https://example.com"), false);
   } finally {
     chrome.permissions.remove = previousRemove;
@@ -1300,6 +1302,7 @@ test("router: fenced remove of https://bank.com drops fence entry, does not writ
   assert.equal(removeRes.ok, true);
   assert.equal(port.fence.entries.includes("https://bank.com"), false);
   assert.equal(port.excludedHosts.includes("bank.com"), false);
+  assert.equal(port.excludedGen, 0);
 
   // setLeftOut with out: false does not put the entry back
   await Router.route(

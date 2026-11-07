@@ -2972,3 +2972,446 @@ test("a refused site is not joined when a later all-sites request is granted", a
   assert.equal(origins.some((pattern) => String(pattern).includes("denied.example")), false);
 });
 
+function setGrants(mock, patterns) {
+  mock.grantedPermissions.clear();
+  for (const pattern of patterns) mock.grantedPermissions.add(pattern);
+}
+
+// background.js calls init() as it evaluates, and doInit reads consent after
+// its first await. Hold that await so a consent put is visible to this worker.
+async function bootPin(mock, { consent = false } = {}) {
+  const sandbox = createSandbox(mock, true);
+  sandbox.indexedDB = new IDBFactory();
+  const held = deferred();
+  if (consent) mock.chrome.alarms.create = () => held.promise;
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  if (consent) {
+    await sandbox.SolstoneDB.put("meta", sandbox.SolstoneCaptureGate.CONSENT_VERSION, "consentVersion");
+    held.resolve();
+  }
+  const bg = sandbox.SolstoneBackground;
+  await bg.ensureInit();
+  return { mock, sandbox, bg };
+}
+
+function pinHello(mock, origin) {
+  return new Promise((resolve) => mock.listeners.onMessage[0](
+    { kind: "hello", realmToken: "r", documentKey: "0123456789abcdef0123456789abcdef" },
+    { id: mock.chrome.runtime.id, tab: { id: 7 }, frameId: 0, url: origin + "/page", origin },
+    resolve,
+  ));
+}
+
+function pinExt(mock) {
+  const id = mock.chrome.runtime.id;
+  return { id, url: "chrome-extension://" + id + "/options.html" };
+}
+
+function pinSend(mock, msg) {
+  return new Promise((resolve) => mock.listeners.onMessage[0](msg, pinExt(mock), resolve));
+}
+
+function assertEmptyFence(fence) {
+  assert.ok(fence && typeof fence === "object");
+  assert.deepEqual(Array.from(fence.entries), []);
+  assert.equal(fence.exactKnown, true);
+}
+
+function stallExcludedHostsPut(DB) {
+  const originalPut = DB.put;
+  let resolveGate = () => {};
+  let resolveHit = () => {};
+  const gate = new Promise((resolve) => { resolveGate = resolve; });
+  const hit = new Promise((resolve) => { resolveHit = resolve; });
+  let stalled = false;
+  let released = false;
+  DB.put = async function (...args) {
+    if (!stalled && args[0] === "meta" && args[2] === "excludedHosts") {
+      stalled = true;
+      resolveHit();
+      await gate;
+    }
+    return originalPut.apply(this, args);
+  };
+  return {
+    hit,
+    release() {
+      if (released) return;
+      released = true;
+      resolveGate();
+    },
+    restore() { DB.put = originalPut; },
+  };
+}
+
+async function bootRestart(saved) {
+  const mock = createMockChrome();
+  setGrants(mock, ["*://*/*"]);
+  mock.storageData.cfg = { siteGrant: "live", fence: null, excludedHosts: Array.from(saved || []) };
+  return bootPin(mock);
+}
+
+test("pin: all-sites owner with current consent and every-site grant keeps no fence", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, ["*://*/*"]);
+  mock.storageData.cfg = { siteMode: "all", allSitesConsent: 1, chosenOrigins: ["https://bank.com"] };
+  const { bg } = await bootPin(mock, { consent: true });
+  assert.equal(bg.port.fence, null);
+  assert.equal(Object.hasOwn(mock.storageData.cfg, "chosenOrigins"), false);
+  confirmRealm(mock);
+  const hello = await pinHello(mock, "https://bank.com");
+  assert.equal(hello.ok, true);
+});
+
+test("pin: all-sites row without current consent is an empty fence", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, ["*://*/*"]);
+  mock.storageData.cfg = { siteMode: "all", allSitesConsent: 1, chosenOrigins: ["https://bank.com"] };
+  const { bg } = await bootPin(mock);
+  assertEmptyFence(bg.port.fence);
+  const hello = await pinHello(mock, "https://bank.com");
+  assert.equal(hello.error, "origin_not_granted");
+});
+
+test("pin: all-sites row without the every-site grant is an empty fence", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, ["*://*.bank.com/*"]);
+  mock.storageData.cfg = { siteMode: "all", allSitesConsent: 1, chosenOrigins: ["https://bank.com"] };
+  const { bg } = await bootPin(mock, { consent: true });
+  assertEmptyFence(bg.port.fence);
+  const hello = await pinHello(mock, "https://bank.com");
+  assert.equal(hello.error, "origin_not_granted");
+});
+
+test("pin: offeredOrigins become no fence entries", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, []);
+  mock.storageData.cfg = { offeredOrigins: ["https://bank.com"] };
+  const { bg } = await bootPin(mock);
+  assert.deepEqual(Array.from(bg.port.fence.entries), []);
+});
+
+test("pin: legacy grantedOrigins become the fence entries", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, []);
+  mock.storageData.cfg = { grantedOrigins: ["https://bank.com", "https://shop.com"] };
+  const { bg } = await bootPin(mock);
+  assert.deepEqual(Array.from(bg.port.fence.entries), ["https://bank.com", "https://shop.com"]);
+});
+
+test("pin: formatCfg keeps answered, sawMore, and startup across a restart", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, []);
+  mock.storageData.cfg = {
+    siteGrant: "live",
+    startup: "kept-for-restart",
+    fence: {
+      entries: ["https://bank.com"],
+      exact: [],
+      exactKnown: true,
+      siteWide: [],
+      declined: [],
+      answered: true,
+      sawMore: true,
+      cleanAt: 123,
+    },
+  };
+  const { bg } = await bootPin(mock);
+  assert.equal(mock.storageData.cfg.startup, "kept-for-restart");
+  assert.equal(mock.storageData.cfg.fence.answered, true);
+  assert.equal(mock.storageData.cfg.fence.sawMore, true);
+  assert.equal(mock.storageData.cfg.fence.cleanAt, 123);
+  assert.equal(bg.port.fence.answered, true);
+  assert.equal(bg.port.fence.sawMore, true);
+  assert.equal(bg.port.fence.cleanAt, 123);
+});
+
+function liveAccountFence(extra = {}) {
+  return {
+    siteGrant: "live",
+    fence: {
+      entries: ["https://bank.com"],
+      exact: [],
+      exactKnown: true,
+      siteWide: [],
+      declined: [],
+      answered: false,
+      sawMore: false,
+      cleanAt: null,
+      ...extra,
+    },
+  };
+}
+
+test("pin: sawMore latches across a clean read", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, []);
+  mock.storageData.cfg = liveAccountFence({ sawMore: true, cleanAt: 1000000 });
+  const { bg } = await bootPin(mock);
+  bg.port.wallNow = () => 1000000 + 120000;
+  setGrants(mock, ["*://*.bank.com/*"]);
+  await bg.beginRead();
+  assert.notEqual(bg.port.fence, null);
+  assert.equal(bg.port.fence.sawMore, true);
+});
+
+test("pin: a tombstone-filtered read is not clean", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, []);
+  mock.storageData.cfg = liveAccountFence({ cleanAt: 1000000 });
+  const { bg } = await bootPin(mock);
+  bg.port.wallNow = () => 1000000 + 60000;
+  setGrants(mock, ["*://*.bank.com/*", "*://*.other.com/*"]);
+  bg.port.tombstones.add("*://*.other.com/*");
+  await bg.beginRead();
+  assert.notEqual(bg.port.fence, null);
+  assert.equal(bg.port.fence.sawMore, false);
+  assert.equal(bg.port.fence.cleanAt, 1000000);
+});
+
+test("pin: an http fence entry does not account for a pattern", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, []);
+  mock.storageData.cfg = liveAccountFence();
+  mock.storageData.cfg.fence.entries = ["http://bank.com"];
+  const { bg } = await bootPin(mock);
+  setGrants(mock, ["*://*.bank.com/*"]);
+  await bg.beginRead();
+  assert.equal(bg.port.fence.sawMore, true);
+  assert.notEqual(bg.port.fence, null);
+});
+
+test("pin: a port-bearing fence entry does not account for a pattern", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, []);
+  mock.storageData.cfg = liveAccountFence();
+  mock.storageData.cfg.fence.entries = ["https://bank.com:18431"];
+  const { bg } = await bootPin(mock);
+  setGrants(mock, ["*://*.bank.com/*"]);
+  await bg.beginRead();
+  assert.equal(bg.port.fence.sawMore, true);
+  assert.notEqual(bg.port.fence, null);
+});
+
+test("pin: an exact fence entry does not account for a pattern", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, []);
+  mock.storageData.cfg = liveAccountFence();
+  mock.storageData.cfg.fence.entries = ["https://bank.com"];
+  mock.storageData.cfg.fence.exact = ["https://bank.com"];
+  const { bg } = await bootPin(mock);
+  setGrants(mock, ["*://*.bank.com/*"]);
+  await bg.beginRead();
+  assert.equal(bg.port.fence.sawMore, true);
+  assert.notEqual(bg.port.fence, null);
+});
+
+test("pin: excludedGen keeps a leave-out and an include", async () => {
+  const leave = createMockChrome();
+  setGrants(leave, ["*://*/*"]);
+  leave.storageData.cfg = { siteGrant: "live", fence: null, excludedHosts: [] };
+  const first = await bootPin(leave);
+  const leaveStall = stallExcludedHostsPut(first.sandbox.SolstoneDB);
+  try {
+    const pending = first.bg.port.commitLeftOut({ excludedHosts: [] });
+    await leaveStall.hit;
+    const left = await pinSend(leave, { cmd: "setLeftOut", host: "bank.com", out: true });
+    assert.equal(left.ok, true);
+    leaveStall.release();
+    await pending;
+    await first.bg.port.leftOutTail;
+  } finally {
+    leaveStall.release();
+    leaveStall.restore();
+  }
+  const leftSaved = Array.from(leave.storageData.cfg.excludedHosts || []);
+  const leftRestart = await bootRestart(leftSaved);
+  assert.equal((await pinHello(leftRestart.mock, "https://bank.com")).error, "origin_not_granted");
+
+  const include = createMockChrome();
+  setGrants(include, ["*://*/*"]);
+  include.storageData.cfg = { siteGrant: "live", fence: null, excludedHosts: ["bank.com", "shop.com"] };
+  const second = await bootPin(include);
+  const includeStall = stallExcludedHostsPut(second.sandbox.SolstoneDB);
+  try {
+    const pending = second.bg.port.commitLeftOut({ excludedHosts: ["shop.com"] });
+    await includeStall.hit;
+    const back = await pinSend(include, { cmd: "setLeftOut", host: "shop.com", out: false });
+    assert.equal(back.ok, true);
+    includeStall.release();
+    await pending;
+    await second.bg.port.leftOutTail;
+  } finally {
+    includeStall.release();
+    includeStall.restore();
+  }
+  const includeSaved = Array.from(include.storageData.cfg.excludedHosts || []);
+  const includeRestart = await bootRestart(includeSaved);
+  assert.equal((await pinHello(includeRestart.mock, "https://bank.com")).error, "origin_not_granted");
+  confirmRealm(includeRestart.mock);
+  assert.equal((await pinHello(includeRestart.mock, "https://shop.com")).ok, true);
+});
+
+test("pin: excludedGen keeps the removal fallback", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, ["*://*/*"]);
+  mock.storageData.cfg = { siteGrant: "live", fence: null, excludedHosts: [] };
+  const { sandbox, bg } = await bootPin(mock);
+  const stall = stallExcludedHostsPut(sandbox.SolstoneDB);
+  try {
+    const pending = bg.port.commitLeftOut({ excludedHosts: [] });
+    await stall.hit;
+    const removed = await pinSend(mock, { cmd: "removeGrantedOrigin", origin: "https://bank.com" });
+    assert.equal(removed.ok, true);
+    stall.release();
+    await pending;
+    await bg.port.leftOutTail;
+  } finally {
+    stall.release();
+    stall.restore();
+  }
+  const saved = Array.from(mock.storageData.cfg.excludedHosts || []);
+  const restarted = await bootRestart(saved);
+  assert.equal((await pinHello(restarted.mock, "https://bank.com")).error, "origin_not_granted");
+});
+
+test("pin: excludedGen keeps an automatic fence end", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, []);
+  mock.storageData.cfg = {
+    siteGrant: "live",
+    fence: {
+      entries: ["https://bank.com"],
+      exact: [],
+      exactKnown: true,
+      siteWide: [],
+      declined: ["bank.com"],
+      answered: false,
+      sawMore: false,
+      cleanAt: 1000000,
+    },
+    excludedHosts: [],
+  };
+  const { sandbox, bg } = await bootPin(mock);
+  bg.port.wallNow = () => 1000000 + 60000;
+  setGrants(mock, ["*://*.bank.com/*"]);
+  const stall = stallExcludedHostsPut(sandbox.SolstoneDB);
+  try {
+    const pending = bg.port.commitLeftOut({ excludedHosts: [] });
+    await stall.hit;
+    await bg.beginRead();
+    assert.equal(bg.port.fence, null);
+    assert.ok(bg.port.excludedHosts.includes("bank.com"));
+    stall.release();
+    await pending;
+    await bg.port.leftOutTail;
+  } finally {
+    stall.release();
+    stall.restore();
+  }
+  const saved = Array.from(mock.storageData.cfg.excludedHosts || []);
+  const restarted = await bootRestart(saved);
+  assert.equal((await pinHello(restarted.mock, "https://bank.com")).error, "origin_not_granted");
+});
+
+test("pin: excludedGen keeps a share fence end", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, []);
+  mock.storageData.cfg = {
+    siteGrant: "live",
+    fence: {
+      entries: ["https://bank.com"],
+      exact: [],
+      exactKnown: true,
+      siteWide: [],
+      declined: ["bank.com"],
+      answered: false,
+      sawMore: false,
+      cleanAt: null,
+    },
+    excludedHosts: [],
+  };
+  const { sandbox, bg } = await bootPin(mock);
+  setGrants(mock, ["*://*.bank.com/*"]);
+  const stall = stallExcludedHostsPut(sandbox.SolstoneDB);
+  try {
+    const pending = bg.port.commitLeftOut({ excludedHosts: [] });
+    await stall.hit;
+    const shared = await pinSend(mock, { cmd: "shareThemToo" });
+    assert.equal(shared.ok, true);
+    assert.equal(shared.result, "shared");
+    stall.release();
+    await pending;
+    await bg.port.leftOutTail;
+  } finally {
+    stall.release();
+    stall.restore();
+  }
+  const saved = Array.from(mock.storageData.cfg.excludedHosts || []);
+  const restarted = await bootRestart(saved);
+  assert.equal((await pinHello(restarted.mock, "https://bank.com")).error, "origin_not_granted");
+});
+
+test("pin: an older read after the fence-write await does not restore a revoked grant", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, []);
+  mock.storageData.cfg = {
+    siteGrant: "live",
+    fence: {
+      entries: ["https://shop.com"],
+      exact: [],
+      exactKnown: true,
+      siteWide: [],
+      declined: [],
+      answered: false,
+      sawMore: false,
+      cleanAt: null,
+    },
+  };
+  const { sandbox, bg } = await bootPin(mock);
+  const port = bg.port;
+  let calls = 0;
+  mock.chrome.permissions.getAll = async () => {
+    calls += 1;
+    if (calls === 1) return { origins: ["*://*.shop.com/*", "*://*.bank.com/*"] };
+    return { origins: ["*://*.shop.com/*"] };
+  };
+  const stalls = [];
+  const origSet = mock.chrome.storage.local.set.bind(mock.chrome.storage.local);
+  mock.chrome.storage.local.set = async (obj) => {
+    if (obj.cfg && obj.cfg.fence && typeof obj.cfg.fence === "object") {
+      const gate = deferred();
+      const entered = deferred();
+      stalls.push({ gate, entered });
+      entered.resolve();
+      await gate.promise;
+    }
+    return origSet(obj);
+  };
+  const older = bg.beginRead();
+  while (stalls.length < 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  await stalls[0].entered.promise;
+  const olderSerial = port.readSerial;
+  const newer = bg.beginRead();
+  while (port.readSerial <= olderSerial) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  stalls[0].gate.resolve();
+  while (stalls.length < 2) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  await stalls[1].entered.promise;
+  assert.equal(Array.from(port.livePatterns).includes("*://*.bank.com/*"), false);
+  assert.equal(sandbox.SolstoneHosts.originGranted(port, "https://bank.com"), false);
+  stalls[1].gate.resolve();
+  await older;
+  await newer;
+  assert.deepEqual(Array.from(port.livePatterns), ["*://*.shop.com/*"]);
+  assert.equal(sandbox.SolstoneHosts.originGranted(port, "https://bank.com"), false);
+  assert.equal((await pinHello(mock, "https://bank.com")).error, "origin_not_granted");
+  confirmRealm(mock);
+  assert.equal((await pinHello(mock, "https://shop.com")).ok, true);
+});
+

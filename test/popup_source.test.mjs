@@ -358,6 +358,19 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   assert.notEqual(nodes.actionMessage.textContent, pauseError);
   assert.match(nodes.actionMessage.textContent, /^something went wrong/);
 
+  const Copy = globalThis.SolstoneCopy;
+  const Hosts = globalThis.SolstoneHosts;
+  const named = Hosts.displayOrigin("https://mail.google.com");
+  liveState = popupState({ livePatterns: ["*://*.mail.google.com/*"] });
+  tabQuery = async () => [{ id: 7, url: "https://mail.google.com/inbox" }];
+  await globalThis.SolstonePopup.refresh();
+  handleCommand = () => ({ ok: true, result: "left_out_instead" });
+  await nodes.pageSiteAction.onclick();
+  assert.equal(nodes.actionMessage.textContent, Copy.leftOutAnnouncement(named));
+  handleCommand = () => ({ ok: true });
+  await nodes.pageSiteAction.onclick();
+  assert.equal(nodes.actionMessage.textContent, Copy.removedAnnouncement(named));
+
   // Status envelope, equal-epoch tab projections, and lower-epoch rejection.
   const origin = "https://mail.google.com";
   const status = (captureEpoch, overrides = {}) => popupState({

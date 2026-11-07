@@ -217,11 +217,15 @@
     const effects = sharedActionEffects();
     const showError = effects.showError;
     effects.showError = (error) => { failed = true; showError(error); };
-    await Actions.run(action, effects);
+    const outcome = await Actions.run(action, effects);
     if (failed) return;
     // Say what the click did; the row it came from is gone now.
     if (action.id === "remove-site") {
-      announce(Copy.removedAnnouncement(action.label || action.host), "ok");
+      const named = action.label || action.host;
+      const said = outcome?.result === "left_out_instead"
+        ? Copy.leftOutAnnouncement(named)
+        : Copy.removedAnnouncement(named);
+      announce(said, "ok");
       focus("newHost");
     } else if (action.id === "include-site") {
       announce(Copy.includedAnnouncement(action.host), "ok");

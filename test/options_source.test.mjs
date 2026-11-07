@@ -592,6 +592,9 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   removeResponse = { ok: false, saved: false, origin: "https://mail.google.com" };
   await nodes.siteList.children[0].children[1].children.at(-1).listeners.click();
   assert.equal(nodes.actionMessage.textContent, "couldn't save that. try again.");
+  removeResponse = { ok: true, result: "left_out_instead" };
+  await nodes.siteList.children[0].children[1].children.at(-1).listeners.click();
+  assert.equal(nodes.actionMessage.textContent, C.leftOutAnnouncement("mail.google.com"));
   removeResponse = { ok: true };
   await nodes.siteList.children[0].children[1].children.at(-1).listeners.click();
   assert.equal(nodes.actionMessage.textContent, C.removedAnnouncement("mail.google.com"));

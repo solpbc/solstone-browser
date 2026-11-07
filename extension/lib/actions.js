@@ -69,7 +69,7 @@
       const result = await cmd({ cmd: "removeGrantedOrigin", origin: action.origin });
       if (result?.error || result?.saved === false || result?.ok === false) effects.showError(result?.error || "storage_error");
       await refresh();
-      return true;
+      return result;
     }
     if (action.id === "exclude-site" || action.id === "include-site" || action.id === "leave-out") {
       const result = await cmd({ cmd: "setLeftOut", host: action.host || action.origin, out: action.id !== "include-site" });

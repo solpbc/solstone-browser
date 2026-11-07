@@ -202,8 +202,10 @@
       const origin = action.origin || page.origin || `https://${page.host}`;
       const result = await cmd({ cmd: "removeGrantedOrigin", origin });
       await refresh();
+      const named = Hosts.displayOrigin(origin);
       if (result.error || result.ok === false) showActionError(result.error || "storage_error");
-      else showActionMessage(Copy.removedAnnouncement(Hosts.displayOrigin(origin)));
+      else if (result.result === "left_out_instead") showActionMessage(Copy.leftOutAnnouncement(named));
+      else showActionMessage(Copy.removedAnnouncement(named));
       return;
     }
     const result = await View.addSite(Hosts.chosenOrigin(page.origin) || page.origin || page.host, Object.assign(siteEffects(), {

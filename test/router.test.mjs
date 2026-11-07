@@ -1193,14 +1193,82 @@ test("router: unfenced removeGrantedOrigin with covering pattern results in left
   const extSender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
   const port = makePort();
   port.fence = null;
-  port.livePatterns = ["*://*.bank.com/*"];
+  port.livePatterns = [];
   port.excludedHosts = [];
+  // A tombstone on the grant the browser still lists must be cleared, or
+  // putting the page back on stays dark until restart.
+  port.tombstones = new Set(["*://*.bank.com/*"]);
 
   const previousRemove = chrome.permissions.remove;
   const previousGetAll = chrome.permissions.getAll;
   try {
     chrome.permissions.remove = async () => true;
     chrome.permissions.getAll = async () => ({ origins: ["*://*.bank.com/*"] });
+    const deps = {
+      runtimeId: EXT_ID,
+      port,
+      setCfg: async () => {},
+      beginRead: async () => {
+        const perms = await chrome.permissions.getAll();
+        const origins = Array.isArray(perms?.origins) ? perms.origins : [];
+        const liveSet = new Set(origins);
+        for (const tomb of [...port.tombstones]) {
+          if (!liveSet.has(tomb)) port.tombstones.delete(tomb);
+        }
+        port.livePatterns = origins.filter((pattern) => !port.tombstones.has(pattern));
+      },
+    };
+
+    const res = await Router.route(
+      { cmd: "removeGrantedOrigin", origin: "https://login.bank.com" },
+      extSender,
+      deps
+    );
+    assert.equal(res.ok, true);
+    assert.equal(res.result, "left_out_instead");
+    assert.ok(port.excludedHosts.includes("login.bank.com"));
+    assert.equal(port.excludedHosts.includes("bank.com"), false);
+    assert.equal(port.excludedGen, 1);
+    assert.equal(port.tombstones.has("*://*.bank.com/*"), false);
+    assert.equal(SolstoneHosts.originGranted(port, "https://login.bank.com"), false);
+    assert.equal(SolstoneHosts.originGranted(port, "https://bank.com"), true);
+
+    const back = await Router.route(
+      { cmd: "setLeftOut", host: "login.bank.com", out: false },
+      extSender,
+      deps
+    );
+    assert.equal(back.ok, true);
+    assert.equal(SolstoneHosts.originGranted(port, "https://login.bank.com"), true);
+    assert.equal(SolstoneHosts.originGranted(port, "https://bank.com"), true);
+  } finally {
+    chrome.permissions.remove = previousRemove;
+    chrome.permissions.getAll = previousGetAll;
+  }
+});
+
+test("router: unfenced remove of https://login.bank.com drops only the child pattern and leaves the child out", async () => {
+  await resetDB();
+  const extSender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+  const port = makePort();
+  port.fence = null;
+  port.livePatterns = [];
+  port.excludedHosts = [];
+  const listed = ["https://login.bank.com/*", "*://*.bank.com/*"];
+  const removed = [];
+
+  const previousRemove = chrome.permissions.remove;
+  const previousGetAll = chrome.permissions.getAll;
+  try {
+    chrome.permissions.getAll = async () => ({ origins: [...listed] });
+    chrome.permissions.remove = async (request) => {
+      removed.push({ origins: [...(request?.origins || [])] });
+      for (const pattern of request?.origins || []) {
+        const index = listed.indexOf(pattern);
+        if (index >= 0) listed.splice(index, 1);
+      }
+      return true;
+    };
     const deps = {
       runtimeId: EXT_ID,
       port,
@@ -1218,10 +1286,10 @@ test("router: unfenced removeGrantedOrigin with covering pattern results in left
     );
     assert.equal(res.ok, true);
     assert.equal(res.result, "left_out_instead");
-    assert.ok(port.excludedHosts.includes("bank.com"));
-    assert.equal(port.excludedGen, 1);
-
-    // Page is not granted after the call returns
+    assert.deepEqual(removed, [{ origins: ["https://login.bank.com/*"] }]);
+    assert.ok(port.excludedHosts.includes("login.bank.com"));
+    assert.equal(port.excludedHosts.includes("bank.com"), false);
+    assert.equal(SolstoneHosts.originGranted(port, "https://bank.com"), true);
     assert.equal(SolstoneHosts.originGranted(port, "https://login.bank.com"), false);
   } finally {
     chrome.permissions.remove = previousRemove;
@@ -1229,20 +1297,68 @@ test("router: unfenced removeGrantedOrigin with covering pattern results in left
   }
 });
 
-test("router: unfenced remove under *://*/* where remove returns false and getAll still has *://*/* calls remove and returns left_out_instead", async () => {
+test("router: unfenced remove of https://bank.com passes https://bank.com/* and does not leave the site out when the grant is gone", async () => {
+  await resetDB();
+  const extSender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+  const port = makePort();
+  port.fence = null;
+  port.livePatterns = [];
+  port.excludedHosts = [];
+  const listed = ["https://bank.com/*"];
+  const removed = [];
+
+  const previousRemove = chrome.permissions.remove;
+  const previousGetAll = chrome.permissions.getAll;
+  try {
+    chrome.permissions.getAll = async () => ({ origins: [...listed] });
+    chrome.permissions.remove = async (request) => {
+      removed.push({ origins: [...(request?.origins || [])] });
+      for (const pattern of request?.origins || []) {
+        const index = listed.indexOf(pattern);
+        if (index >= 0) listed.splice(index, 1);
+      }
+      return true;
+    };
+    const deps = {
+      runtimeId: EXT_ID,
+      port,
+      setCfg: async () => {},
+      beginRead: async () => {
+        const perms = await chrome.permissions.getAll();
+        port.livePatterns = [...(perms.origins || [])];
+      },
+    };
+
+    const res = await Router.route(
+      { cmd: "removeGrantedOrigin", origin: "https://bank.com" },
+      extSender,
+      deps
+    );
+    assert.deepEqual(removed, [{ origins: ["https://bank.com/*"] }]);
+    assert.deepEqual(res, { ok: true, origin: "https://bank.com" });
+    assert.notEqual(res.result, "left_out_instead");
+    assert.equal(port.excludedHosts.includes("bank.com"), false);
+    assert.equal(port.excludedGen, 0);
+  } finally {
+    chrome.permissions.remove = previousRemove;
+    chrome.permissions.getAll = previousGetAll;
+  }
+});
+
+test("router: unfenced remove under *://*/* where getAll still has *://*/* does not remove the broad grant and returns left_out_instead", async () => {
   await resetDB();
   const extSender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
   const port = makePort();
   port.fence = null;
   port.livePatterns = ["*://*/*"];
   port.excludedHosts = [];
-  let removeCalled = false;
+  const removed = [];
 
   const previousRemove = chrome.permissions.remove;
   const previousGetAll = chrome.permissions.getAll;
   try {
-    chrome.permissions.remove = async () => {
-      removeCalled = true;
+    chrome.permissions.remove = async (request) => {
+      removed.push(...(request?.origins || []));
       return false;
     };
     chrome.permissions.getAll = async () => ({ origins: ["*://*/*"] });
@@ -1261,12 +1377,13 @@ test("router: unfenced remove under *://*/* where remove returns false and getAl
       extSender,
       deps
     );
-    assert.equal(removeCalled, true);
+    assert.deepEqual(removed, []);
     assert.equal(res.ok, true);
     assert.equal(res.result, "left_out_instead");
     assert.ok(port.excludedHosts.includes("example.com"));
     assert.equal(port.excludedGen, 1);
     assert.equal(SolstoneHosts.originGranted(port, "https://example.com"), false);
+    assert.equal(port.tombstones?.has("*://*/*") === true, false);
   } finally {
     chrome.permissions.remove = previousRemove;
     chrome.permissions.getAll = previousGetAll;
@@ -1311,6 +1428,50 @@ test("router: fenced remove of https://bank.com drops fence entry, does not writ
     deps
   );
   assert.equal(port.fence.entries.includes("https://bank.com"), false);
+});
+
+test("router: fenced remove passes the granted scheme-specific pattern and does not write excludedHosts", async () => {
+  await resetDB();
+  const extSender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+  const port = makePort();
+  port.fence = {
+    entries: ["https://bank.com"],
+    exact: [],
+    siteWide: [],
+    declined: [],
+    exactKnown: true,
+  };
+  port.excludedHosts = [];
+  port.livePatterns = ["https://bank.com/*"];
+  const listed = ["https://bank.com/*"];
+  const removed = [];
+
+  const previousRemove = chrome.permissions.remove;
+  const previousGetAll = chrome.permissions.getAll;
+  try {
+    chrome.permissions.getAll = async () => ({ origins: [...listed] });
+    chrome.permissions.remove = async (request) => {
+      removed.push({ origins: [...(request?.origins || [])] });
+      return true;
+    };
+    const res = await Router.route(
+      { cmd: "removeGrantedOrigin", origin: "https://bank.com" },
+      extSender,
+      {
+        runtimeId: EXT_ID,
+        port,
+        setCfg: async () => {},
+      }
+    );
+    assert.equal(res.ok, true);
+    assert.deepEqual(removed, [{ origins: ["https://bank.com/*"] }]);
+    assert.equal(port.fence.entries.includes("https://bank.com"), false);
+    assert.equal(port.excludedHosts.includes("bank.com"), false);
+    assert.equal(port.excludedGen, 0);
+  } finally {
+    chrome.permissions.remove = previousRemove;
+    chrome.permissions.getAll = previousGetAll;
+  }
 });
 
 test("router: acknowledgeDisclosure writes consent and does not change fence entries or livePatterns", async () => {

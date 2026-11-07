@@ -184,6 +184,27 @@
     });
   }
 
+  // The browser's list, with no tombstone filter. Removal judges this.
+  // Intents and the gate stay on the filtered read.
+  async function listedOrigins() {
+    try {
+      const perms = await chrome.permissions.getAll();
+      if (Array.isArray(perms?.origins)) return perms.origins.filter((pattern) => typeof pattern === "string");
+    } catch (_e) {}
+    return [];
+  }
+
+  // Non-broad grants whose row is this origin, as the browser spells them.
+  function patternsForOrigin(origins, rowOrigin) {
+    return (origins || []).filter((pattern) => !H.isBroadPattern(pattern) && H.grantRowOrigin(pattern) === rowOrigin);
+  }
+
+  async function removePatterns(patterns) {
+    for (const pattern of patterns) {
+      try { await chrome.permissions.remove({ origins: [pattern] }); } catch (_e) {}
+    }
+  }
+
   function removeGrantedOrigin(origin, deps) {
     const port = deps.port;
     let url = null;
@@ -196,6 +217,7 @@
     }
 
     return enqueueGrant(async () => {
+      const listed = await listedOrigins();
       const isFenced = port.fence !== null;
       if (isFenced) {
         const exactSet = new Set(port.fence.exact || []);
@@ -217,12 +239,7 @@
           try {
             const eh = new URL(e).hostname;
             const needed = [...remainingHosts].some((rh) => rh === eh || H.hostCovers(eh, rh));
-            if (!needed) {
-              const pats = H.sitePatternsFor ? H.sitePatternsFor(eh) : [H.matchPatternFor(eh)];
-              for (const pat of pats) {
-                try { await chrome.permissions.remove({ origins: [pat] }); } catch (_e) {}
-              }
-            }
+            if (!needed) await removePatterns(patternsForOrigin(listed, e));
           } catch (_e) {}
         }
         if (typeof deps.beginRead === "function") {
@@ -234,40 +251,33 @@
         port.notify();
         deps.refreshOpenTabs?.();
         return { ok: true, origin };
-      } else {
-        const pats = H.sitePatternsFor ? H.sitePatternsFor(url.host) : [H.matchPatternFor(url.host)];
-        if (!port.tombstones) port.tombstones = new Set();
-        for (const p of pats) {
-          port.tombstones.add(p);
-        }
-        port.livePatterns = (port.livePatterns || []).filter((p) => !pats.includes(p));
-        port.broadGrant = H.broadLive(port.livePatterns);
-        port.notify();
-        for (const p of pats) {
-          try { await chrome.permissions.remove({ origins: [p] }); } catch (_e) {}
-        }
-        if (typeof deps.beginRead === "function") {
-          await deps.beginRead();
-        }
-        const stillCovered = (port.livePatterns || []).some((p) => H.plainAllow(p, url));
-        if (stillCovered) {
-          const coveringPattern = (port.livePatterns || []).find((p) => H.plainAllow(p, url));
-          const siteHost = coveringPattern ? H.patternSiteHost(coveringPattern) : null;
-          const targetHost = siteHost && H.hostCovers(siteHost, host) ? siteHost : host;
-          const exh = H.storedExcludedHostname(targetHost);
-          if (exh && !port.excludedHosts.includes(exh)) {
-            port.excludedHosts = [...port.excludedHosts, exh].sort();
-            if (typeof port.excludedGen === "number") port.excludedGen += 1;
-            if (deps.setCfg) await deps.setCfg({ excludedHosts: port.excludedHosts });
-          }
-          port.notify();
-          deps.refreshOpenTabs?.();
-          return { ok: true, origin, result: "left_out_instead" };
+      }
+
+      const toRemove = patternsForOrigin(listed, origin);
+      if (!port.tombstones) port.tombstones = new Set();
+      for (const pattern of toRemove) port.tombstones.add(pattern);
+      await removePatterns(toRemove);
+
+      const still = await listedOrigins();
+      for (const pattern of still) port.tombstones.delete(pattern);
+      const stillCovered = still.some((pattern) => H.plainAllow(pattern, url));
+      if (stillCovered) {
+        const pageHost = H.storedExcludedHostname(host);
+        if (!Array.isArray(port.excludedHosts)) port.excludedHosts = [];
+        if (pageHost && !port.excludedHosts.includes(pageHost)) {
+          port.excludedHosts = [...port.excludedHosts, pageHost].sort();
+          if (typeof port.excludedGen === "number") port.excludedGen += 1;
+          if (deps.setCfg) await deps.setCfg({ excludedHosts: port.excludedHosts });
         }
         port.notify();
         deps.refreshOpenTabs?.();
-        return { ok: true, origin };
+        if (typeof deps.beginRead === "function") await deps.beginRead();
+        return { ok: true, origin, result: "left_out_instead" };
       }
+      port.notify();
+      deps.refreshOpenTabs?.();
+      if (typeof deps.beginRead === "function") await deps.beginRead();
+      return { ok: true, origin };
     });
   }
 

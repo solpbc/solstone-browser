@@ -851,31 +851,45 @@ function authorizeFixture({mock,bg}) {
 function contentHarness(Gate) {
   let t = 0,
     reads = 0,
-    listener;
+    listener,
+    readReply;
   const requests = [],
     intervals = new Map(),
-    sent = [];
+    sent = [],
+    documentListeners = [],
+    windowListeners = [];
   let id = 0;
   const ctx = {
     crypto,
     console,
+    URL,
     performance: { now: () => t },
     location: { origin: "https://example.com", host: "example.com" },
     document: {
       readyState: "complete",
+      visibilityState: "visible",
       title: "Example",
-      addEventListener() {},
+      addEventListener(type, fn) {
+        documentListeners.push({ type, fn });
+      },
       getElementById() {
         return null;
       },
     },
-    window: { addEventListener() {} },
+    window: {
+      addEventListener(type, fn) {
+        windowListeners.push({ type, fn });
+      },
+    },
     chrome: {
       runtime: {
         id: "ext",
         sendMessage(m, cb) {
           if (m.kind === "hello") requests.push(cb);
-          else sent.push(m);
+          else {
+            sent.push(m);
+            if (m.kind === "read") readReply = cb;
+          }
         },
         onMessage: {
           addListener(fn) {
@@ -932,6 +946,27 @@ function contentHarness(Gate) {
     },
     tick() {
       for (const fn of [...intervals.values()]) fn();
+    },
+    failRead(error) {
+      readReply?.({ ok: false, error });
+    },
+    finishRead(res) {
+      readReply?.(res || { ok: true });
+    },
+    executeRead() {
+      const read = sent.filter((m) => m.kind === "read").at(-1);
+      return ctx.__solstoneAuthorizedRead(read.realmToken, read.documentKey, read);
+    },
+    showVisible() {
+      ctx.document.visibilityState = "visible";
+      for (const entry of documentListeners) {
+        if (entry.type === "visibilitychange") entry.fn();
+      }
+    },
+    pageshow(event) {
+      for (const entry of windowListeners) {
+        if (entry.type === "pageshow") entry.fn(event || {});
+      }
     },
     get reads() {
       return reads;
@@ -1292,6 +1327,14 @@ test("storage.local.set throws on the decision write: port.fence is a non-null o
   const port1 = bg1.port;
   assert.ok(port1.fence && typeof port1.fence === "object");
   assert.deepEqual(mock.storageData.cfg, { chosenOrigins: ["https://bank.com"] });
+  assert.ok(port1.livePatterns.includes("*://*/*"));
+  assert.equal(sandbox1.SolstoneHosts.originGranted(port1, "https://other.example"), false);
+  const optionsSender1 = { id: mock.chrome.runtime.id, url: `chrome-extension://${mock.chrome.runtime.id}/options.html` };
+  const pauseRes = await new Promise((resolve) => mock.listeners.onMessage[0](
+    { cmd: "setPaused", paused: true }, optionsSender1, resolve));
+  assert.equal(pauseRes.ok, false);
+  assert.equal(pauseRes.saved, false);
+  assert.equal(mock.storageData.cfg.paused, undefined);
 
   throwOnSet = false;
   const sandbox2 = createSandbox(mock, true);
@@ -1590,8 +1633,17 @@ test("Spy: permissions.remove count does not increase across doInit, the alarm, 
   await new Promise(resolve => mock.listeners.onMessage[0]({ cmd: "setLeftOut", host: "bank.com", out: true }, optionsSender, resolve));
   assert.equal(removeCalls, 0);
 
-  // removeGrantedOrigin calls remove
+  // The only grant was the broad pattern. Seed the site so remove-this-site
+  // still calls permissions.remove, and still does not remove *://*/*.
+  mock.grantedPermissions.add("https://example.com/*");
+  const removed = [];
+  const countingRemove = mock.chrome.permissions.remove;
+  mock.chrome.permissions.remove = async (args) => {
+    removed.push(args);
+    return countingRemove(args);
+  };
   await new Promise(resolve => mock.listeners.onMessage[0]({ cmd: "removeGrantedOrigin", origin: "https://example.com" }, optionsSender, resolve));
+  assert.equal(removed.some((args) => (args.origins || []).includes("*://*/*")), false);
   assert.ok(removeCalls > 0);
   const afterRemoveOrigin = removeCalls;
 
@@ -2429,5 +2481,494 @@ test("lifecycle: auto-end after a restart leaves out a declined host from that r
   second.mock.grantedPermissions.add("*://*.bank.com/*");
   await second.bg.beginRead();
   assert.equal(second.sandbox.SolstoneHosts.originGranted(second.bg.port, "https://mail.bank.com"), false);
+});
+
+function confirmRealm(mock) {
+  mock.chrome.tabs.sendMessage = (tabId, msg, opts, cb) => {
+    const callback = typeof opts === "function" ? opts : cb;
+    mock.sentTabMessages.push({ tabId, msg });
+    if (msg?.kind === "confirmRealm") {
+      callback?.({ realmToken: "r" });
+      return Promise.resolve({ realmToken: "r" });
+    }
+    callback?.();
+    return Promise.resolve();
+  };
+}
+
+test("lifecycle: onRemoved publishes a closed lease before its permission snapshot settles", async () => {
+  const mock = createMockChrome();
+  mock.storageData.cfg = { siteGrant: "live", fence: null, startup: "existing" };
+  mock.grantedPermissions.clear();
+  mock.grantedPermissions.add("*://example.com/*");
+  const sandbox = createSandbox(mock);
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  const bg = sandbox.SolstoneBackground;
+  await bg.ensureInit();
+  const port = bg.port;
+  port.hostCapture = "permitted";
+  port.capturePermitted = true;
+  port.consentVersion = 1;
+  port.paused = false;
+  port.lease = { token: "t", generation: "g", receivedAt: port.now(), freshnessMs: 10000 };
+  assert.equal(port.getStatus().gate.open, true);
+
+  const snapshot = deferred();
+  const entered = deferred();
+  let notifications = 0;
+  const notify = port.notify.bind(port);
+  port.notify = () => { notifications++; return notify(); };
+  mock.chrome.tabs.query = () => {};
+  mock.chrome.permissions.getAll = () => {
+    entered.resolve();
+    return snapshot.promise;
+  };
+  mock.grantedPermissions.delete("*://example.com/*");
+  const removing = mock.listeners.onRemovedPerm[0]({ origins: ["*://example.com/*"] });
+  assert.ok(notifications >= 1);
+  assert.equal(port.getStatus().gate.open, false);
+  assert.equal(port.livePatterns.includes("*://example.com/*"), false);
+  await entered.promise;
+  snapshot.reject(new Error("permission snapshot unavailable"));
+  await removing;
+  assert.equal(sandbox.SolstoneHosts.originGranted(port, "https://example.com"), false);
+  assert.equal(port.getStatus().gate.open, false);
+});
+
+test("content withdrawal reaches existing leases before tab enumeration settles", async () => {
+  const mock = createMockChrome();
+  mock.storageData.cfg = { siteGrant: "live", fence: null, startup: "existing" };
+  mock.grantedPermissions.clear();
+  mock.grantedPermissions.add("*://example.com/*");
+  const sandbox = createSandbox(mock);
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  const bg = sandbox.SolstoneBackground;
+  await bg.ensureInit();
+  const port = bg.port;
+  port.hostCapture = "permitted";
+  port.capturePermitted = true;
+  port.consentVersion = 1;
+  port.paused = false;
+  port.lease = { token: "t", generation: "g", receivedAt: port.now(), freshnessMs: 10000 };
+
+  const content = contentHarness(sandbox.SolstoneCaptureGate);
+  content.requests[0]({
+    ok: true,
+    lease: { token: "t", generation: "g", freshnessMs: 10000 },
+    paused: false,
+    consentVersion: 1,
+    livePatterns: ["*://example.com/*"],
+    fence: null,
+    broadGrant: false,
+    hostCapture: "permitted",
+    capturePermitted: true,
+    connectionGeneration: port.connectionGeneration,
+    destinationGeneration: "g",
+    captureEpoch: port.captureEpoch,
+  });
+  content.tick();
+  assert.ok(content.reads > 0);
+  const readsBefore = content.reads;
+  content.sent.length = 0;
+
+  mock.chrome.tabs.sendMessage = (tabId, msg, opts, cb) => {
+    const callback = typeof opts === "function" ? opts : cb;
+    mock.sentTabMessages.push({ tabId, msg });
+    if (msg?.kind === "confirmRealm") {
+      callback?.({ realmToken: "r" });
+      return Promise.resolve({ realmToken: "r" });
+    }
+    content.msg(msg);
+    callback?.();
+    return Promise.resolve();
+  };
+  const hello = await new Promise((resolve) => mock.listeners.onMessage[0](
+    { kind: "hello", realmToken: "r", documentKey: "0123456789abcdef0123456789abcdef" },
+    { id: mock.chrome.runtime.id, tab: { id: 101 }, frameId: 0, url: "https://example.com/page", origin: "https://example.com" },
+    resolve,
+  ));
+  assert.equal(hello.ok, true);
+
+  const callbacks = [];
+  mock.chrome.tabs.query = (_query, cb) => { callbacks.push(cb); };
+  const snapshot = deferred();
+  const entered = deferred();
+  mock.chrome.permissions.getAll = () => {
+    entered.resolve();
+    return snapshot.promise;
+  };
+  mock.sentTabMessages.length = 0;
+  mock.grantedPermissions.delete("*://example.com/*");
+  const removing = mock.listeners.onRemovedPerm[0]({ origins: ["*://example.com/*"] });
+  assert.equal(port.getStatus().gate.open, false);
+  assert.ok(mock.sentTabMessages.length > 0);
+  content.tick();
+  assert.equal(content.reads, readsBefore);
+  assert.equal(content.sent.some((m) => m.kind === "skim"), false);
+  for (const callback of callbacks) callback?.(mock.tabsList);
+  content.tick();
+  assert.equal(content.reads, readsBefore);
+  await entered.promise;
+  snapshot.reject(new Error("probe cleanup"));
+  await removing;
+});
+
+test("onRemoved during doInit, before port exists, stays in the tombstone set and the removed pattern is closed", async () => {
+  const mock = createMockChrome();
+  const stalled = deferred();
+  const entered = deferred();
+  let calls = 0;
+  mock.chrome.permissions.getAll = async () => {
+    calls += 1;
+    if (calls === 1) {
+      entered.resolve();
+      await stalled.promise;
+    }
+    return { origins: ["*://example.com/*"] };
+  };
+  mock.storageData.cfg = { paused: false, chosenOrigins: ["https://example.com"] };
+  mock.grantedPermissions.clear();
+  mock.grantedPermissions.add("*://example.com/*");
+  const sandbox = createSandbox(mock);
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  const initPromise = sandbox.SolstoneBackground.ensureInit();
+  await entered.promise;
+  assert.equal(sandbox.SolstoneBackground.port, null);
+  mock.grantedPermissions.delete("*://example.com/*");
+  for (const listener of mock.listeners.onRemovedPerm) listener({ origins: ["*://example.com/*"] });
+  stalled.resolve();
+  const port = await initPromise;
+  assert.equal(port.tombstones.has("*://example.com/*"), true);
+  assert.equal(port.livePatterns.includes("*://example.com/*"), false);
+  assert.equal(sandbox.SolstoneHosts.originGranted(port, "https://example.com"), false);
+});
+
+test("an error on a site nobody shares is cleared at start, including an empty grant set", async () => {
+  const alarmHeld = deferred();
+  const mock = createMockChrome();
+  mock.chrome.alarms.create = () => alarmHeld.promise;
+  mock.storageData.cfg = { siteGrant: "live", fence: null };
+  mock.grantedPermissions.clear();
+  mock.grantedPermissions.add("*://kept.example/*");
+  const sandbox = createSandbox(mock, true);
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  await sandbox.SolstoneDB.put("meta", {
+    registration: { "https://gone.example": "failed" },
+    enqueue: { "https://gone.example": "enqueue_failed", "https://kept.example": "enqueue_failed" },
+  }, "siteErrors");
+  alarmHeld.resolve();
+  const port = await sandbox.SolstoneBackground.ensureInit();
+  assert.deepEqual(Object.keys(port.registration), []);
+  assert.deepEqual(Object.keys(port.enqueue), ["https://kept.example"]);
+  port.faults.set("https://gone.example", "denied");
+  port.faults.set("https://kept.example", "denied");
+  await sandbox.SolstoneBackground.beginRead();
+  assert.equal(port.faults.has("https://gone.example"), false);
+  assert.equal(port.faults.get("https://kept.example"), "denied");
+
+  const alarmHeldEmpty = deferred();
+  const mockEmpty = createMockChrome();
+  mockEmpty.chrome.alarms.create = () => alarmHeldEmpty.promise;
+  mockEmpty.storageData.cfg = { siteGrant: "live", fence: null };
+  mockEmpty.grantedPermissions.clear();
+  const sandboxEmpty = createSandbox(mockEmpty, true);
+  vm.runInNewContext(readExtFile("background.js"), sandboxEmpty);
+  await sandboxEmpty.SolstoneDB.put("meta", {
+    registration: { "https://gone.example": "failed" },
+    enqueue: { "https://gone.example": "enqueue_failed", "https://kept.example": "enqueue_failed" },
+  }, "siteErrors");
+  alarmHeldEmpty.resolve();
+  const portEmpty = await sandboxEmpty.SolstoneBackground.ensureInit();
+  assert.deepEqual(Object.keys(portEmpty.registration), []);
+  assert.deepEqual(Object.keys(portEmpty.enqueue), []);
+});
+
+test("pause with the solstone app defaults on when the key is absent", async () => {
+  const empty = await startWorker();
+  assert.equal((await empty.bg.getCfg()).pauseWithApp, true);
+  assert.equal(empty.bg.port.pauseWithApp, true);
+
+  const current = await startWorker({ paused: false, showPageIndicator: false, siteGrant: "live", fence: null });
+  assert.equal((await current.bg.getCfg()).pauseWithApp, true);
+  assert.equal(current.bg.port.pauseWithApp, true);
+
+  const off = await startWorker({
+    paused: false, showPageIndicator: false, siteGrant: "live", fence: null, pauseWithApp: false,
+  });
+  assert.equal((await off.bg.getCfg()).pauseWithApp, false);
+  assert.equal(off.bg.port.pauseWithApp, false);
+});
+
+test("turning pause with the app off updates an open tab without reloading it", async () => {
+  const { mock, sandbox, bg } = await startWorker({
+    siteGrant: "live", fence: null, paused: false, showPageIndicator: false,
+  });
+  let reloads = 0;
+  mock.chrome.tabs.reload = () => { reloads += 1; };
+  const port = bg.port;
+  assert.equal(port.pauseWithApp, true);
+  mock.sentTabMessages.length = 0;
+  await deliverState(port, { capture: "paused", away: false });
+  const pausedUpdate = mock.sentTabMessages.filter((entry) => entry.msg?.kind === "leaseUpdate").at(-1);
+  assert.ok(pausedUpdate);
+  assert.equal(pausedUpdate.msg.hostCapture, "paused");
+
+  mock.sentTabMessages.length = 0;
+  const id = mock.chrome.runtime.id;
+  const result = await sandbox.SolstoneRouter.route(
+    { cmd: "setConfig", pauseWithApp: false },
+    { id, url: `chrome-extension://${id}/options.html` },
+    { runtimeId: id, port, setCfg: bg.setCfg },
+  );
+  assert.equal(result.ok, true);
+  const openUpdate = mock.sentTabMessages.filter((entry) => entry.msg?.kind === "leaseUpdate").at(-1);
+  assert.ok(openUpdate);
+  assert.equal(openUpdate.msg.hostCapture, "permitted");
+  assert.equal(openUpdate.msg.capturePermitted, true);
+  assert.equal(reloads, 0);
+});
+
+test("an older applySnapshot awaiting setCfg does not overwrite a newer read", async () => {
+  const { mock, bg } = await startWorker({
+    siteGrant: "live",
+    fence: {
+      entries: ["https://bank.com"],
+      exact: [],
+      exactKnown: true,
+      siteWide: [],
+      declined: [],
+      answered: false,
+      sawMore: false,
+      cleanAt: null,
+    },
+  });
+  const port = bg.port;
+  port.fence = {
+    entries: ["https://bank.com"],
+    exact: [],
+    exactKnown: true,
+    siteWide: [],
+    declined: [],
+    answered: false,
+    sawMore: false,
+    cleanAt: null,
+  };
+  port.livePatterns = ["*://*.bank.com/*"];
+  port.broadGrant = false;
+  port.readSerial = 1;
+
+  const gate = deferred();
+  const entered = deferred();
+  const origSet = mock.chrome.storage.local.set.bind(mock.chrome.storage.local);
+  let stall = true;
+  mock.chrome.storage.local.set = async (obj) => {
+    if (stall && obj.cfg) {
+      stall = false;
+      entered.resolve();
+      await gate.promise;
+    }
+    return origSet(obj);
+  };
+
+  const older = bg.applySnapshot(["*://*.other.com/*"], false, { serial: 1 });
+  await entered.promise;
+  port.readSerial = 2;
+  const newer = bg.applySnapshot(["*://*.newer.com/*"], false, { serial: 2 });
+  gate.resolve();
+  await older;
+  await newer;
+  assert.deepEqual(Array.from(port.livePatterns), ["*://*.newer.com/*"]);
+});
+
+test("hello awaited across a dropped older read sees the newer grants", async () => {
+  const { mock, bg } = await startWorker({ siteGrant: "live", fence: null, startup: "existing" }, { noGrants: true });
+  mock.grantedPermissions.add("*://*.old.example/*");
+  await bg.beginRead();
+  confirmRealm(mock);
+
+  const gate = deferred();
+  const entered = deferred();
+  let calls = 0;
+  mock.chrome.permissions.getAll = async () => {
+    calls += 1;
+    if (calls === 1) {
+      entered.resolve();
+      await gate.promise;
+      return { origins: ["*://*.old.example/*"] };
+    }
+    return { origins: ["*://*.new.example/*"] };
+  };
+
+  const helloPromise = new Promise((resolve) => mock.listeners.onMessage[0](
+    { kind: "hello", realmToken: "r", documentKey: "0123456789abcdef0123456789abcdef" },
+    { id: mock.chrome.runtime.id, tab: { id: 7 }, frameId: 0, url: "https://new.example/page", origin: "https://new.example" },
+    resolve,
+  ));
+  await entered.promise;
+  const newer = bg.beginRead();
+  await newer;
+  assert.ok(bg.port.livePatterns.includes("*://*.new.example/*"));
+  gate.resolve();
+  const res = await helloPromise;
+  assert.equal(res.ok, true);
+  assert.ok(res.livePatterns.includes("*://*.new.example/*"));
+  assert.equal(res.livePatterns.includes("*://*.old.example/*"), false);
+});
+
+test("safari alarm: a failed clear stays paused and does not clear the database; a successful clear stays paused while it clears", async () => {
+  const mock = createMockChrome();
+  let reloads = 0;
+  mock.chrome.runtime.reload = () => { reloads += 1; };
+  const sandbox = await startSafari(mock, new IDBFactory());
+  const port = sandbox.SolstoneBackground.port;
+  port.paused = false;
+  await mock.listeners.onAlarm[0]({ name: "native-port" });
+  assert.equal(port.paused, false);
+  assert.equal(reloads, 0);
+
+  await sandbox.SolstoneDB.put("outbox", { batchId: "b1", origin: "https://example.com" });
+  port.paused = false;
+  for (const key of Object.keys(mock.storageData)) delete mock.storageData[key];
+  mock.chrome.storage.local.set = async () => { throw new Error("storage set error"); };
+  await mock.listeners.onAlarm[0]({ name: "native-port" });
+  assert.equal(port.paused, true);
+  assert.equal((await sandbox.SolstoneDB.getAll("outbox")).length, 1);
+  assert.equal(reloads, 0);
+
+  const mockOk = createMockChrome();
+  let reloadsOk = 0;
+  mockOk.chrome.runtime.reload = () => { reloadsOk += 1; };
+  const sandboxOk = await startSafari(mockOk, new IDBFactory());
+  await sandboxOk.SolstoneDB.put("outbox", { batchId: "b2", origin: "https://example.com" });
+  const portOk = sandboxOk.SolstoneBackground.port;
+  portOk.paused = false;
+  let pausedDuringClear = null;
+  const origClear = sandboxOk.SolstoneDB.clear;
+  sandboxOk.SolstoneDB.clear = async (store) => {
+    pausedDuringClear = portOk.paused;
+    return origClear.call(sandboxOk.SolstoneDB, store);
+  };
+  for (const key of Object.keys(mockOk.storageData)) delete mockOk.storageData[key];
+  await mockOk.listeners.onAlarm[0]({ name: "native-port" });
+  assert.equal(pausedDuringClear, true);
+  assert.equal(portOk.paused, true);
+  assert.equal(reloadsOk, 1);
+  assert.deepEqual(await sandboxOk.SolstoneDB.getAll("outbox"), []);
+});
+
+test("exactOnlyOrigins null with *://*/* refuses https://login.bank.com", async () => {
+  const mock = createMockChrome();
+  mock.storageData.cfg = { chosenOrigins: ["https://bank.com"], exactOnlyOrigins: null };
+  mock.grantedPermissions.clear();
+  mock.grantedPermissions.add("*://*/*");
+  const sandbox = createSandbox(mock, true);
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  const bg = sandbox.SolstoneBackground;
+  await bg.ensureInit();
+  const port = bg.port;
+  assert.equal(port.fence.exactKnown, true);
+  assert.ok(Array.from(port.fence.exact).includes("https://bank.com"));
+  confirmRealm(mock);
+  const res = await new Promise((resolve) => mock.listeners.onMessage[0](
+    { kind: "hello", realmToken: "r", documentKey: "0123456789abcdef0123456789abcdef" },
+    { id: mock.chrome.runtime.id, tab: { id: 101 }, frameId: 0, url: "https://login.bank.com/page", origin: "https://login.bank.com" },
+    resolve,
+  ));
+  assert.equal(res.ok, false);
+  assert.equal(sandbox.SolstoneHosts.originGranted(port, "https://login.bank.com"), false);
+  assert.equal(sandbox.SolstoneHosts.originGranted(port, "https://bank.com"), true);
+});
+
+function broadPageGrant(epoch) {
+  return {
+    ok: true,
+    broadGrant: true,
+    livePatterns: ["*://*/*"],
+    fence: null,
+    lease: { token: "t", generation: "g", freshnessMs: 10000 },
+    paused: false,
+    consentVersion: 1,
+    hostCapture: "permitted",
+    capturePermitted: true,
+    captureEpoch: epoch,
+    connectionGeneration: 1,
+    destinationGeneration: "g",
+  };
+}
+
+test("content: two read_not_executed replies then a success leave the refusal count at 0", async () => {
+  const { sandbox } = await startWorker({ siteGrant: "live", fence: null });
+  const h = contentHarness(sandbox.SolstoneCaptureGate);
+  h.requests[0](broadPageGrant(1));
+  const reads = () => h.sent.filter((m) => m.kind === "read").length;
+  h.tick();
+  assert.equal(reads(), 1);
+  h.failRead("read_not_executed");
+  h.tick();
+  assert.equal(reads(), 2);
+  h.failRead("read_not_executed");
+  h.tick();
+  assert.equal(reads(), 3);
+  assert.equal(h.executeRead(), true);
+  h.finishRead({ ok: true });
+  h.showVisible();
+  assert.equal(reads(), 4);
+  h.failRead("read_not_executed");
+  h.showVisible();
+  assert.equal(reads(), 5);
+});
+
+test("content: the refusal cap holds across a lease renewal", async () => {
+  const { sandbox } = await startWorker({ siteGrant: "live", fence: null });
+  const h = contentHarness(sandbox.SolstoneCaptureGate);
+  h.requests[0](broadPageGrant(1));
+  const reads = () => h.sent.filter((m) => m.kind === "read").length;
+  h.tick();
+  h.failRead("browser_access_denied");
+  h.tick();
+  h.failRead("browser_access_denied");
+  h.tick();
+  h.failRead("read_not_executed");
+  assert.equal(reads(), 3);
+  h.requests[0](broadPageGrant(2));
+  h.tick();
+  h.showVisible();
+  assert.equal(reads(), 3);
+  h.pageshow({ persisted: true });
+  assert.equal(h.requests.length, 2);
+  h.requests[1](broadPageGrant(2));
+  h.showVisible();
+  assert.equal(reads(), 4);
+});
+
+test("a refused site is not joined when a later all-sites request is granted", async () => {
+  const plain = createMockChrome();
+  await assert.rejects(
+    async () => plain.chrome.permissions.request({ origins: ["*://*.bank.com/*"] }),
+    /user gesture/,
+  );
+
+  const safari = createMockChrome({ safariBroadest: true });
+  safari.grantedPermissions.clear();
+  safari.grantedPermissions.add("*://*.bank.com/*");
+  assert.equal(await safari.chrome.permissions.request({ origins: ["https://login.bank.com/*"] }), true);
+  assert.equal(safari.grantedPermissions.has("https://login.bank.com/*"), false);
+  assert.equal(await safari.chrome.permissions.request({ origins: ["*://*/*"] }), true);
+  assert.equal(safari.grantedPermissions.has("*://*/*"), true);
+  assert.equal(safari.grantedPermissions.has("*://*.bank.com/*"), false);
+
+  const firefox = createMockChrome({ firefoxCoveredRequest: true });
+  firefox.grantedPermissions.clear();
+  firefox.grantedPermissions.add("*://*.bank.com/*");
+  assert.equal(await firefox.chrome.permissions.request({ origins: ["*://*.login.bank.com/*"] }), true);
+  assert.equal(firefox.grantedPermissions.has("*://*.login.bank.com/*"), false);
+
+  const refused = createMockChrome({ safariBroadest: true, refuseSiteRequest: true });
+  refused.grantedPermissions.clear();
+  assert.equal(await refused.chrome.permissions.request({ origins: ["*://*.denied.example/*"] }), false);
+  assert.equal(await refused.chrome.permissions.request({ origins: ["*://*/*"] }), true);
+  const origins = (await refused.chrome.permissions.getAll()).origins;
+  assert.ok(origins.includes("*://*/*"));
+  assert.equal(origins.some((pattern) => String(pattern).includes("denied.example")), false);
 });
 

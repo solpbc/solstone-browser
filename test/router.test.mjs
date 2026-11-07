@@ -1150,6 +1150,21 @@ test("router: read: executeScript rejection fault handling and notification beha
   assert.deepEqual(timeoutRes, { ok: false, error: "browser_read_timeout" });
   assert.equal(port.faults.get("https://example.com"), "unknown");
   assert.equal(notifyCalls, notifiesBefore);
+
+  // A message that merely contains "frame" is a denial, not a timeout.
+  const frameRes = await Router.route(
+    readMsg(4),
+    sender,
+    {
+      runtimeId: EXT_ID,
+      port,
+      confirmRealm,
+      executeBrowserRead: async () => { throw new Error("frame was removed"); },
+    }
+  );
+  assert.deepEqual(frameRes, { ok: false, error: "browser_access_denied" });
+  assert.equal(port.faults.get("https://example.com"), "denied");
+  assert.equal(notifyCalls, notifiesBefore);
 });
 
 test("router: hello calls beginRead before the origin check; grant present only in getAll is granted", async () => {

@@ -68,6 +68,25 @@ function patternCovers(pattern, urlString) {
   return pageHost === host;
 }
 
+function isBroadPattern(pattern) {
+  const raw = String(pattern || "").trim();
+  return raw === "*://*/*" || raw === "<all_urls>" || raw === "http://*/*" || raw === "https://*/*";
+}
+
+function hostFromSitePattern(pattern) {
+  const match = /^(?:\*|https?):\/\/(?:\*\.)?([^/*:]+)(?::\d+)?\/\*$/.exec(String(pattern || "").trim());
+  if (!match || match[1] === "*") return null;
+  return match[1].toLowerCase();
+}
+
+function sampleUrl(pattern) {
+  const match = /^(\*|https?):\/\/(\*\.)?([^/]+)\/\*$/.exec(String(pattern || "").trim());
+  if (!match) return null;
+  const scheme = match[1] === "http" ? "http" : "https";
+  const host = match[2] ? `login.${match[3]}` : match[3];
+  return `${scheme}://${host}/`;
+}
+
 function presentScript(script) {
   const copy = { ...script, matches: [...(script.matches || [])].sort() };
   if (!copy.excludeMatches || copy.excludeMatches.length === 0) delete copy.excludeMatches;
@@ -81,6 +100,7 @@ export function createMockChrome(options = {}) {
     removeReturnsFalse: false,
     safariBroadest: false,
     firefoxCoveredRequest: false,
+    refuseSiteRequest: false,
     executeScriptRejects: false,
     omitPermissionEvents: false,
     getAllThrows: false,
@@ -103,6 +123,7 @@ export function createMockChrome(options = {}) {
   const storageData = {};
   const registeredScripts = new Map();
   const grantedPermissions = new Set(["*://*/*"]);
+  const refusedHosts = new Set();
   const sentTabMessages = [];
   const tabsList = [{ id: 101, url: "https://example.com/page" }];
 
@@ -188,7 +209,49 @@ export function createMockChrome(options = {}) {
         contains: async ({ origins }) => {
           return (origins || []).every((o) => grantedPermissions.has(o) || grantedPermissions.has("*://*/*"));
         },
-        request: backgroundGestureRequest,
+        request: (details) => {
+          const profile = opts.safariBroadest || opts.firefoxCoveredRequest || opts.refuseSiteRequest;
+          if (!profile) {
+            if (opts.requestResolvesWithoutGrant) return Promise.resolve(true);
+            return backgroundGestureRequest(details);
+          }
+          const origins = Array.isArray(details?.origins) ? details.origins : [];
+          const sites = origins.filter((origin) => !isBroadPattern(origin));
+          const covered = (origin) => {
+            const sample = sampleUrl(origin);
+            if (!sample) return false;
+            return [...grantedPermissions].some((have) => patternCovers(have, sample));
+          };
+          if (opts.refuseSiteRequest && sites.length > 0 && !origins.some(isBroadPattern)) {
+            for (const origin of sites) {
+              const host = hostFromSitePattern(origin);
+              if (host) refusedHosts.add(host);
+            }
+            return Promise.resolve(false);
+          }
+          if ((opts.safariBroadest || opts.firefoxCoveredRequest) && sites.length > 0 &&
+              !origins.some(isBroadPattern) && sites.every(covered)) {
+            return Promise.resolve(true);
+          }
+          if (opts.safariBroadest && origins.some((origin) => origin === "*://*/*" || origin === "<all_urls>")) {
+            for (const have of [...grantedPermissions]) {
+              if (!isBroadPattern(have)) grantedPermissions.delete(have);
+            }
+            grantedPermissions.add(origins.includes("*://*/*") ? "*://*/*" : "<all_urls>");
+            return Promise.resolve(true);
+          }
+          for (const origin of origins) {
+            if (isBroadPattern(origin)) {
+              grantedPermissions.add(origin);
+              continue;
+            }
+            const host = hostFromSitePattern(origin);
+            if (host && refusedHosts.has(host)) continue;
+            if ((opts.safariBroadest || opts.firefoxCoveredRequest) && covered(origin)) continue;
+            grantedPermissions.add(origin);
+          }
+          return Promise.resolve(true);
+        },
         remove: async ({ origins }) => {
           if (opts.removeReturnsFalse) return false;
           for (const o of origins || []) grantedPermissions.delete(o);

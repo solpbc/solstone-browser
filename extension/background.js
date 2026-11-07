@@ -135,7 +135,7 @@ function setCfg(patch) {
     const r = await chrome.storage.local.get("cfg");
     const stored = r.cfg || {};
     if (stored.siteGrant !== "live" && (!patch || patch.siteGrant !== "live")) {
-      return Object.assign({}, stored);
+      throw new Error("storage_error");
     }
     const merged = Object.assign({}, stored, patch);
     const next = formatCfg(merged);
@@ -146,7 +146,10 @@ function setCfg(patch) {
 }
 
 let port = null;
+// Removals that arrive before the port exists still close that pattern.
+const sessionTombstones = new Set();
 let initPromise = null;
+let latestRead = Promise.resolve();
 // Last successful permission read and the manifest version already injected.
 // Kept out of cfg so a stored list cannot become the live grant by itself.
 let grantWatch = { patterns: [], injectedVersion: null };
@@ -631,6 +634,11 @@ async function reinjectOpenTabs() {
 }
 
 async function pruneOrphanSiteErrors() {
+  if (port?.faults instanceof Map) {
+    for (const origin of [...port.faults.keys()]) {
+      if (!H.originGranted(port, origin)) port.faults.delete(origin);
+    }
+  }
   if (!port?.clearSiteErrorsWhere) return;
   await port.clearSiteErrorsWhere((origin) => {
     return !H.originGranted(port, origin);
@@ -690,6 +698,8 @@ function completeAddIntent(applied) {
 
 async function applySnapshot(applied, tombstoneFiltered, options = {}) {
   if (!port) return;
+  const serial = options.serial ?? port.readSerial;
+  const still = () => port && serial === port.readSerial;
   const prevPatterns = port.livePatterns || [];
   const same = prevPatterns.length === applied.length &&
     prevPatterns.every((p, i) => p === applied[i]);
@@ -699,47 +709,65 @@ async function applySnapshot(applied, tombstoneFiltered, options = {}) {
   let fenceEnded = false;
   let fenceEntriesChanged = false;
   let intentTaken = false;
+  let nextFence = port.fence;
+  let nextExcluded = port.excludedHosts;
+  let fenceWrite = null;
 
   if (port.fence !== null && typeof port.fence === "object") {
     const admitted = completeAddIntent(applied);
+    let working = port.fence;
     if (admitted) {
-      port.fence = admitted;
-      port.addIntent = null;
+      working = admitted;
       intentTaken = true;
     }
-    const res = H.applySnapshotToFence(port.fence, applied, {
+    const res = H.applySnapshotToFence(working, applied, {
       wallNow: port.wallNow(),
       tombstoneFiltered,
       leftOutHosts: Array.from(new Set([...(port.excludedHosts || []), ...(port.appLeftOut || [])])),
     });
     if (res.ended) {
       const finished = H.finishFence(res.fence, applied, port.excludedHosts);
-      port.fence = finished.fence;
-      port.excludedHosts = finished.excludedHosts;
-      if (typeof port.excludedGen === "number") port.excludedGen += 1;
-      const patch = { fence: null, excludedHosts: port.excludedHosts };
-      if (intentTaken) patch.addIntent = null;
-      await setCfg(patch);
+      nextFence = finished.fence;
+      nextExcluded = finished.excludedHosts;
       fenceEnded = true;
+      fenceWrite = { fence: null, excludedHosts: finished.excludedHosts };
+      if (intentTaken) fenceWrite.addIntent = null;
     } else {
       const updatedFence = res.fence;
-      const fenceChanged = JSON.stringify(port.fence) !== JSON.stringify(updatedFence);
+      const fenceChanged = JSON.stringify(working) !== JSON.stringify(updatedFence);
+      nextFence = updatedFence;
       if (fenceChanged || intentTaken) {
-        port.fence = updatedFence;
-        const patch = { fence: updatedFence };
-        if (intentTaken) patch.addIntent = null;
-        await setCfg(patch);
-        port.notify();
+        fenceWrite = { fence: updatedFence };
+        if (intentTaken) fenceWrite.addIntent = null;
       }
-      if (prevFence !== null && port.fence === null) {
-        fenceEnded = true;
-      }
-      if (port.fence !== null) {
-        const curEntries = port.fence.entries || [];
+      if (updatedFence !== null) {
+        const curEntries = updatedFence.entries || [];
         if (curEntries.length !== prevFenceEntries.length || !curEntries.every((e, i) => e === prevFenceEntries[i])) {
           fenceEntriesChanged = true;
         }
       }
+    }
+  }
+
+  if (fenceWrite) {
+    try {
+      await setCfg(fenceWrite);
+    } catch (_e) {
+      // The read is still the one to publish when the save itself failed.
+    }
+    if (!still()) return;
+  } else if (!still()) {
+    return;
+  }
+
+  if (fenceWrite) {
+    port.fence = nextFence;
+    if (intentTaken) port.addIntent = null;
+    if (fenceEnded) {
+      port.excludedHosts = nextExcluded;
+      if (typeof port.excludedGen === "number") port.excludedGen += 1;
+    } else {
+      port.notify();
     }
   }
 
@@ -755,51 +783,52 @@ async function applySnapshot(applied, tombstoneFiltered, options = {}) {
     port.notify();
   }
   await pruneOrphanSiteErrors();
+  if (!still()) return;
   await syncSiteRegistrations({ grantFanout: options.grantFanout === true });
+  if (!still()) return;
   if (patternsChanged || fenceEnded || fenceEntriesChanged) {
     refreshOpenTabs();
   }
 }
 
-async function beginRead() {
-  if (!port) return;
+function beginRead() {
+  if (!port) return Promise.resolve();
   const serial = ++port.readSerial;
-  let origins = null;
-  try {
-    const perms = await chrome.permissions.getAll();
-    if (Array.isArray(perms?.origins)) {
-      origins = perms.origins;
+  let run;
+  run = (async () => {
+    let origins = null;
+    try {
+      const perms = await chrome.permissions.getAll();
+      if (Array.isArray(perms?.origins)) origins = perms.origins;
+    } catch (_e) {
+      origins = null;
     }
-  } catch (_e) {
-    origins = null;
-  }
-  if (!origins) {
-    if (!port.snapshotSucceeded) {
-      port.permissionsUnavailable = true;
+    // A newer read replaces this one. Wait until that read has finished applying.
+    const superseded = () => (latestRead === run ? undefined : latestRead);
+    if (!port || serial !== port.readSerial) return superseded();
+    if (!origins) {
+      if (!port.snapshotSucceeded) port.permissionsUnavailable = true;
+      return;
     }
-    return;
-  }
-  port.snapshotSucceeded = true;
-  port.permissionsUnavailable = false;
-  if (serial !== port.readSerial) {
-    return;
-  }
-  const liveSet = new Set(origins);
-  for (const tomb of port.tombstones) {
-    if (!liveSet.has(tomb)) {
-      port.tombstones.delete(tomb);
+    port.snapshotSucceeded = true;
+    port.permissionsUnavailable = false;
+    const liveSet = new Set(origins);
+    for (const tomb of port.tombstones) {
+      if (!liveSet.has(tomb)) port.tombstones.delete(tomb);
     }
-  }
-  const tombstoneFiltered = port.tombstones.size > 0;
-  const applied = origins.filter((p) => !port.tombstones.has(p));
-  const grantFanout = !sameStringSet(applied, grantWatch.patterns);
-  await applySnapshot(applied, tombstoneFiltered, { grantFanout });
-  if (serial !== port.readSerial) return applied;
-  grantWatch.patterns = [...applied];
-  await saveGrantWatch();
-  if (serial !== port.readSerial) return applied;
-  await reinjectOpenTabs();
-  return applied;
+    const tombstoneFiltered = port.tombstones.size > 0;
+    const applied = origins.filter((p) => !port.tombstones.has(p));
+    const grantFanout = !sameStringSet(applied, grantWatch.patterns);
+    await applySnapshot(applied, tombstoneFiltered, { grantFanout, serial });
+    if (!port || serial !== port.readSerial) return superseded();
+    grantWatch.patterns = [...applied];
+    await saveGrantWatch();
+    if (!port || serial !== port.readSerial) return superseded();
+    await reinjectOpenTabs();
+    return applied;
+  })();
+  latestRead = run;
+  return run;
 }
 
 async function doInit() {
@@ -850,7 +879,7 @@ async function doInit() {
     try {
       const p = await chrome.permissions.getAll();
       if (Array.isArray(p?.origins)) {
-        getAllOrigins = p.origins;
+        getAllOrigins = p.origins.filter((pattern) => !sessionTombstones.has(pattern));
       }
     } catch (_e) {
       getAllThrew = true;
@@ -894,8 +923,8 @@ async function doInit() {
       const entries = Array.isArray(rawCfg?.chosenOrigins)
         ? [...rawCfg.chosenOrigins]
         : (Array.isArray(rawCfg?.grantedOrigins) ? [...rawCfg.grantedOrigins] : []);
-      const exactKnown = Object.prototype.hasOwnProperty.call(rawCfg || {}, "exactOnlyOrigins");
-      const exact = Array.isArray(rawCfg?.exactOnlyOrigins) ? [...rawCfg.exactOnlyOrigins] : [];
+      const exactKnown = Array.isArray(rawCfg?.exactOnlyOrigins);
+      const exact = exactKnown ? [...rawCfg.exactOnlyOrigins] : [];
       const siteWide = Array.isArray(rawCfg?.siteWideOrigins) ? [...rawCfg.siteWideOrigins] : [];
       const declined = Array.isArray(rawCfg?.declinedHosts) ? [...rawCfg.declinedHosts] : [];
       decidedFence = {
@@ -977,7 +1006,7 @@ async function doInit() {
   port.syncSiteRegistrations = syncSiteRegistrations;
 
   port.livePatterns = [];
-  port.tombstones = new Set();
+  port.tombstones = sessionTombstones;
   port.readSerial = 0;
   port.faults = new Map();
   port.fence = inMemoryFence !== null ? inMemoryFence : (cfg.fence ?? null);
@@ -1103,34 +1132,44 @@ chrome.windows?.onFocusChanged?.addListener((windowId) => {
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === ALARM_NAME) {
-    if (globalThis.SolstoneSafariPort?.isSafari(chrome.runtime) === true) {
-      checkSafariClearedStorage().then((res) => {
-        if (res.mismatch && res.cleared) {
-          chrome.runtime.reload();
-          return;
+  if (alarm.name !== ALARM_NAME) return;
+  let safariClear = null;
+  if (globalThis.SolstoneSafariPort?.isSafari(chrome.runtime) === true) {
+    if (port) {
+      const previousPaused = port.paused;
+      port.paused = true;
+      port.notify();
+      safariClear = checkSafariClearedStorage().then((res) => {
+        if (!port) return res;
+        if (!res.mismatch) {
+          port.paused = previousPaused;
+          port.notify();
+          return res;
         }
+        if (res.cleared) chrome.runtime.reload();
+        return res;
+      }).catch(() => {});
+    } else {
+      safariClear = checkSafariClearedStorage().then((res) => {
+        if (res.mismatch && res.cleared) chrome.runtime.reload();
       }).catch(() => {});
     }
-    beginRead().catch(() => {});
-    ensureInit().then(async () => {
-      if (port) {
-        await port.poll();
-      }
-    }).catch(() => {});
   }
+  beginRead().catch(() => {});
+  ensureInit().then(async () => {
+    if (port) {
+      await port.poll();
+    }
+  }).catch(() => {});
+  return safariClear;
 });
 
 chrome.permissions.onRemoved.addListener(async (details) => {
-  const removedPatterns = details?.origins || [];
-  if (port) {
-    for (const p of removedPatterns) {
-      port.tombstones.add(p);
-    }
-    const currentApplied = (port.livePatterns || []).filter((p) => !port.tombstones.has(p));
-    await applySnapshot(currentApplied, true);
-    await beginRead();
-  }
+  for (const pattern of details?.origins || []) sessionTombstones.add(pattern);
+  if (!port) return;
+  const currentApplied = (port.livePatterns || []).filter((pattern) => !sessionTombstones.has(pattern));
+  await applySnapshot(currentApplied, true);
+  await beginRead();
 });
 
 chrome.permissions.onAdded.addListener(() => {

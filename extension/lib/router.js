@@ -744,7 +744,7 @@
           return { ok: true };
         } catch (err) {
           if (binding.readNonce === nonce) binding.readNonce = null;
-          const isTimeout = err?.message === "browser_read_timeout" || err?.error === "browser_read_timeout" || err === "browser_read_timeout" || (typeof err?.message === "string" && err.message.includes("frame"));
+          const isTimeout = err?.message === "browser_read_timeout" || err?.error === "browser_read_timeout" || err === "browser_read_timeout";
           if (isTimeout) {
             port.faults?.set(senderOrigin, "unknown");
             return { ok: false, error: "browser_read_timeout" };

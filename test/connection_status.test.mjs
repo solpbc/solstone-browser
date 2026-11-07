@@ -84,7 +84,7 @@ function frame(type, freshness = 15000) {
 const on = (status) => ["on", "idle"].includes(S.derive(status).kind);
 const shownKind = (memo) => memo.status ? S.derive(memo.status).kind : null;
 
-const up = { connected: true, handshake: "ready", connectionGeneration: 1, everConnected: true, consentVersion: 1,
+const up = { connected: true, handshake: "ready", connectionGeneration: 1, everConnected: true, consentVersion: 1, consentAccepted: true,
   hostCapture: "permitted", hostDelivery: "idle", capturePermitted: true, custody: { full: false, stale: false },
   lease: { token: "t", freshnessMs: 15000, receivedAt: 0 }, livePatterns: ["*://example.com/*"], fence: null, broadGrant: false,
   pressure: { active: false }, brand: "chrome", platform: "mac" };

@@ -41,11 +41,11 @@
   })();
   const MOBILE = PLACE !== "this computer";
 
-  const DESKTOP_DISCLOSURE = `you choose which sites to share. by default, you add sites one at a time. you can also choose all sites after a separate agreement and leave sites out. on the sites you choose, the solstone extension takes in the page's text and rough layout whenever a tab is open, and all of it goes into your journal:
+  const DESKTOP_DISCLOSURE = `the sites you allow in your browser are the sites the solstone extension takes in, and that can be every site. on those sites, it takes in the page's text and rough layout whenever a tab is open, and all of it goes into your journal:
 - the text you can see, the text you'd see by scrolling, text in background tabs, some labels pages provide for screen readers and tooltips, and text the page has but doesn't show you
 - each page's address, without anything after a ? or #, its title, when you were on it, and the sites its links point to
 - whether the tab was in front, whether its window had focus, whether audio or video was playing, the page's language, which browser it is, and how long the tab has been open
-- on a mail or chat site you choose, your messages
+- on a mail or chat site, your messages
 - some words you've typed but haven't sent, and anything a site shows, even something you'd consider secret, like a code in an email
 
 never pixels. never raw HTML. sites you leave out aren't taken in, but other sites shown inside those pages still are.
@@ -57,15 +57,23 @@ the solstone extension takes in nothing from private windows, even where your br
 pause any time in the solstone extension. pausing the solstone app stops this extension too, unless you turn that off in settings. pausing doesn't hold back what's already taken in. if you remove a site, nothing new comes from it; what's already in your journal stays there.
 
 no analytics. no telemetry. no phone home. nobody counted.`;
-  const MOBILE_WHILE_CLOSED = `the solstone extension keeps taking in the sites you choose while the solstone app is closed. what it takes in waits on ${PLACE} and goes into your journal the next time you open the solstone app.`;
+  const MOBILE_WHILE_CLOSED = `the solstone extension keeps taking in the sites you allow while the solstone app is closed. what it takes in waits on ${PLACE} and goes into your journal the next time you open the solstone app.`;
+  const MOBILE_DISCLOSURE_EDITS = [
+    [
+      "to the solstone app on this computer. from there it goes into your journal over the link the solstone app already uses.",
+      `to the solstone app on ${PLACE}. from there it goes into your journal over the link the solstone app already uses. ${MOBILE_WHILE_CLOSED}`,
+    ],
+    [
+      " pausing the solstone app stops this extension too, unless you turn that off in settings.",
+      "",
+    ],
+    [
+      "the solstone extension takes in nothing from private windows, even where your browser lets it run there.",
+      "the solstone extension takes in nothing from private browsing, even where Safari lets it run there.",
+    ],
+  ];
   const DISCLOSURE_BODY = MOBILE
-    ? DESKTOP_DISCLOSURE
-      .replace(" by default, you add sites one at a time. you can also choose all sites after a separate agreement and leave sites out.", " you add sites one at a time.")
-      .replace(" sites you leave out aren't taken in, but other sites shown inside those pages still are.", "")
-      .replace("to the solstone app on this computer. from there it goes into your journal over the link the solstone app already uses.",
-        `to the solstone app on ${PLACE}. from there it goes into your journal over the link the solstone app already uses. ${MOBILE_WHILE_CLOSED}`)
-      .replace(" pausing the solstone app stops this extension too, unless you turn that off in settings.", "")
-      .replace("the solstone extension takes in nothing from private windows, even where your browser lets it run there.", "the solstone extension takes in nothing from private browsing, even where Safari lets it run there.")
+    ? MOBILE_DISCLOSURE_EDITS.reduce((text, edit) => text.replace(edit[0], edit[1]), DESKTOP_DISCLOSURE)
     : DESKTOP_DISCLOSURE;
 
   const STEP1_CANT_REACH_BODY = `the solstone extension works with the solstone app on ${PLACE}, and nothing is taken in without it. if the solstone app isn't on ${PLACE} yet, get it at solstone.app. this page moves on by itself once the solstone app answers.`;
@@ -97,11 +105,11 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       shareId = "share-every-site";
       shareLabel = "share every site";
     } else if (kind === "wider") {
-      body = `${browser} allows all of ${host}, but the solstone extension takes in only the address you added. sharing it can include messages on mail and chat sites, and words you've typed but haven't sent, and all of it goes into your journal.`;
+      body = `${browser} allows all of ${host}, but the solstone extension takes in only the part of it you added. sharing all of it can include messages on mail and chat sites, and words you've typed but haven't sent, and all of it goes into your journal.`;
       shareId = "share-them-too";
-      shareLabel = "share them too";
+      shareLabel = "share all of it";
     } else if (kind === "more") {
-      body = `${browser} allows more of some sites you added, like ${host}, but the solstone extension takes in only the addresses you added. sharing all of them can include messages on mail and chat sites, and words you've typed but haven't sent, and all of it goes into your journal.`;
+      body = `${browser} allows more of some sites you added, like ${host}, but the solstone extension takes in only the parts of them you added. sharing all of them can include messages on mail and chat sites, and words you've typed but haven't sent, and all of it goes into your journal.`;
       shareId = "share-them-too";
       shareLabel = "share them too";
     } else {
@@ -128,7 +136,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     if (MOBILE) {
       return "you cleared this extension's storage, so it's paused, and sites you left out aren't left out any more. when you resume, every site Safari allows goes into your journal.";
     }
-    return "you cleared this extension's storage, so it's paused. when you resume, every site Safari allows goes into your journal, except what the solstone app leaves out.";
+    return "you cleared this extension's storage, so it's paused. when you resume, every site Safari allows goes into your journal, except what you've left out in the solstone app.";
   }
 
   function stopResultCopy(brand, code) {
@@ -156,9 +164,9 @@ no analytics. no telemetry. no phone home. nobody counted.`;
 
   function safariStopLine() {
     if (MOBILE) {
-      return "to stop sharing every site, set Other Websites to Ask in Settings, under Apps, Safari, Extensions, solstone. sites set to Allow there stay on.";
+      return "to stop sharing every site, set Other Websites to Ask in Settings, under Apps, Safari, Extensions, solstone.";
     }
-    return "to stop sharing every site, set For other websites to Ask in Safari's website settings. sites set to Allow there stay on.";
+    return "to stop sharing every site, set For other websites to Ask in Safari's website settings.";
   }
 
   // A named site covers every address under it (see hosts.js coversSubdomains).
@@ -275,8 +283,8 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       grantedNote: safari ? (MOBILE ? "in Settings, under Apps, Safari, Extensions, solstone, a site set to Deny stays off." : "a site set to Deny in Safari's website settings stays off.") : "",
       missingTitle: safari ? "allow every website in Safari" : `${bName} isn't allowing every website`,
       missingBody: safari
-        ? "until you allow it, only the sites it already allows are on:"
-        : "only the sites it already allows are on.",
+        ? "until you do, only the sites Safari already allows are on:"
+        : `only the sites ${bName} already allows are on.`,
       steps: safari && MOBILE ? [
         "in Settings, open Apps, then Safari, then Extensions, then solstone.",
         "set Other Websites to Allow.",
@@ -289,11 +297,11 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       allowLabel: safari ? `allow in ${bName}` : "share every site",
       checkLabel: "check again",
       checking: `checking ${bName}\u2026`,
-      nowAllowed: `${bName} now allows every website. every site is on.`,
+      nowAllowed: `${bName} now allows every website. every site is on, except what you leave out.`,
       stillMissing: safari
         ? (MOBILE ? "Safari still isn't allowing every website. set Other Websites to Allow." : "Safari still isn't allowing every website. set For other websites to Allow.")
         : `${bName} still isn't allowing every website.`,
-      declined: `permission declined. only the sites ${bName} already allows are on.`,
+      declined: `permission declined. only the sites ${bName} already allows are on. to add a site, open it, open solstone from your browser's toolbar or extensions menu, and choose add this site.`,
       failedTitle: "couldn't start on your sites",
       failedBody: `something went wrong turning on every site in ${bName}.`,
       retryLabel: "try again",
@@ -351,21 +359,19 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     return `turn them on with ${escapeToken(cmd)}.`;
   }
 
-  function sheetCopy(hostInput, brandInput) {
-    const host = escapeToken(hostInput);
-    const bName = browserName(brandInput);
-    const whole = wholeSite(hostInput);
-    return {
-      title: whole ? `add all ${host} sites and pages?` : `add ${host}?`,
-      what: `${whole ? `on every ${host} site and page` : `on ${host}`}, the solstone extension takes in the page's text and rough layout whenever a tab is open, and all of it goes into your journal: what you can see, what you'd see by scrolling, background tabs, some labels meant for screen readers, text the page has but doesn't show you, each page's address, title and time, the sites its links point to. it also takes in whether the tab was in front, whether its window had focus, whether audio or video was playing, the page's language, which browser it is, and how long the tab has been open. never pixels.`,
-      unsent: `that can include words you've typed but haven't sent, and anything the site shows, even something you'd consider secret.`,
-      destinationLabel: `it goes to`,
-      destination: `your journal, through the solstone app on ${PLACE}`,
-      destinationDetail: `nothing leaves this browser except to the solstone app on ${PLACE}.${MOBILE ? ` ${MOBILE_WHILE_CLOSED}` : ""}`,
-      browser: `${bName} will ask you to allow this next.${MOBILE ? " choose Always Allow so it keeps working when you come back." : ""} you can remove the site any time; what's already in your journal stays there.`,
-      confirmLabel: `add this site`,
-      cancelLabel: `cancel`,
-    };
+  const VERSION_ONE_SHARE_NOTE = "sharing every site includes messages on mail and chat sites, and words you've typed but haven't sent, and all of it goes into your journal.";
+
+  function everySiteQuestionBody() {
+    return "every website, including ones you visit later, once your browser allows it. you can leave sites out.";
+  }
+
+  function oneSiteQuestionBody() {
+    return "only the sites you allow. open a site, open solstone from your browser's toolbar or extensions menu, and choose add this site.";
+  }
+
+  function alreadyAllowedBody(brand) {
+    const browser = browserName(brand);
+    return `${browser} already allows every website, so agreeing shares every site. to choose sites one at a time instead, change that in ${browser} first.`;
   }
 
   const RESTRICTED = /Cannot access|chrome:\/\/|moz-extension:\/\/|about:|Web Store|match pattern/i;
@@ -402,7 +408,13 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     escapeToken,
     browserName,
     WARM_CARD,
+    DESKTOP_DISCLOSURE,
+    MOBILE_DISCLOSURE_EDITS,
     DISCLOSURE_BODY,
+    VERSION_ONE_SHARE_NOTE,
+    everySiteQuestionBody,
+    oneSiteQuestionBody,
+    alreadyAllowedBody,
     LEAVE_OUT_HELP,
     leftOutAnnouncement,
     accessCopy,
@@ -429,7 +441,6 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     linuxCantReachAppReason,
     linuxIntakeOffReason,
     linuxStep1IntakeOffBody,
-    sheetCopy,
     classifyFailure,
     addHelp,
     leftOutSummary,

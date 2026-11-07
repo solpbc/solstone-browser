@@ -6,7 +6,6 @@
 
   const Status = globalThis.SolstoneStatus;
   const Failures = globalThis.SolstoneFailures;
-  const Disclosure = globalThis.SolstoneDisclosure;
   if (globalThis.SolstoneCopy?.MOBILE === true) document.documentElement.classList.add("mobile");
   const View = globalThis.SolstonePopupView;
   const Actions = globalThis.SolstoneActions;
@@ -63,9 +62,6 @@
 
   let state = null;
   let page = { origin: "", host: "", ok: false, kind: "" };
-  let disclosureResolve = null;
-  let disclosureConfirm = null;
-  let previousActiveElement = null;
   let paintSequence = 0;
   let appliedCaptureEpoch = -1;
   // What the popup shows of the app connection, with the toolbar's timing.
@@ -207,10 +203,7 @@
       else showActionMessage(Copy.removedAnnouncement(named));
       return;
     }
-    const result = await View.addSite(Hosts.chosenOrigin(page.origin) || page.origin || page.host, Object.assign(siteEffects(), {
-      disclose: presentDisclosure,
-      skipSheet: Copy.MOBILE === true,
-    }));
+    const result = await View.addSite(Hosts.chosenOrigin(page.origin) || page.origin || page.host, siteEffects());
     if (result.cancelled) return;
     if (result.denied) {
       const blocked = result.blockedBy ? Copy.addBlockedBelow(state?.brand, Hosts.matchHostFor(page.host), result.blockedBy) : "";
@@ -227,10 +220,9 @@
     $("pageLearn").hidden = !adding;
     $("pageHint").hidden = !adding || section.siteAction.disabled === true;
     if (!adding) return;
-    const copy = Disclosure.addSite(section.host, state);
-    $("pageLearnWhat").textContent = copy.what;
-    $("pageLearnUnsent").textContent = copy.unsent;
-    $("pageLearnWhere").textContent = copy.destinationDetail;
+    $("pageLearnWhat").textContent = globalThis.SolstoneCopy.DISCLOSURE_BODY;
+    $("pageLearnUnsent").textContent = "";
+    $("pageLearnWhere").textContent = "";
   }
 
   function renderPage(section) {
@@ -282,45 +274,6 @@
   function renderSiteCount(section) {
     $("siteCount").hidden = !section;
     if (section) $("siteCountText").textContent = section.text;
-  }
-
-  function closeDisclosure(confirmed) {
-    if (!disclosureResolve) return;
-    // Runs inside the confirming click, before anything else, so the
-    // browser's permission prompt opens from the owner's gesture.
-    const confirm = disclosureConfirm;
-    disclosureConfirm = null;
-    const outcome = confirmed && confirm ? confirm() : confirmed;
-    $("disclosure").hidden = true;
-    $("popupMain").hidden = false;
-    $("popupFooter").hidden = false;
-    const resolve = disclosureResolve;
-    disclosureResolve = null;
-    if (previousActiveElement && typeof previousActiveElement.focus === "function") {
-      previousActiveElement.focus();
-    }
-    resolve(outcome);
-  }
-
-  function presentDisclosure(host, confirm = null) {
-    previousActiveElement = document.activeElement;
-    disclosureConfirm = typeof confirm === "function" ? confirm : null;
-    const copy = Disclosure.addSite(host, state);
-    $("disclosureTitle").textContent = copy.title;
-    $("disclosureWhat").textContent = copy.what;
-    $("disclosureUnsent").textContent = copy.unsent;
-    $("disclosureDestination").textContent = copy.destination;
-    $("disclosureDestinationDetail").textContent = copy.destinationDetail;
-    $("disclosureChrome").textContent = copy.browser;
-    $("disclosureConfirm").textContent = copy.confirmLabel;
-    $("disclosureCancel").textContent = copy.cancelLabel;
-    $("popupMain").hidden = true;
-    $("popupFooter").hidden = true;
-    $("disclosure").hidden = false;
-    $("disclosureConfirm").focus();
-    return new Promise((resolve) => {
-      disclosureResolve = resolve;
-    });
   }
 
   function childById(parent, id) {
@@ -410,6 +363,8 @@
       for (const spec of question.buttons || []) {
         const button = document.createElement("button");
         button.type = "button";
+        button.id = spec.id;
+        button.dataset.shareId = spec.id;
         button.textContent = spec.label;
         button.className = spec.primary ? "primary" : "";
         button.addEventListener("click", () => runAction({ id: spec.id, label: spec.label, primary: spec.primary, shown: question.shown }));
@@ -480,7 +435,6 @@
     await paint(nextState, sequence);
   }
 
-  $("disclosureConfirm").addEventListener("click", () => closeDisclosure(true));
   $("aboutCopy").addEventListener("click", async () => {
     const displayed = $("aboutBlock").textContent;
     try {
@@ -495,10 +449,6 @@
         $("aboutMessage").textContent = "couldn't copy. select the text and copy it.";
       }
     }
-  });
-  $("disclosureCancel").addEventListener("click", () => closeDisclosure(false));
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !$("disclosure").hidden) closeDisclosure(false);
   });
   if (globalThis.SolstoneCopy?.MOBILE === true) $("allSitesLink").textContent = "settings \u203a";
   $("allSitesLink").addEventListener("click", (event) => {

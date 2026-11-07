@@ -55,7 +55,6 @@
       const capturePermitted = status.capturePermitted === true;
       const paused = !!status.paused;
       const pressure = status.pressure || {};
-      const consentVersion = status.consentVersion;
       const updateCheck = status.updateCheck || "pending";
       const behind = status.behind;
       const connected = !!status.connected;
@@ -189,7 +188,7 @@
         });
       }
 
-      if (consentVersion !== 1) {
+      if (status.consentAccepted !== true) {
         items.push({
           layer: 3,
           kind: "consent-needed",
@@ -424,7 +423,7 @@
 
       // Layer 7: Active Capture
       const effectiveGateOpen = hostCapture === "permitted" && capturePermitted && custody?.full !== true &&
-        consentVersion === 1 && !paused && !pressure?.active;
+        status.consentAccepted === true && !paused && !pressure?.active;
 
       const layers0to4Clear = !items.some((it) => it.layer >= 0 && it.layer <= 4);
 
@@ -659,7 +658,7 @@
         ? globalThis.SolstoneHosts?.originCoveredBy?.(entry, origin, exactOnly, siteWide)
         : (globalThis.SolstoneHosts?.hostCovers ? globalThis.SolstoneHosts.hostCovers(host, new URL(origin).hostname) : false))));
     const leaseOpen = !!status.lease && Number(status.lease.freshnessMs) > 0;
-    const gateOpenFor = (granted) => granted && status.capturePermitted === true && leaseOpen && status.consentVersion === 1 &&
+    const gateOpenFor = (granted) => granted && status.capturePermitted === true && leaseOpen && status.consentAccepted === true &&
       !status.paused && !status.pressure?.active && status.hostCapture === "permitted" && status.custody?.full !== true;
     const leftOutList = (status.excludedHosts || []).concat(status.appLeftOut || []);
     const coveringSite = host && leftOutList.find((site) => globalThis.SolstoneHosts?.hostCovers ? globalThis.SolstoneHosts.hostCovers(site, host) : false);

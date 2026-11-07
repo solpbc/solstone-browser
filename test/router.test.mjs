@@ -204,10 +204,12 @@ test("router: extension page commands execute when sender is extension page", as
   assert.deepEqual(addRes, { ok: true, origin: "https://mail.google.com" });
   assert.equal(port.grantedOrigins.has("https://mail.google.com"), true);
 
-  const ackRes = await Router.route({ cmd: "acknowledgeDisclosure", version: 1 }, sender, { runtimeId: EXT_ID, port, confirmRealm });
+  await DB.put("meta", 1, "consentVersion");
+  const ackRes = await Router.route({ cmd: "acknowledgeDisclosure", version: 9 }, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.deepEqual(ackRes, { ok: true, consentVersion: 1 });
   const storedConsent = await DB.get("meta", "consentVersion");
   assert.equal(storedConsent, 1);
+  assert.equal(port.fence, null);
 
   const pauseRes = await Router.route({ cmd: "setPaused", paused: true }, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.deepEqual(pauseRes, { ok: true, paused: true, saved: true });
@@ -1501,15 +1503,25 @@ test("router: acknowledgeDisclosure writes consent and does not change fence ent
     exactKnown: true,
   };
   port.livePatterns = ["*://*.example.com/*"];
+  const excludedGen = port.excludedGen;
 
   const res = await Router.route(
     { cmd: "acknowledgeDisclosure", version: 1 },
     extSender,
-    { runtimeId: EXT_ID, port, confirmRealm }
+    {
+      runtimeId: EXT_ID,
+      port,
+      confirmRealm,
+      // A non-array read keeps the fence. It must not rewrite livePatterns.
+      beginRead: async () => ({ unavailable: true }),
+    }
   );
-  assert.deepEqual(res, { ok: true, consentVersion: 1 });
-  assert.equal(port.consentVersion, 1);
-  assert.equal(await DB.get("meta", "consentVersion"), 1);
+  assert.equal(res.ok, false);
+  assert.equal(res.result, "agreed_fence_kept");
+  assert.equal(res.consentVersion, 2);
+  assert.equal(port.consentVersion, 2);
+  assert.equal(await DB.get("meta", "consentVersion"), 2);
+  assert.equal(port.excludedGen, excludedGen);
 
   // fence entries and livePatterns unchanged
   assert.deepEqual(port.fence.entries, ["https://example.com"]);

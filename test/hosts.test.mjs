@@ -367,6 +367,31 @@ test("finishFence turns covered declined hosts into left-out and leaves the inpu
   assert.deepEqual(fence.declined, ["bank.com", "other.test"]);
 });
 
+test("pin: clean reads 59999 ms apart keep the fence and 60000 ms apart end it", () => {
+  const patterns = ["*://*.bank.com/*"];
+  const wall = 1_000_000;
+  function fresh() {
+    return {
+      entries: ["https://bank.com"],
+      exact: [],
+      exactKnown: true,
+      siteWide: [],
+      declined: [],
+      answered: false,
+      sawMore: false,
+      cleanAt: null,
+    };
+  }
+  const shortFirst = H.applySnapshotToFence(fresh(), patterns, { wallNow: wall });
+  const shortLater = H.applySnapshotToFence(shortFirst.fence, patterns, { wallNow: wall + 59999 });
+  assert.equal(shortFirst.ended, false);
+  assert.equal(shortLater.ended, false);
+  assert.ok(shortLater.fence);
+  const longFirst = H.applySnapshotToFence(fresh(), patterns, { wallNow: wall });
+  const longLater = H.applySnapshotToFence(longFirst.fence, patterns, { wallNow: wall + 60000 });
+  assert.equal(longLater.ended, true);
+});
+
 test("admitFenceOrigin clears a declined parent, keeps an exact mark, and skips a join that stays unread", () => {
   const fence = {
     entries: ["https://bank.com"],

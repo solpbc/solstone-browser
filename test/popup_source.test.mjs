@@ -79,11 +79,9 @@ test("the empty loss block and its competing predicates are gone", () => {
   assert.doesNotMatch(`${html}\n${popupSource}`, /lossBtn|lossText|id=["']loss["']|dropped\.segments\s*>/);
 });
 
-test("the page add binding routes through the disclosure-gated add flow", () => {
-  assert.match(
-    popupSource,
-    /View\.addSite\((?:Hosts\.chosenOrigin\(page\.origin\) \|\| )?(?:page\.origin \|\| )?page\.host,\s*Object\.assign\(siteEffects\(\),\s*\{\s*disclose:\s*presentDisclosure,?/s,
-  );
+test("the page add binding asks the browser from the add click", () => {
+  assert.match(popupSource, /View\.addSite\(/);
+  assert.doesNotMatch(popupSource, /disclose:|skipSheet/);
 });
 
 class FakeNode {
@@ -94,7 +92,7 @@ class FakeNode {
     this.textContent = "";
     this.hidden = false;
     this.disabled = false;
-    this.onclick = null;
+    this._onclick = null;
     this.listeners = {};
     this.scrolledIntoView = 0;
   }
@@ -116,10 +114,18 @@ class FakeNode {
   }
 
   focus() {}
+
+  get onclick() {
+    return this._onclick;
+  }
+
+  set onclick(listener) {
+    this._onclick = typeof listener === "function" ? armClick(listener) : listener;
+  }
 }
 
 function popupState(overrides = {}) {
-  return Object.assign({
+  const next = Object.assign({
     inst: "00112233-4455-6677-8899-aabbccddeeff",
     captureEpoch: 1,
     everConnected: true,
@@ -148,6 +154,10 @@ function popupState(overrides = {}) {
     capturePermitted: true,
     addSiteEligible: true,
   }, overrides);
+  if (!Object.hasOwn(overrides, "consentAccepted")) {
+    next.consentAccepted = next.consentVersion === 1 || next.consentVersion === 2;
+  }
+  return next;
 }
 
 test("the popup binder keeps refresh and add-action failure paths honest", async (t) => {
@@ -178,6 +188,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   let tabQuery = async () => [{ id: 7, url: "https://mail.google.com/inbox" }];
   let handleCommand = () => ({ ok: true });
   let permissionRequests = 0;
+  let permissionAnswer = true;
   let optionsOpened = 0;
   let statusListener = null;
   let disconnectListener = null;
@@ -214,7 +225,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
     permissions: {
       request: pageGestureRequest(async () => {
         permissionRequests += 1;
-        return true;
+        return permissionAnswer;
       }),
       contains: async () => true,
     },
@@ -308,21 +319,12 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
 
   let before = sent.length;
   let permissionsBefore = permissionRequests;
-  const cancelled = nodes.pageSiteAction.onclick();
-  assert.equal(nodes.disclosure.hidden, false);
-  nodes.disclosureCancel.listeners.click();
-  await cancelled;
+  permissionAnswer = false;
+  const declined = nodes.pageSiteAction.onclick();
+  assert.equal(permissionRequests, permissionsBefore + 1);
+  await declined;
   assert.deepEqual(mutationCommands(sent.slice(before)), []);
-  assert.equal(permissionRequests, permissionsBefore);
-
-  before = sent.length;
-  permissionsBefore = permissionRequests;
-  const escaped = nodes.pageSiteAction.onclick();
-  assert.equal(nodes.disclosure.hidden, false);
-  documentListeners.keydown({ key: "Escape" });
-  await escaped;
-  assert.deepEqual(mutationCommands(sent.slice(before)), []);
-  assert.equal(permissionRequests, permissionsBefore);
+  permissionAnswer = true;
 
   const rawRegistrationError = "Cannot access contents of url https://mail.google.com/";
   let pauseError = "";
@@ -344,7 +346,6 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
 
   const scrolledBefore = nodes.actionMessage.scrolledIntoView;
   const failedAdd = nodes.pageSiteAction.onclick();
-  nodes.disclosureConfirm.listeners.click();
   await failedAdd;
   assert.equal(nodes.actionMessage.textContent, "Chrome doesn't let extensions work on this page");
   // The message sits at the end of a popup that scrolls: it's brought into view.
@@ -561,6 +562,7 @@ test("popup: cleared notice from getStatus is first, including when consent is 0
       this.textContent = "";
       this.hidden = false;
       this.disabled = false;
+      this.dataset = {};
       this.listeners = {};
       this.parentNode = null;
     }

@@ -37,7 +37,7 @@ const PortController = globalThis.SolstoneNativePort;
 const Outbox = globalThis.SolstoneNativeOutbox;
 const Status = globalThis.SolstoneStatus;
 
-const VERSION = "0.5.9";
+const VERSION = "0.5.10";
 const ALARM_NAME = "native-port";
 
 const CONTENT_SCRIPT_FILES = [
@@ -99,6 +99,9 @@ function formatCfg(stored) {
   }
   if (stored.clearedNotice === true) {
     res.clearedNotice = true;
+  }
+  if (stored.firstRunAnswered === true) {
+    res.firstRunAnswered = true;
   }
   if (stored.fence) {
     res.fence = {
@@ -666,6 +669,7 @@ function clearedSafariCfg() {
     clearedNotice: true,
     siteGrant: "live",
     startup: "cleared",
+    firstRunAnswered: true,
     fence: null,
     excludedHosts: [],
     appLeftOut: [],
@@ -789,7 +793,8 @@ async function applySnapshot(applied, tombstoneFiltered, options = {}) {
       tombstoneFiltered,
       leftOutHosts: Array.from(new Set([...(port.excludedHosts || []), ...(port.appLeftOut || [])])),
     });
-    if (res.ended) {
+    const holdCleanEnd = port.agreementRules === "chrome" && port.consentVersion === 1;
+    if (res.ended && !holdCleanEnd) {
       const finished = H.finishFence(res.fence, applied, port.excludedHosts);
       nextFence = finished.fence;
       nextExcluded = finished.excludedHosts;
@@ -897,6 +902,27 @@ function beginRead() {
   return run;
 }
 
+function decideAgreementRules(safariKnown) {
+  if (safariKnown === true) return Promise.resolve("safari");
+  const getInfo = globalThis.browser?.runtime?.getBrowserInfo;
+  if (typeof getInfo !== "function") return Promise.resolve("chrome");
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (rules) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(rules);
+    };
+    const timer = setTimeout(() => finish("chrome"), 2000);
+    Promise.resolve().then(() => getInfo()).then((info) => {
+      finish(info && info.name === "Firefox" ? "firefox" : "chrome");
+    }, () => {
+      finish("chrome");
+    });
+  });
+}
+
 async function doInit() {
   await chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 });
 
@@ -913,6 +939,8 @@ async function doInit() {
     }
   }
 
+  const rulesPromise = decideAgreementRules(safari);
+
   let inst = await DB.get("meta", "inst");
   if (!inst) {
     const random = new Uint8Array(10);
@@ -927,7 +955,7 @@ async function doInit() {
   }
 
   let consentVersion = (await DB.get("meta", "consentVersion")) || 0;
-  const consentCurrent = consentVersion === globalThis.SolstoneCaptureGate.CONSENT_VERSION;
+  const consentCurrent = globalThis.SolstoneCaptureGate.consentAccepted(consentVersion) === true;
 
   const rawStorage = await chrome.storage.local.get("cfg");
   const rawCfg = rawStorage.cfg;
@@ -963,11 +991,9 @@ async function doInit() {
         decidedFence = null;
         decidedSiteGrant = "live";
       } else if (!getAllThrew && getAllOrigins && getAllOrigins.length > 0 && safari) {
-        decidedStartup = "cleared";
+        decidedStartup = "fresh";
         decidedFence = null;
         decidedSiteGrant = "live";
-        decidedPaused = true;
-        decidedClearedNotice = true;
       } else if (!getAllThrew && getAllOrigins && getAllOrigins.length > 0 && !safari) {
         decidedStartup = "existing";
         decidedSiteGrant = "live";
@@ -1014,6 +1040,7 @@ async function doInit() {
     };
     if (decidedPaused) patchToPersist.paused = true;
     if (decidedClearedNotice) patchToPersist.clearedNotice = true;
+    if (decidedStartup === "existing") patchToPersist.firstRunAnswered = true;
 
     try {
       const mergedCfg = Object.assign({}, rawCfg || {}, patchToPersist);
@@ -1028,12 +1055,17 @@ async function doInit() {
     }
   }
 
-  if (globalThis.SolstoneCopy?.MOBILE === true && consentVersion !== globalThis.SolstoneCaptureGate.CONSENT_VERSION) {
+  const rules = await rulesPromise;
+  if ((rules === "safari" || rules === "firefox") && !globalThis.SolstoneCaptureGate.consentAccepted(consentVersion)) {
     consentVersion = globalThis.SolstoneCaptureGate.CONSENT_VERSION;
     await DB.put("meta", consentVersion, "consentVersion");
   }
 
   const cfg = await getCfg();
+  if (rawCfg?.siteGrant === "live" && (cfg.startup === "existing" || cfg.startup === "cleared") && cfg.firstRunAnswered !== true) {
+    await setCfg({ firstRunAnswered: true });
+    cfg.firstRunAnswered = true;
+  }
   const everConnected = !!(await DB.get("meta", "everConnected"));
   const lossNotice = await DB.get("meta", "lossNotice");
   const storedTruncation = await DB.get("meta", "truncationByOrigin");
@@ -1079,10 +1111,12 @@ async function doInit() {
   port.addIntent = cfg.addIntent || null;
   port.broadGrant = H.broadLive(port.livePatterns);
   port.consentVersion = consentVersion;
+  port.agreementRules = rules;
+  port.firstRunAnswered = cfg.firstRunAnswered === true;
   port.lossNotice = lossNotice || null;
   port.everConnected = everConnected;
   port.paused = safariClearedFailed ? true : cfg.paused;
-  port.clearedNotice = !safariClearedFailed && cfg.paused === false ? false : !!cfg.clearedNotice;
+  port.clearedNotice = safariClearedFailed ? true : (cfg.paused === false ? false : !!cfg.clearedNotice);
   port.showPageIndicator = cfg.showPageIndicator;
   port.pauseWithApp = cfg.pauseWithApp !== false;
   port.excludedHosts = cfg.excludedHosts;

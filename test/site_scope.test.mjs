@@ -86,10 +86,10 @@ test("exactScope: a port doesn't change which site it is", () => {
 function addEffects({ granted = false, live = [], added = { ok: true }, getAll = true } = {}) {
   const calls = [];
   const effects = {
-    status: { consentVersion: 1, addSiteEligible: true },
+    status: { consentVersion: 1, consentAccepted: true, addSiteEligible: true },
     cmd: async (message) => {
       calls.push(message.cmd);
-      if (message.cmd === "getState") return { consentVersion: 1, addSiteEligible: true };
+      if (message.cmd === "getState") return { consentVersion: 1, consentAccepted: true, addSiteEligible: true };
       if (message.cmd === "addGrantedOrigin") return added;
       return { ok: true };
     },
@@ -142,7 +142,7 @@ test("grantSite still asks the browser before reading its grants", async () => {
   const { effects, calls } = addEffects({ granted: false, live: ["*://*.x.pair.test/*"] });
   const original = effects.getAllPermissions;
   effects.getAllPermissions = async () => { calls.push("getAll"); return original(); };
-  await View.addSite("pair.test", { ...effects, disclose: (_host, confirm) => confirm() });
+  await View.addSite("pair.test", effects);
   assert.ok(calls.indexOf("permission") >= 0 && calls.indexOf("permission") < calls.indexOf("getAll"), calls.join(","));
 });
 

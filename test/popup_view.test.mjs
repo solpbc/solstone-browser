@@ -44,8 +44,13 @@ function state(overrides = {}) {
     updateCheck: "no-update",
     capturePermitted: true,
     addSiteEligible: true,
+    consentAccepted: true,
   };
-  return Object.assign(base, overrides);
+  const next = Object.assign(base, overrides);
+  if (!Object.hasOwn(overrides, "consentAccepted")) {
+    next.consentAccepted = next.consentVersion === 1 || next.consentVersion === 2;
+  }
+  return next;
 }
 
 function derived(overrides = {}) {
@@ -132,38 +137,35 @@ test("arrange preserves exact origins and exposes truncation as a separate atten
   assert.equal(httpPage.state, "not added");
 });
 
-test("addSite goes straight to the browser's prompt when told to skip the sheet", async () => {
+test("addSite asks the browser without a sheet", async () => {
   const calls = [];
   const result = await View.addSite("second.example", {
-    status: { consentVersion: 1, addSiteEligible: true },
-    skipSheet: true,
-    disclose: async () => { calls.push(["disclose"]); return { ok: false }; },
+    status: { consentAccepted: true, addSiteEligible: true, fence: null },
     cmd: async (message) => {
       calls.push([message.cmd]);
-      if (message.cmd === "getState") return { consentVersion: 1, addSiteEligible: true };
+      if (message.cmd === "getState") return { consentAccepted: true, addSiteEligible: true };
       return { ok: true };
     },
     requestPermission: async () => { calls.push(["permission"]); return true; },
   });
   assert.equal(result.ok, true);
-  assert.equal(calls.some(([name]) => name === "disclose"), false);
+  assert.equal(calls.some(([name]) => name === "intendAddOrigin"), false);
   assert.ok(calls.some(([name]) => name === "permission"));
 });
 
-test("addSite confirms before intent and permission in exact order", async () => {
+test("grantSite with a fence calls intendAddOrigin before the permission request", async () => {
   const calls = [];
-  const result = await View.addSite("mail.google.com", {
-    status: { consentVersion: 1, addSiteEligible: true },
-    disclose: async (host, confirm) => { calls.push(["disclose", host]); return confirm(); },
+  const fence = { entries: [], exact: [], siteWide: [] };
+  const result = await View.grantSite("mail.google.com", {
+    status: { consentAccepted: true, addSiteEligible: true, fence, livePatterns: [] },
     cmd: async (message) => {
       calls.push([message.cmd, message.origin || message.host]);
-      if (message.cmd === "getState") return { consentVersion: 1, addSiteEligible: true };
+      if (message.cmd === "getState") return { consentAccepted: true, addSiteEligible: true };
       return { ok: true };
     },
     requestPermission: async (request) => { calls.push(["permission", request.origins[0]]); return true; },
   });
   assert.deepEqual(calls, [
-    ["disclose", "mail.google.com"],
     ["intendAddOrigin", "https://mail.google.com"],
     ["permission", "*://*.mail.google.com/*"],
     ["getState", undefined],
@@ -172,69 +174,40 @@ test("addSite confirms before intent and permission in exact order", async () =>
   assert.deepEqual(result, { ok: true });
 });
 
-test("addSite from a page origin names the host on the sheet and grants the origin", async () => {
+test("grantSite without a fence does not call intendAddOrigin", async () => {
   const calls = [];
-  const result = await View.addSite("https://httpbin.org", {
-    status: { consentVersion: 1, addSiteEligible: true },
-    disclose: async (host, confirm) => { calls.push(["disclose", host]); return confirm(); },
+  await View.grantSite("https://httpbin.org", {
+    status: { consentAccepted: true, addSiteEligible: true, fence: null },
     cmd: async (message) => {
-      calls.push([message.cmd, message.origin]);
-      if (message.cmd === "getState") return { consentVersion: 1, addSiteEligible: true };
-      return { ok: true };
-    },
-    requestPermission: async (request) => { calls.push(["permission", request.origins[0]]); return true; },
-  });
-  assert.deepEqual(calls, [
-    ["disclose", "httpbin.org"],
-    ["intendAddOrigin", "https://httpbin.org"],
-    ["permission", "*://*.httpbin.org/*"],
-    ["getState", undefined],
-    ["addGrantedOrigin", "https://httpbin.org"],
-  ]);
-  assert.deepEqual(result, { ok: true });
-});
-
-test("addSite asks the browser inside the sheet's confirming click", async () => {
-  // Firefox honours a permission request only while the click is being handled,
-  // so the request has to start before confirm returns.
-  const calls = [];
-  const result = await View.addSite("bank.example", {
-    status: { consentVersion: 1, addSiteEligible: true },
-    disclose: (_host, confirm) => {
-      const outcome = confirm();
-      calls.push("confirm returned");
-      return Promise.resolve(outcome);
-    },
-    cmd: async (message) => {
-      if (message.cmd === "getState") return { consentVersion: 1, addSiteEligible: true };
+      calls.push(message.cmd);
+      if (message.cmd === "getState") return { consentAccepted: true };
       return { ok: true };
     },
     requestPermission: async () => { calls.push("permission"); return true; },
   });
-  assert.deepEqual(calls, ["permission", "confirm returned"]);
-  assert.deepEqual(result, { ok: true });
+  assert.equal(calls.includes("intendAddOrigin"), false);
+  assert.ok(calls.includes("permission"));
+  assert.ok(calls.indexOf("permission") < calls.indexOf("getState"));
 });
 
-test("an unconfirmed add reaches no mutation or permission effect", async () => {
+test("an ineligible add reaches no permission effect", async () => {
   const calls = [];
   const result = await View.addSite("new.example", {
-    status: { consentVersion: 1, addSiteEligible: true },
-    disclose: async () => { calls.push("disclose"); return false; },
+    status: { consentAccepted: false, addSiteEligible: true },
     cmd: async () => { calls.push("mutation"); },
     requestPermission: async () => { calls.push("permission"); },
   });
-  assert.deepEqual(result, { ok: false, cancelled: true });
-  assert.deepEqual(calls, ["disclose"]);
+  assert.equal(result.ineligible, true);
+  assert.deepEqual(calls, []);
 });
 
 test("a declined grant clears add intent", async () => {
   const calls = [];
   const result = await View.addSite("example.com", {
-    status: { consentVersion: 1, addSiteEligible: true },
-    disclose: async (_host, confirm) => confirm(),
+    status: { consentAccepted: true, addSiteEligible: true, fence: { entries: [] }, livePatterns: [] },
     cmd: async (message) => {
       calls.push(message.cmd);
-      return { ok: true };
+      return { ok: true, consentAccepted: true };
     },
     requestPermission: async () => false,
   });
@@ -245,9 +218,10 @@ test("a declined grant clears add intent", async () => {
 test("grantSite sends intendAddOrigin before permission and checks eligibility", async () => {
   const calls = [];
   const result = await View.grantSite("example.com", {
+    status: { consentAccepted: true, addSiteEligible: true, fence: { entries: [] }, livePatterns: [] },
     cmd: async (message) => {
       calls.push(message.cmd);
-      if (message.cmd === "getState") return { consentVersion: 1, addSiteEligible: true };
+      if (message.cmd === "getState") return { consentAccepted: true, addSiteEligible: true };
       return { ok: true };
     },
     requestPermission: async () => { calls.push("permission"); return true; },
@@ -426,15 +400,16 @@ test("one scheme is not every site, and a covering grant keeps its row", () => {
   assert.equal(bankCount.text, "1 site");
 });
 
-test("grantSite succeeds post-grant with consentVersion === 1 even if addSiteEligible is false post-grant", async () => {
+test("grantSite succeeds post-grant when consent stays accepted even if addSiteEligible is false", async () => {
   const calls = [];
   let postGrant = false;
   const result = await View.grantSite("example.com", {
+    status: { consentAccepted: true, addSiteEligible: true, fence: { entries: [] }, livePatterns: [] },
     cmd: async (message) => {
       calls.push(message.cmd);
       if (message.cmd === "getState") {
-        if (!postGrant) return { consentVersion: 1, addSiteEligible: true };
-        return { consentVersion: 1, addSiteEligible: false };
+        if (!postGrant) return { consentAccepted: true, addSiteEligible: true };
+        return { consentAccepted: true, addSiteEligible: false };
       }
       return { ok: true };
     },
@@ -447,9 +422,10 @@ test("grantSite succeeds post-grant with consentVersion === 1 even if addSiteEli
 test("consent revoked during the permission await does not call addGrantedOrigin", async () => {
   const calls = [];
   const result = await View.grantSite("example.com", {
+    status: { consentAccepted: true, addSiteEligible: true, fence: { entries: [] }, livePatterns: [] },
     cmd: async (message) => {
       calls.push(message.cmd);
-      if (message.cmd === "getState") return { consentVersion: 0 };
+      if (message.cmd === "getState") return { consentVersion: 0, consentAccepted: false };
       return { ok: true };
     },
     requestPermission: async () => {
@@ -546,7 +522,7 @@ test("on a phone the popup is one site, one action and one row: the rest needs t
     }
     return context.SolstonePopupView;
   };
-  const state = { brand: "safari", consentVersion: 1, addSiteEligible: true, hostCapture: "permitted", capturePermitted: true,
+  const state = { brand: "safari", consentVersion: 1, consentAccepted: true, addSiteEligible: true, hostCapture: "permitted", capturePermitted: true,
     connected: true, handshake: "ready", everConnected: true, connectionGeneration: 1, siteMode: "selected", chosenOrigins: [], grantedOrigins: [],
     lease: { token: "t", generation: "g", receivedAt: 1, freshnessMs: 5000, standing: true }, custody: { full: false }, pressure: {} };
   const page = { origin: "https://eff.org", host: "eff.org", ok: true, kind: "web" };
@@ -569,18 +545,13 @@ test("on a phone the popup is one site, one action and one row: the rest needs t
   assert.equal(section(onMac, "page").siteSecondary.id, "leave-out");
 });
 
-test("no phone add passes through a sheet, from the popup or from settings", () => {
+test("a phone add uses grantSite and does not pass through a sheet", () => {
   const popup = readFileSync(new URL("../extension/popup.js", import.meta.url), "utf8");
   const options = readFileSync(new URL("../extension/options.js", import.meta.url), "utf8");
-  assert.match(popup, /skipSheet: Copy\.MOBILE === true,/);
-  assert.match(options, /skipSheet: Copy\.MOBILE === true \}/);
-});
-
-test("a phone's description doesn't mention a choice the phone doesn't offer", () => {
-  const context = vm.createContext({ navigator: { userAgent: "Mozilla/5.0 (iPhone)", platform: "iPhone", maxTouchPoints: 5 } });
-  vm.runInContext(readFileSync(new URL("../extension/lib/copy.js", import.meta.url), "utf8"), context);
-  assert.doesNotMatch(context.SolstoneCopy.DISCLOSURE_BODY, /all sites|leave sites out|sites you leave out/);
-  assert.match(context.SolstoneCopy.DISCLOSURE_BODY, /you add sites one at a time\./);
+  assert.match(popup, /View\.addSite\(/);
+  assert.match(options, /View\.addSite\(/);
+  assert.doesNotMatch(popup, /disclose:|skipSheet/);
+  assert.doesNotMatch(options, /disclose:|skipSheet/);
 });
 
 test("popup_view: fenced every-site, upgrade questions, and permissionsUnavailable", () => {
@@ -645,4 +616,69 @@ test("popup_view: fenced every-site, upgrade questions, and permissionsUnavailab
     .find((s) => s.id === "page");
   assert.equal(stillPlain.state, "not added");
   assert.equal(stillPlain.siteAction?.id, "add-site");
+});
+
+test("agreement page: canAdd follows consentAccepted", () => {
+  const st = state({
+    consentVersion: 2,
+    consentAccepted: true,
+    addSiteEligible: true,
+    livePatterns: ["*://*.example.com/*"],
+    fence: null,
+  });
+  const page = View.arrange(derived(), st, { origin: "https://news.example", host: "news.example", ok: true, kind: "web" })
+    .find((section) => section.id === "page");
+  assert.equal(page.siteAction.id, "add-site");
+  assert.equal(page.siteAction.disabled, false);
+});
+
+test("agreement page: site count follows consentAccepted", () => {
+  const st = state({
+    consentVersion: 2,
+    consentAccepted: true,
+    livePatterns: ["*://*.example.com/*"],
+    fence: null,
+  });
+  const count = View.arrange(derived(), st, { origin: "https://example.com", host: "example.com", ok: true })
+    .find((section) => section.id === "siteCount");
+  assert.ok(count);
+});
+
+test("agreement page: grantSite refuses before the prompt when consent is not accepted", async () => {
+  const calls = [];
+  const result = await View.grantSite("news.example", {
+    status: { consentVersion: 2, consentAccepted: false, addSiteEligible: true, fence: null, livePatterns: [] },
+    cmd: async (message) => { calls.push(message.cmd); return { ok: true }; },
+    requestPermission: async (request) => { calls.push(request); return true; },
+  });
+  assert.equal(result.ineligible, true);
+  assert.equal(calls.length, 0);
+});
+
+test("agreement page: grantSite refuses after the prompt when consent is not accepted", async () => {
+  const calls = [];
+  const result = await View.grantSite("news.example", {
+    status: { consentVersion: 2, consentAccepted: true, addSiteEligible: true, fence: null, livePatterns: [] },
+    cmd: async (message) => {
+      calls.push(message.cmd);
+      if (message.cmd === "getState") return { ok: true, consentVersion: 2, consentAccepted: false };
+      return { ok: true };
+    },
+    requestPermission: async () => { calls.push("request"); return true; },
+  });
+  assert.equal(result.ineligible, true);
+  assert.equal(calls.includes("request"), true);
+  assert.equal(calls.includes("addGrantedOrigin"), false);
+});
+
+test("agreement page: addSite cancels when consent is not accepted", async () => {
+  const calls = [];
+  const result = await View.addSite("news.example", {
+    status: { consentVersion: 2, consentAccepted: false, addSiteEligible: true, fence: null, livePatterns: [] },
+    cmd: async (message) => { calls.push(message.cmd); return { ok: true }; },
+    requestPermission: async () => { calls.push("request"); return true; },
+  });
+  assert.equal(result.cancelled, true);
+  assert.equal(result.ineligible, true);
+  assert.equal(calls.includes("request"), false);
 });

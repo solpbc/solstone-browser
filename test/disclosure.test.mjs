@@ -11,18 +11,6 @@ await import(new URL("../extension/lib/disclosure.js", import.meta.url));
 const D = globalThis.SolstoneDisclosure;
 const C = globalThis.SolstoneCopy;
 
-test("addSite produces structured sheet copy from SolstoneCopy", () => {
-  const sheet = D.addSite("mail.google.com", { brand: "chrome" });
-  assert.equal(sheet.title, "add mail.google.com?");
-  assert.ok(sheet.what.includes("mail.google.com"));
-  assert.ok(sheet.what.includes("never pixels"));
-  assert.equal(sheet.destination, "your journal, through the solstone app on this computer");
-  assert.equal(sheet.destinationDetail, "nothing leaves this browser except to the solstone app on this computer.");
-  assert.ok(sheet.browser.includes("Chrome will ask you to allow this next"));
-  assert.equal(sheet.confirmLabel, "add this site");
-  assert.equal(sheet.cancelLabel, "cancel");
-});
-
 test("firstRun returns kinship and disclosure body", () => {
   const firstRun = D.firstRun({});
   assert.deepEqual(firstRun.kinship, C.WARM_CARD);
@@ -34,14 +22,30 @@ test("disclosure helpers do not mutate caller state", () => {
     brand: "chrome",
   });
   D.firstRun(state);
-  D.addSite("mail.example", state);
   assert.deepEqual(state, {
     brand: "chrome",
   });
 });
 
-test("the disclosure consent version stays at 1", () => {
-  assert.equal(globalThis.SolstoneCaptureGate.CONSENT_VERSION, 1);
+test("consentAccepted is true for stored 1 and 2 and false for 0 and 3", () => {
+  const accepted = globalThis.SolstoneCaptureGate.consentAccepted;
+  assert.equal(accepted(1), true);
+  assert.equal(accepted(2), true);
+  assert.equal(accepted(0), false);
+  assert.equal(accepted(3), false);
+});
+
+test("each mobile disclosure edit changes its input", () => {
+  const edits = C.MOBILE_DISCLOSURE_EDITS;
+  assert.equal(edits.length, 3);
+  let text = C.DESKTOP_DISCLOSURE;
+  for (const edit of edits) {
+    assert.equal(edit.length, 2);
+    assert.notEqual(edit[0], edit[1]);
+    const next = text.replace(edit[0], edit[1]);
+    assert.notEqual(next, text);
+    text = next;
+  }
 });
 
 test("leave-out copy says other sites shown inside a left-out page are still shared", () => {

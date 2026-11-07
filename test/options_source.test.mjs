@@ -58,9 +58,9 @@ test("options applies the shared accessibility and color layer", () => {
   assert.match(html, /\.site-host\s*\{[^}]*overflow-wrap:\s*anywhere/s);
 });
 
-test("options source fixes install opening and disclosure routing", () => {
-  assert.match(optionsSource, /Disclosure\.addSite\(host, state\)/);
-  assert.match(optionsSource, /disclose: presentDisclosure/);
+test("options source fixes install opening and adds a site from the form", () => {
+  assert.match(optionsSource, /View\.addSite\(/);
+  assert.doesNotMatch(optionsSource, /disclose:|skipSheet|Disclosure\.addSite/);
   assert.match(backgroundSource, /onInstalled\.addListener\(\(details\) => \{[\s\S]*details\.reason === "install"[\s\S]*openOptionsPage\(\)[\s\S]*init\(\)/);
   assert.match(backgroundSource, /onStartup\.addListener\(init\)/);
 });
@@ -78,6 +78,7 @@ class FakeNode {
     this.href = undefined;
     this.listeners = {};
     this.dataset = {};
+    this.parentNode = null;
     this.focusCount = 0;
     this.textWrites = 0;
     this._textContent = "";
@@ -94,15 +95,26 @@ class FakeNode {
   }
 
   addEventListener(type, listener) {
-    this.listeners[type] = type === "click" ? armClick(listener) : listener;
+    this.listeners[type] = (type === "click" || type === "submit") ? armClick(listener) : listener;
   }
 
   append(...children) {
-    this.children.push(...children);
+    for (const child of children) {
+      this.children.push(child);
+      if (child) child.parentNode = this;
+    }
   }
 
   appendChild(child) {
-    this.children.push(child);
+    this.append(child);
+    return child;
+  }
+
+  insertBefore(child, before) {
+    const at = before ? this.children.indexOf(before) : -1;
+    if (at >= 0) this.children.splice(at, 0, child);
+    else this.children.push(child);
+    if (child) child.parentNode = this;
   }
 
   replaceChildren(...children) {
@@ -119,7 +131,7 @@ class FakeNode {
 }
 
 function optionsState(overrides = {}) {
-  return Object.assign({
+  const next = Object.assign({
     inst: "00112233-4455-6677-8899-aabbccddeeff",
     captureEpoch: 1,
     everConnected: true,
@@ -148,6 +160,10 @@ function optionsState(overrides = {}) {
     capturePermitted: true,
     addSiteEligible: true,
   }, overrides);
+  if (!Object.hasOwn(overrides, "consentAccepted")) {
+    next.consentAccepted = next.consentVersion === 1 || next.consentVersion === 2;
+  }
+  return next;
 }
 
 test("the options binder drives Welcome mode, disclosure agreement, and Settings mode", async (t) => {
@@ -221,13 +237,15 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
         } else if (message.cmd === "acknowledgeDisclosure") {
           if (ackResponse.ok) {
             liveState = optionsState(Object.assign({}, liveState, {
-              consentVersion: 1,
+              consentVersion: 2,
+              consentAccepted: true,
             }));
           }
           callback(ackResponse);
         } else if (message.cmd === "addGrantedOrigin") {
           liveState = optionsState(Object.assign({}, liveState, {
-            consentVersion: 1,
+            consentVersion: liveState.consentVersion || 2,
+            consentAccepted: true,
             chosenOrigins: ["https://mail.google.com"],
             grantedOrigins: ["https://mail.google.com"],
           }));
@@ -235,7 +253,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
         } else if (message.cmd === "removeGrantedOrigin") {
           if (removeResponse.ok) {
             liveState = optionsState(Object.assign({}, liveState, {
-              consentVersion: 1,
+              consentAccepted: true,
               chosenOrigins: [],
               grantedOrigins: [],
             }));
@@ -276,6 +294,16 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   await new Promise((resolve) => setImmediate(resolve));
 
   const C = globalThis.SolstoneCopy;
+  function findId(node, id) {
+    if (!node) return null;
+    if (node.id === id) return node;
+    for (const child of node.children || []) {
+      const found = findId(child, id);
+      if (found) return found;
+    }
+    return null;
+  }
+  nodes.accessAllow.parentNode = nodes.accessPanel;
 
   // 1. No status yet
   liveState = null;
@@ -317,8 +345,13 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   await globalThis.SolstoneOptions.refresh();
   assert.equal(nodes.step1Heading.textContent, globalThis.SolstoneStatus.welcomeHold(liveState).heading);
   assert.equal(nodes.step1Check.hidden, false);
-  assert.equal(nodes.agreeDisclosureBtn.hidden, false);
-  assert.equal(nodes.agreeDisclosureBtn.textContent, "agree and go on");
+  assert.equal(nodes.welcomeView.dataset.rules, "chrome");
+  assert.equal(nodes.agreeDisclosureBtn.hidden, true);
+  assert.equal(nodes.step3Section.hidden, true);
+  assert.equal(findId(nodes.welcomeView, "firstRunEverySite").dataset.act, "agree");
+  assert.equal(findId(nodes.welcomeView, "firstRunOneSite").dataset.act, "agree");
+  assert.equal(findId(nodes.welcomeView, "firstRunEverySite").hidden, false);
+  assert.equal(findId(nodes.welcomeView, "firstRunOneSite").hidden, false);
   assert.equal(nodes.step2DisclosureBody.textContent, C.DISCLOSURE_BODY.replace(/^- /gm, "").replaceAll("\n", ""));
 
   // 4. hostCapture: "paused" with consent unset
@@ -326,21 +359,19 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   await globalThis.SolstoneOptions.refresh();
   assert.equal(nodes.step1Heading.textContent, globalThis.SolstoneStatus.welcomeHold(liveState).heading);
   assert.equal(nodes.step1Check.hidden, false);
-  assert.equal(nodes.agreeDisclosureBtn.hidden, false);
+  assert.equal(findId(nodes.welcomeView, "firstRunOneSite").dataset.act, "agree");
 
-  // 5. acknowledgeDisclosure returning failure does not reveal read it again
+  // 5. acknowledgeDisclosure returning failure stays on the welcome page
   ackResponse = { ok: false, error: "storage_error" };
-  await nodes.agreeDisclosureBtn.listeners.click();
-  assert.equal(nodes.step2Completed.hidden, true);
-  assert.equal(nodes.agreeDisclosureBtn.hidden, false);
-  // The failure shows on the welcome page, where the owner pressed the button.
-  assert.equal(nodes.step2PendingText.hidden, false);
-  assert.equal(nodes.step2PendingText.textContent, "couldn't save that. try again.");
+  await findId(nodes.welcomeView, "firstRunOneSite").listeners.click();
+  assert.equal(nodes.welcomeView.hidden, false);
+  assert.equal(nodes.settingsView.hidden, true);
+  assert.equal(nodes.actionMessage.textContent, "couldn't save that. try again.");
 
-  // 6. acknowledgeDisclosure returning { ok: true } reveals read it again with DISCLOSURE_BODY
-  ackResponse = { ok: true, consentVersion: 1 };
+  // 6. acknowledgeDisclosure returning { ok: true } reveals settings and lands on the first site
+  ackResponse = { ok: true, consentVersion: 2 };
   const newHostFocus = nodes.newHost.focusCount;
-  await nodes.agreeDisclosureBtn.listeners.click();
+  await findId(nodes.welcomeView, "firstRunOneSite").listeners.click();
   // Settings replaces the welcome page, and the owner lands on the first site.
   assert.equal(nodes.newHost.focusCount, newHostFocus + 1);
   assert.equal(nodes.siteModeHelp.hidden, false);
@@ -514,16 +545,14 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   });
   await globalThis.SolstoneOptions.refresh();
   nodes.newHost.value = "mail.google.com";
+  let requestsBeforeConfirm = permissionRequests;
   let pending = nodes.addForm.listeners.submit({ preventDefault() {} });
-  const requestsBeforeConfirm = permissionRequests;
-  nodes.siteDisclosureConfirm.listeners.click();
-  // Firefox honours the request only while the confirming click is handled.
+  // The request starts inside the add click, before its first await.
   assert.equal(permissionRequests, requestsBeforeConfirm + 1);
   assert.deepEqual(lastPermissionRequest.origins, ["*://*.mail.google.com/*"]);
   await pending;
   assert.equal(nodes.actionMessage.textContent, "all mail.google.com sites and pages added.");
-  // The sheet says the whole site before anything is asked of the browser.
-  assert.equal(globalThis.SolstoneCopy.sheetCopy("mail.google.com", "chrome").title, "add all mail.google.com sites and pages?");
+  assert.equal(sentMessages.some((message) => message.cmd === "intendAddOrigin"), false);
 
   // A pasted address adds its origin, keeping an http scheme and port.
   for (const [typed, origin, announced] of [
@@ -533,11 +562,11 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
     ["https://www.example.org/login", "https://example.org", "all example.org sites and pages added."],
   ]) {
     nodes.newHost.value = typed;
+    const beforeAdd = sentMessages.length;
     pending = nodes.addForm.listeners.submit({ preventDefault() {} });
-    nodes.siteDisclosureConfirm.listeners.click();
     await pending;
     assert.equal(nodes.siteInputError.hidden, true, typed);
-    assert.equal(sentMessages.findLast((message) => message.cmd === "intendAddOrigin").origin, origin);
+    assert.equal(sentMessages.slice(beforeAdd).some((message) => message.cmd === "intendAddOrigin"), false);
     assert.equal(sentMessages.findLast((message) => message.cmd === "addGrantedOrigin").origin, origin);
     assert.equal(nodes.actionMessage.textContent, announced);
   }
@@ -545,7 +574,6 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   // Typed with a path and no scheme, the address still adds its site.
   nodes.newHost.value = "github.com/solpbc/solstone";
   pending = nodes.addForm.listeners.submit({ preventDefault() {} });
-  nodes.siteDisclosureConfirm.listeners.click();
   await pending;
   assert.equal(nodes.siteInputError.hidden, true);
   assert.equal(sentMessages.findLast((message) => message.cmd === "addGrantedOrigin").origin, "https://github.com");
@@ -583,7 +611,6 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   permissionAnswer = false;
   nodes.newHost.value = "example.org";
   pending = nodes.addForm.listeners.submit({ preventDefault() {} });
-  nodes.siteDisclosureConfirm.listeners.click();
   await pending;
   permissionAnswer = true;
   assert.equal(nodes.actionMessage.textContent, C.ADD_DENIED);

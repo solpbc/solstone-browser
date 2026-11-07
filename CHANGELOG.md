@@ -6,6 +6,13 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ## [Unreleased]
 
+## [0.5.10] (2026-11-07)
+
+### Changed
+
+- Chrome and Edge ask you to agree in the extension before a page is read. Firefox and Safari do not ask again if you already use the extension.
+- the first time you open settings on a computer, one question asks which sites you want in your journal. if you already use the extension, you are not sent back through that screen.
+
 ## [0.5.9] (2026-11-05)
 
 ### Changed

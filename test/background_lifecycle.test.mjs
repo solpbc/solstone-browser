@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
-import { createMockChrome } from "./mock_chrome.mjs";
+import { armClick, createMockChrome, pageGestureRequest } from "./mock_chrome.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const EXT_DIR = join(ROOT, "extension");
@@ -91,7 +91,7 @@ test("lifecycle (ordered scripts): manifest scripts load in order and initialize
 });
 
 for (const device of [
-  { name: "iPhone", navigator: { userAgent: "Mozilla/5.0 (iPhone)", platform: "iPhone", maxTouchPoints: 5 }, agreed: 1 },
+  { name: "iPhone", navigator: { userAgent: "Mozilla/5.0 (iPhone)", platform: "iPhone", maxTouchPoints: 5 }, agreed: 0 },
   { name: "a Mac", navigator: { userAgent: "Mozilla/5.0 (Macintosh)", platform: "MacIntel", maxTouchPoints: 0 }, agreed: 0 },
 ]) {
   test(`a fresh install on ${device.name} ${device.agreed ? "needs no separate agreement" : "still needs the agreement"}`, async () => {
@@ -617,7 +617,7 @@ test("a fence registers the entry host in the turn it is added", async () => {
 test("an unchanged wake does not register, unregister, inject, or fan out, and hello still admits the site", async () => {
   const mock = createMockChrome();
   mock.storageData.cfg = { siteGrant: "live", fence: null };
-  mock.storageData.grantWatch = { patterns: ["*://bank.com/*"], injectedVersion: "0.5.9" };
+  mock.storageData.grantWatch = { patterns: ["*://bank.com/*"], injectedVersion: "0.5.10" };
   mock.grantedPermissions.clear();
   mock.grantedPermissions.add("*://bank.com/*");
   mock.registeredScripts.set("cs-bank.com", {
@@ -789,9 +789,9 @@ test("an update re-injects once into granted tabs, and the same version injects 
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(first.injected, [1]);
   assert.equal(first.registerCalls(), 0);
-  assert.equal(first.mock.storageData.grantWatch.injectedVersion, "0.5.9");
+  assert.equal(first.mock.storageData.grantWatch.injectedVersion, "0.5.10");
 
-  const again = fencedMock("0.5.9");
+  const again = fencedMock("0.5.10");
   const sandboxAgain = createSandbox(again.mock);
   vm.runInNewContext(readExtFile("background.js"), sandboxAgain);
   await sandboxAgain.SolstoneBackground.ensureInit();
@@ -1073,7 +1073,7 @@ test("safari: clearing the extension's storage also forgets what its database ke
   const cleared = await startSafari(mock, idb);
   assert.notEqual(cleared.SolstoneBackground.port.inst, inst);
   assert.equal(mock.storageData.inst, cleared.SolstoneBackground.port.inst);
-  assert.equal(await cleared.SolstoneDB.get("meta", "consentVersion"), undefined);
+  assert.equal(await cleared.SolstoneDB.get("meta", "consentVersion"), 2);
   assert.deepEqual(await cleared.SolstoneDB.getAll("outbox"), []);
 });
 
@@ -1277,7 +1277,7 @@ const read = (sandbox, bg, origin) => sandbox.SolstoneHosts.originGranted(bg.por
 
 
 
-test("iPhone, no cfg, no consent, getAll []: fence null after doInit, consent auto-written", async () => {
+test("iPhone, no cfg, no consent, getAll []: fence null after doInit, consent not written", async () => {
   const mock = createMockChrome();
   mock.grantedPermissions.clear();
   const sandbox = createSandbox(mock, true);
@@ -1287,9 +1287,10 @@ test("iPhone, no cfg, no consent, getAll []: fence null after doInit, consent au
   await bg.ensureInit();
   const port = bg.port;
   assert.equal(port.fence, null);
-  assert.equal(port.consentVersion, sandbox.SolstoneCaptureGate.CONSENT_VERSION);
+  assert.equal(port.consentVersion, 0);
+  assert.equal(port.agreementRules, "chrome");
   const savedConsent = await sandbox.SolstoneDB.get("meta", "consentVersion");
-  assert.equal(savedConsent, sandbox.SolstoneCaptureGate.CONSENT_VERSION);
+  assert.equal(savedConsent, undefined);
 });
 
 test("stored siteMode all, allSitesConsent 1, consent current, getAll without *://*/*: fence is an empty object, hello https://bank.com not granted", async () => {
@@ -1400,7 +1401,7 @@ test("storage.local.set throws on the decision write: port.fence is a non-null o
   assert.deepEqual(Array.from(mock.storageData.cfg.fence.entries), ["https://bank.com"]);
 });
 
-test("Safari, no cfg, getAll non-empty: paused, clearedNotice true, fence null. If the cfg set throws, DB.clear is not called", async () => {
+test("Safari, no cfg, getAll non-empty: startup fresh, fence null, not paused, hello reads. If the cfg set throws, DB.clear is not called", async () => {
   const idb = new IDBFactory();
   const mock = createMockChrome();
   mock.chrome.runtime.getURL = (path) => `safari-web-extension://6f4d5042-ab48-42e5-a191-38327b4ea30b/${path}`;
@@ -1413,26 +1414,14 @@ test("Safari, no cfg, getAll non-empty: paused, clearedNotice true, fence null. 
   const bg = sandbox.SolstoneBackground;
   await bg.ensureInit();
   const port = bg.port;
-  assert.equal(port.paused, true);
-  assert.equal(port.clearedNotice, true);
-  assert.equal(port.fence, null);
-
-  const sender = { id: mock.chrome.runtime.id, tab: { id: 101 }, frameId: 0, url: "https://example.com/page", origin: "https://example.com" };
-  const resHello = await new Promise(resolve => mock.listeners.onMessage[0](
-    { kind: "hello", realmToken: "r", documentKey: "0123456789abcdef0123456789abcdef" },
-    sender,
-    resolve
-  ));
-  assert.equal(resHello.ok, false);
-
-  const optionsSender = { id: mock.chrome.runtime.id, url: "safari-web-extension://6f4d5042-ab48-42e5-a191-38327b4ea30b/options.html" };
-  const unpauseRes = await new Promise(resolve => mock.listeners.onMessage[0](
-    { cmd: "setPaused", paused: false },
-    optionsSender,
-    resolve
-  ));
-  assert.equal(unpauseRes.ok, true);
+  assert.equal(port.paused, false);
   assert.equal(port.clearedNotice, false);
+  assert.equal(port.fence, null);
+  assert.equal(mock.storageData.cfg.startup, "fresh");
+  assert.equal(await sandbox.SolstoneDB.get("meta", "consentVersion"), 2);
+  confirmRealm(mock);
+  const resHello = await pinHello(mock, "https://example.com");
+  assert.equal(resHello.ok, true);
 
   // If the cfg set throws, DB.clear is not called
   const mock2 = createMockChrome();
@@ -1458,6 +1447,21 @@ test("Safari, no cfg, getAll non-empty: paused, clearedNotice true, fence null. 
   const sCleared3 = await startSafari(mock3, idb3);
   assert.equal(sCleared3.SolstoneBackground.port.paused, true);
   assert.deepEqual(await sCleared3.SolstoneDB.getAll("outbox"), []);
+});
+
+test("pin: a failed Safari startup clear pauses and keeps the notice without clearing the outbox", async () => {
+  const mock = createMockChrome();
+  mock.chrome.runtime.getURL = (path) => `safari-web-extension://6f4d5042-ab48-42e5-a191-38327b4ea30b/${path}`;
+  const idb = new IDBFactory();
+  const first = await startSafari(mock, idb);
+  await first.SolstoneDB.put("outbox", { batchId: "kept", origin: "https://example.com" });
+  for (const key of Object.keys(mock.storageData)) delete mock.storageData[key];
+  mock.chrome.storage.local.set = async () => { throw new Error("storage set error"); };
+  const booted = await startSafari(mock, idb);
+  const port = booted.SolstoneBackground.port;
+  assert.equal(port.paused, true);
+  assert.equal(port.clearedNotice, true);
+  assert.equal((await booted.SolstoneDB.getAll("outbox")).length, 1);
 });
 
 test("keep-my-sites sets fence.answered and leaves the fence. One clean snapshot does not null it. Two snapshots with port.wallNow 60000 apart do, and a restarted worker loads that end from storage. wallNow going backward does not. getAll throwing does not clear cleanAt. sawMore then an empty snapshot does not end the fence", async () => {
@@ -2292,7 +2296,11 @@ test("excludedHosts, appLeftOut, and fence survive getCfg's drop of old fields a
 
 function extensionSender(mock) {
   const id = mock.chrome.runtime.id;
-  return { id, url: `chrome-extension://${id}/options.html` };
+  let url = `chrome-extension://${id}/options.html`;
+  if (typeof mock.chrome.runtime.getURL === "function") {
+    try { url = mock.chrome.runtime.getURL("options.html"); } catch (_e) {}
+  }
+  return { id, url };
 }
 
 test("lifecycle: failed leave-out save keeps the gate false", async () => {
@@ -3086,9 +3094,10 @@ function setGrants(mock, patterns) {
 
 // background.js calls init() as it evaluates, and doInit reads consent after
 // its first await. Hold that await so a consent put is visible to this worker.
-async function bootPin(mock, { consent = false } = {}) {
+async function bootPin(mock, { consent = false, prepare } = {}) {
   const sandbox = createSandbox(mock, true);
   sandbox.indexedDB = new IDBFactory();
+  if (prepare) prepare(sandbox);
   const held = deferred();
   if (consent) mock.chrome.alarms.create = () => held.promise;
   vm.runInNewContext(readExtFile("background.js"), sandbox);
@@ -3110,8 +3119,7 @@ function pinHello(mock, origin) {
 }
 
 function pinExt(mock) {
-  const id = mock.chrome.runtime.id;
-  return { id, url: "chrome-extension://" + id + "/options.html" };
+  return extensionSender(mock);
 }
 
 function pinSend(mock, msg) {
@@ -3158,79 +3166,166 @@ async function bootRestart(saved) {
   return bootPin(mock);
 }
 
+const FENCE_START_RUNTIMES = ["chrome", "firefox", "safari"];
+
+function pinRuntime(mock, runtime) {
+  if (runtime === "safari") {
+    mock.chrome.runtime.getURL = (path) => `safari-web-extension://6f4d5042-ab48-42e5-a191-38327b4ea30b/${path}`;
+  }
+  if (runtime !== "firefox") return undefined;
+  return (sandbox) => {
+    sandbox.browser = {
+      runtime: { getBrowserInfo: async () => ({ name: "Firefox" }) },
+    };
+  };
+}
+
+function bootPinOn(mock, runtime, options) {
+  return bootPin(mock, { ...options, prepare: pinRuntime(mock, runtime) });
+}
+
 test("pin: all-sites owner with current consent and every-site grant keeps no fence", async () => {
-  const mock = createMockChrome();
-  setGrants(mock, ["*://*/*"]);
-  mock.storageData.cfg = { siteMode: "all", allSitesConsent: 1, chosenOrigins: ["https://bank.com"] };
-  const { bg } = await bootPin(mock, { consent: true });
-  assert.equal(bg.port.fence, null);
-  assert.equal(Object.hasOwn(mock.storageData.cfg, "chosenOrigins"), false);
-  confirmRealm(mock);
-  const hello = await pinHello(mock, "https://bank.com");
-  assert.equal(hello.ok, true);
+  for (const runtime of FENCE_START_RUNTIMES) {
+    const mock = createMockChrome();
+    setGrants(mock, ["*://*/*"]);
+    mock.storageData.cfg = { siteMode: "all", allSitesConsent: 1, chosenOrigins: ["https://bank.com"] };
+    const { bg } = await bootPinOn(mock, runtime, { consent: true });
+    assert.equal(bg.port.fence, null);
+    assert.equal(Object.hasOwn(mock.storageData.cfg, "chosenOrigins"), false);
+    confirmRealm(mock);
+    const hello = await pinHello(mock, "https://bank.com");
+    assert.equal(hello.ok, true);
+  }
 });
 
 test("pin: all-sites row without current consent is an empty fence", async () => {
-  const mock = createMockChrome();
-  setGrants(mock, ["*://*/*"]);
-  mock.storageData.cfg = { siteMode: "all", allSitesConsent: 1, chosenOrigins: ["https://bank.com"] };
-  const { bg } = await bootPin(mock);
-  assertEmptyFence(bg.port.fence);
-  const hello = await pinHello(mock, "https://bank.com");
-  assert.equal(hello.error, "origin_not_granted");
+  for (const runtime of FENCE_START_RUNTIMES) {
+    const mock = createMockChrome();
+    setGrants(mock, ["*://*/*"]);
+    mock.storageData.cfg = { siteMode: "all", allSitesConsent: 1, chosenOrigins: ["https://bank.com"] };
+    const { bg } = await bootPinOn(mock, runtime);
+    assertEmptyFence(bg.port.fence);
+    const hello = await pinHello(mock, "https://bank.com");
+    assert.equal(hello.error, "origin_not_granted");
+  }
 });
 
 test("pin: all-sites row without the every-site grant is an empty fence", async () => {
-  const mock = createMockChrome();
-  setGrants(mock, ["*://*.bank.com/*"]);
-  mock.storageData.cfg = { siteMode: "all", allSitesConsent: 1, chosenOrigins: ["https://bank.com"] };
-  const { bg } = await bootPin(mock, { consent: true });
-  assertEmptyFence(bg.port.fence);
-  const hello = await pinHello(mock, "https://bank.com");
-  assert.equal(hello.error, "origin_not_granted");
+  for (const runtime of FENCE_START_RUNTIMES) {
+    const mock = createMockChrome();
+    setGrants(mock, ["*://*.bank.com/*"]);
+    mock.storageData.cfg = { siteMode: "all", allSitesConsent: 1, chosenOrigins: ["https://bank.com"] };
+    const { bg } = await bootPinOn(mock, runtime, { consent: true });
+    assertEmptyFence(bg.port.fence);
+    const hello = await pinHello(mock, "https://bank.com");
+    assert.equal(hello.error, "origin_not_granted");
+  }
 });
 
 test("pin: offeredOrigins become no fence entries", async () => {
-  const mock = createMockChrome();
-  setGrants(mock, []);
-  mock.storageData.cfg = { offeredOrigins: ["https://bank.com"] };
-  const { bg } = await bootPin(mock);
-  assert.deepEqual(Array.from(bg.port.fence.entries), []);
+  for (const runtime of FENCE_START_RUNTIMES) {
+    const mock = createMockChrome();
+    setGrants(mock, []);
+    mock.storageData.cfg = { offeredOrigins: ["https://bank.com"] };
+    const { bg } = await bootPinOn(mock, runtime);
+    assert.deepEqual(Array.from(bg.port.fence.entries), []);
+  }
 });
 
 test("pin: legacy grantedOrigins become the fence entries", async () => {
-  const mock = createMockChrome();
-  setGrants(mock, []);
-  mock.storageData.cfg = { grantedOrigins: ["https://bank.com", "https://shop.com"] };
-  const { bg } = await bootPin(mock);
-  assert.deepEqual(Array.from(bg.port.fence.entries), ["https://bank.com", "https://shop.com"]);
+  for (const runtime of FENCE_START_RUNTIMES) {
+    const mock = createMockChrome();
+    setGrants(mock, []);
+    mock.storageData.cfg = { grantedOrigins: ["https://bank.com", "https://shop.com"] };
+    const { bg } = await bootPinOn(mock, runtime);
+    assert.deepEqual(Array.from(bg.port.fence.entries), ["https://bank.com", "https://shop.com"]);
+  }
 });
 
 test("pin: formatCfg keeps answered, sawMore, and startup across a restart", async () => {
+  for (const runtime of FENCE_START_RUNTIMES) {
+    const mock = createMockChrome();
+    setGrants(mock, []);
+    mock.storageData.cfg = {
+      siteGrant: "live",
+      startup: "kept-for-restart",
+      fence: {
+        entries: ["https://bank.com"],
+        exact: [],
+        exactKnown: true,
+        siteWide: [],
+        declined: [],
+        answered: true,
+        sawMore: true,
+        cleanAt: 123,
+      },
+    };
+    const { bg } = await bootPinOn(mock, runtime);
+    assert.equal(mock.storageData.cfg.startup, "kept-for-restart");
+    assert.equal(mock.storageData.cfg.fence.answered, true);
+    assert.equal(mock.storageData.cfg.fence.sawMore, true);
+    assert.equal(mock.storageData.cfg.fence.cleanAt, 123);
+    assert.equal(bg.port.fence.answered, true);
+    assert.equal(bg.port.fence.sawMore, true);
+    assert.equal(bg.port.fence.cleanAt, 123);
+  }
+});
+
+test("pin: offeredOrigins stay out of a fence that already has chosen sites", async () => {
   const mock = createMockChrome();
-  setGrants(mock, []);
+  setGrants(mock, ["*://*.other.com/*"]);
   mock.storageData.cfg = {
-    siteGrant: "live",
-    startup: "kept-for-restart",
-    fence: {
-      entries: ["https://bank.com"],
-      exact: [],
-      exactKnown: true,
-      siteWide: [],
-      declined: [],
-      answered: true,
-      sawMore: true,
-      cleanAt: 123,
-    },
+    siteMode: "selected",
+    chosenOrigins: ["https://bank.com"],
+    offeredOrigins: ["https://other.com"],
   };
   const { bg } = await bootPin(mock);
-  assert.equal(mock.storageData.cfg.startup, "kept-for-restart");
-  assert.equal(mock.storageData.cfg.fence.answered, true);
-  assert.equal(mock.storageData.cfg.fence.sawMore, true);
-  assert.equal(mock.storageData.cfg.fence.cleanAt, 123);
-  assert.equal(bg.port.fence.answered, true);
-  assert.equal(bg.port.fence.sawMore, true);
-  assert.equal(bg.port.fence.cleanAt, 123);
+  confirmRealm(mock);
+  const hello = await pinHello(mock, "https://other.com");
+  assert.equal(hello.error, "origin_not_granted");
+  assert.deepEqual(Array.from(bg.port.fence.entries), ["https://bank.com"]);
+  assert.ok(bg.port.fence.entries.length > 0);
+});
+
+test("pin: shareThemToo rejects the shown widening once that grant is gone", async () => {
+  const booted = await bootFence(["http://bank.com"], ["*://*.bank.com/*"]);
+  const question = booted.sandbox.SolstoneHosts.beyondExample(
+    booted.bg.port.fence,
+    Array.from(booted.bg.port.livePatterns),
+    [],
+  );
+  assert.equal(question.kind, "wider");
+  const shown = Array.from(question.shown);
+  // The old shown list is as long as the grant that replaced it, so a length check would accept it.
+  assert.equal(shown.length, 1);
+  setGrants(booted.mock, ["*://*.other.com/*"]);
+  const result = await pinSend(booted.mock, { cmd: "shareThemToo", shown });
+  assert.equal(result.ok, false);
+  assert.equal(result.result, "question_changed");
+  assert.notEqual(booted.bg.port.fence, null);
+});
+
+test("pin: revoking inside a hello's own read closes the next hello", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, ["*://*.bank.com/*"]);
+  mock.storageData.cfg = { siteGrant: "live", fence: null };
+  await bootPin(mock);
+  confirmRealm(mock);
+  const origGetAll = mock.chrome.permissions.getAll;
+  let reads = 0;
+  // Revoke inside this hello's permission read. No removal listener fires.
+  mock.chrome.permissions.getAll = () => {
+    reads += 1;
+    const call = reads;
+    return origGetAll().then((result) => {
+      if (call === 1) mock.grantedPermissions.delete("*://*.bank.com/*");
+      return result;
+    });
+  };
+  const first = await pinHello(mock, "https://bank.com");
+  assert.equal(first.ok, true);
+  const second = await pinHello(mock, "https://bank.com");
+  assert.equal(second.error, "origin_not_granted");
 });
 
 function liveAccountFence(extra = {}) {
@@ -3920,6 +4015,34 @@ test("pin: a Safari mismatch at 9.9 seconds still clears", async () => {
   assert.equal(seen && seen.notice, true);
 });
 
+test("pin: a Safari clear that resolves after the bound leaves the mismatch for the next alarm", async () => {
+  const clock = safariClock();
+  const { mock, sandbox, port } = await bootSafariLease(clock);
+  await sandbox.SolstoneDB.put("outbox", { batchId: "late", origin: SAFARI_PAGE });
+  const cfgBefore = JSON.stringify(mock.storageData.cfg);
+  const instBefore = await sandbox.SolstoneDB.get("meta", "inst");
+  const inst = holdMetaInst(sandbox.SolstoneDB);
+  inst.hold();
+  const pending = mock.listeners.onAlarm[0]({ name: "native-port" });
+  const handle = await inst.held();
+  delete mock.storageData.inst;
+  clock.wall += 10000;
+  handle.release();
+  await pending;
+  await flushTick();
+  assert.equal(port.paused, false);
+  assert.equal(port.clearedNotice, false);
+  assert.equal(JSON.stringify(mock.storageData.cfg), cfgBefore);
+  inst.unhold();
+  assert.equal(await sandbox.SolstoneDB.get("meta", "inst"), instBefore);
+  assert.equal((await sandbox.SolstoneDB.getAll("outbox")).length, 1);
+  await mock.listeners.onAlarm[0]({ name: "native-port" });
+  assert.equal(port.paused, true);
+  assert.equal(port.clearedNotice, true);
+  assert.equal(mock.storageData.cfg.startup, "cleared");
+  assert.equal((await sandbox.SolstoneDB.getAll("outbox")).length, 0);
+});
+
 function fenceCfg(entries, fencePatch = {}, cfgPatch = {}) {
   return {
     siteGrant: "live",
@@ -3960,6 +4083,12 @@ function uiDocument() {
       listeners: {},
       parentNode: null,
       classList: { add() {}, remove() {} },
+      set onclick(fn) {
+        el._onclick = typeof fn === "function" ? armClick(fn) : fn;
+      },
+      get onclick() {
+        return el._onclick;
+      },
       append(...kids) {
         for (const kid of kids) {
           el.children.push(kid);
@@ -3992,9 +4121,30 @@ function uiDocument() {
     },
     createElement() { return node(); },
     addEventListener() {},
-    querySelector() { return node(); },
+    querySelector() {
+      const found = node("queried");
+      found.lastChild = node("last");
+      return found;
+    },
   };
   return { document, cache };
+}
+
+function findShare(cache, shareId) {
+  const walk = (el) => {
+    if (!el) return null;
+    if (el.listeners?.click && el.dataset?.shareId === shareId) return el;
+    for (const child of el.children || []) {
+      const found = walk(child);
+      if (found) return found;
+    }
+    return null;
+  };
+  for (const root of cache.values()) {
+    const found = walk(root);
+    if (found) return found;
+  }
+  return null;
 }
 
 function findClick(cache, label) {
@@ -4018,15 +4168,46 @@ async function drainUi() {
   for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setImmediate(resolve));
 }
 
-function openShareUi(booted, files, forward, pageUrl = "https://example.com/") {
+function findIds(cache, id) {
+  const hits = [];
+  const walk = (el) => {
+    if (!el) return;
+    if (el.id === id) hits.push(el);
+    for (const child of el.children || []) walk(child);
+  };
+  for (const root of cache.values()) walk(root);
+  return hits;
+}
+
+function armElement(el) {
+  if (!el || el._gestureArmed) return el;
+  el._gestureArmed = true;
+  const raw = el.addEventListener.bind(el);
+  el.addEventListener = (type, fn) => raw(type, type === "click" || type === "submit" ? armClick(fn) : fn);
+  return el;
+}
+
+function openShareUi(booted, files, forward, pageUrl = "https://example.com/", nav = {}, gesture = null, reply = null) {
   const sent = [];
   const replies = [];
+  const requests = [];
   const { document, cache } = uiDocument();
+  const accessPanel = document.getElementById("accessPanel");
+  const accessAllow = document.getElementById("accessAllow");
+  accessPanel.append(accessAllow);
+  if (gesture) {
+    const origCreate = document.createElement.bind(document);
+    const origGet = document.getElementById.bind(document);
+    document.createElement = (...args) => armElement(origCreate(...args));
+    document.getElementById = (id) => armElement(origGet(id));
+    armElement(accessAllow);
+    armElement(accessPanel);
+  }
   const sandbox = {
     console,
     document,
     window: { addEventListener() {} },
-    navigator: {},
+    navigator: nav,
     setTimeout() { return 0; },
     clearTimeout() {},
     Date,
@@ -4054,11 +4235,20 @@ function openShareUi(booted, files, forward, pageUrl = "https://example.com/") {
       sendMessage(message, callback) {
         const copy = JSON.parse(JSON.stringify(message));
         sent.push(copy);
+        if (typeof reply === "function") {
+          const answered = reply(message);
+          if (answered !== undefined) {
+            const revived = revive(answered);
+            replies.push({ cmd: copy.cmd, response: revived });
+            callback?.(revived);
+            return;
+          }
+        }
         if (!forward(message)) {
           callback?.({ ok: true });
           return;
         }
-        booted.mock.listeners.onMessage[0](message, pinExt(booted.mock), (response) => {
+        booted.mock.listeners.onMessage[0](message, extensionSender(booted.mock), (response) => {
           const revived = revive(response);
           replies.push({ cmd: copy.cmd, response: revived });
           callback?.(revived);
@@ -4072,7 +4262,16 @@ function openShareUi(booted, files, forward, pageUrl = "https://example.com/") {
       lastError: null,
     },
     tabs: { create() {} },
-    permissions: { request: async () => true },
+    permissions: {
+      request: gesture
+        ? pageGestureRequest((details) => {
+          requests.push(details);
+          if (gesture.onRequest) return gesture.onRequest(details);
+          return true;
+        })
+        : async () => true,
+      getAll: () => booted.mock.chrome.permissions.getAll(),
+    },
   };
   // The array has to be born in this page's realm. Destructuring a list from
   // the test realm yields nothing, so the popup would keep an unknown page.
@@ -4081,7 +4280,7 @@ function openShareUi(booted, files, forward, pageUrl = "https://example.com/") {
     sandbox,
   )(pageUrl);
   for (const file of files) vm.runInNewContext(readExtFile(file), sandbox, { filename: file });
-  return { sandbox, sent, replies, document, cache };
+  return { sandbox, sent, replies, requests, document, cache };
 }
 
 const POPUP_UI = [
@@ -4118,7 +4317,7 @@ test("upgrade: popup and settings share the sites the question showed", async ()
     bg.port.consentVersion = 1;
     const ui = openShareUi(booted, files, (message) => message.cmd === "getState");
     await drainUi();
-    const button = findClick(ui.cache, "share them too");
+    const button = findShare(ui.cache, "share-them-too");
     assert.ok(button);
     button.listeners.click();
     await drainUi();
@@ -4167,10 +4366,6 @@ test("upgrade: the question kind follows every unaccounted host", async () => {
   );
   assert.equal(portQuestion.kind, "more");
   assert.equal(portQuestion.host, "bank.com");
-  assert.equal(
-    bothPorts.sandbox.SolstoneCopy.fenceQuestion("chrome", "more", "bank.com").body,
-    "Chrome allows more of some sites you added, like bank.com, but the solstone extension takes in only the addresses you added. sharing all of them can include messages on mail and chat sites, and words you've typed but haven't sent, and all of it goes into your journal.",
-  );
 
   const exactEntries = ["https://bank.com", "https://shop.com"];
   const exactOwn = await bootFence(
@@ -4225,13 +4420,13 @@ test("upgrade: question_changed repaints the popup without a failure sentence", 
   const ui = openShareUi(booted, POPUP_UI, () => true);
   await drainUi();
   setGrants(booted.mock, ["*://*.bank.com/*", "*://*.other.com/*"]);
-  findClick(ui.cache, "share them too").listeners.click();
+  findShare(ui.cache, "share-them-too").listeners.click();
   await drainUi();
   const first = ui.replies.find((entry) => entry.cmd === "shareThemToo");
   assert.equal(first.response.result, "question_changed");
   assert.equal(ui.document.getElementById("actionMessage").textContent, "");
   const before = ui.sent.length;
-  findClick(ui.cache, "share them too").listeners.click();
+  findShare(ui.cache, "share-them-too").listeners.click();
   await drainUi();
   const resent = ui.sent.slice(before).find((message) => message.cmd === "shareThemToo");
   assert.deepEqual(resent.shown, ["*://*.bank.com/*", "*://*.other.com/*"]);
@@ -4245,7 +4440,7 @@ test("upgrade: settings shows permissions_unavailable from the copy", async () =
   const ui = openShareUi(booted, OPTIONS_UI, () => true);
   await drainUi();
   booted.mock.options.getAllThrows = true;
-  const button = findClick(ui.cache, "share them too");
+  const button = findShare(ui.cache, "share-them-too");
   assert.ok(button);
   await button.listeners.click();
   await drainUi();
@@ -4528,5 +4723,1058 @@ test("a skim withdrawn while the tab lookup is held leaves no outbox row", async
     const left = await pinSend(booted.mock, { cmd: "setLeftOut", host: "bank.com", out: true });
     assert.equal(left.ok, true, JSON.stringify(left));
   });
+});
+
+const EDGE_NAV = { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0" };
+const FIREFOX_NAV = { userAgent: "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0" };
+const MAC_SAFARI_NAV = { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15" };
+const IPHONE_NAV = { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1", platform: "iPhone", maxTouchPoints: 5 };
+const IPAD_NAV = { userAgent: "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1", platform: "iPad", maxTouchPoints: 5 };
+
+function newsFence(patch = {}) {
+  return {
+    entries: ["https://news.com"],
+    exact: [],
+    exactKnown: true,
+    siteWide: [],
+    declined: [],
+    answered: false,
+    sawMore: false,
+    cleanAt: null,
+    ...patch,
+  };
+}
+
+async function bootStored(mock, { consent, prepare, idb, nav } = {}) {
+  const sandbox = createSandbox(mock, true);
+  sandbox.indexedDB = idb || new IDBFactory();
+  if (nav) sandbox.navigator = nav;
+  if (prepare) prepare(sandbox);
+  const held = deferred();
+  const orig = mock.chrome.alarms.create.bind(mock.chrome.alarms);
+  let creates = 0;
+  const hold = consent !== undefined;
+  mock.chrome.alarms.create = (...args) => {
+    creates += 1;
+    if (hold && creates === 1) return held.promise;
+    return orig(...args);
+  };
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  if (hold) {
+    await sandbox.SolstoneDB.put("meta", consent, "consentVersion");
+    held.resolve();
+  }
+  const bg = sandbox.SolstoneBackground;
+  await bg.ensureInit();
+  return { mock, sandbox, bg, alarmCreates: () => creates };
+}
+
+function answerable(port) {
+  port.livePort = port.livePort || { postMessage() {}, disconnect() {} };
+  port.handshake = "complete";
+  port.everConnected = true;
+  port.connectionGeneration = Math.max(1, port.connectionGeneration || 0);
+  port.hostCapture = "permitted";
+  port.capturePermitted = true;
+  port.appAnswered = true;
+  port.paused = false;
+  port.lease = { token: "t", generation: "g", receivedAt: port.now(), freshnessMs: 60000, standing: true };
+}
+
+function captureRuleTimer(sandbox) {
+  const realSet = setTimeout;
+  const realClear = clearTimeout;
+  let pending = null;
+  sandbox.setTimeout = (fn, ms, ...rest) => {
+    if (ms === 2000) {
+      pending = fn;
+      return 9001;
+    }
+    return realSet(fn, ms, ...rest);
+  };
+  sandbox.clearTimeout = (id) => {
+    if (id === 9001) {
+      pending = null;
+      return;
+    }
+    return realClear(id);
+  };
+  return {
+    pending: () => pending,
+    fire() {
+      const fn = pending;
+      pending = null;
+      if (typeof fn === "function") fn();
+    },
+  };
+}
+
+function holdConsentPut(DB) {
+  const originalPut = DB.put.bind(DB);
+  let hits = 0;
+  let releaseGate = () => {};
+  let enteredResolve = () => {};
+  const gate = new Promise((resolve) => { releaseGate = resolve; });
+  const entered = new Promise((resolve) => { enteredResolve = resolve; });
+  DB.put = async function put(...args) {
+    if (args[0] === "meta" && args[2] === "consentVersion") {
+      hits += 1;
+      enteredResolve();
+      await gate;
+    }
+    return originalPut(...args);
+  };
+  return {
+    entered,
+    release() { releaseGate(); },
+    hits: () => hits,
+    restore() { DB.put = originalPut; },
+  };
+}
+
+async function settleUi() {
+  for (let i = 0; i < 30; i += 1) await new Promise((resolve) => setImmediate(resolve));
+}
+
+async function openOptions(booted, { nav = {}, gesture = null, pageUrl = "https://example.com/", files = OPTIONS_UI } = {}) {
+  const ui = openShareUi(booted, files, () => true, pageUrl, nav, gesture);
+  await settleUi();
+  return ui;
+}
+
+function hasId(cache, id) {
+  return findIds(cache, id).length > 0;
+}
+
+async function readHello(mock, origin) {
+  confirmRealm(mock);
+  return pinHello(mock, origin);
+}
+
+test("agreement: hello after doInit follows the runtime rules", async () => {
+  async function quiet(label, prepare, nav) {
+    const mock = createMockChrome();
+    setGrants(mock, ["*://*/*"]);
+    const booted = await bootStored(mock, { prepare, nav });
+    const port = booted.bg.port;
+    assert.equal(port.agreementRules, "chrome", label);
+    assert.equal(port.consentVersion, 0, label);
+    assert.equal(port.getStatus().agreementRules, "chrome", label);
+    assert.equal(port.getStatus().consentAccepted, false, label);
+    const hello = await readHello(mock, "https://example.com");
+    assert.equal(hello.error, "origin_not_granted", label);
+    const stored = await booted.sandbox.SolstoneDB.get("meta", "consentVersion");
+    assert.ok(stored == null || stored === 0, label);
+  }
+
+  const chrome = createMockChrome();
+  setGrants(chrome, ["*://*/*"]);
+  const chromeBoot = await bootStored(chrome);
+  assert.equal(chromeBoot.bg.port.agreementRules, "chrome");
+  assert.equal(chromeBoot.bg.port.consentVersion, 0);
+  assert.equal(chromeBoot.mock.storageData.cfg.startup, "existing");
+  assert.ok(chromeBoot.bg.port.fence && typeof chromeBoot.bg.port.fence === "object");
+  assert.equal((await readHello(chrome, "https://example.com")).error, "origin_not_granted");
+
+  const edge = createMockChrome();
+  setGrants(edge, ["*://*/*"]);
+  const edgeBoot = await bootStored(edge, { nav: EDGE_NAV });
+  assert.equal(edgeBoot.bg.port.agreementRules, "chrome");
+  assert.equal(edgeBoot.bg.port.brand, "edge");
+  assert.equal(edgeBoot.bg.port.consentVersion, 0);
+  assert.equal((await readHello(edge, "https://example.com")).error, "origin_not_granted");
+
+  const firefox = createMockChrome();
+  setGrants(firefox, []);
+  const firefoxBoot = await bootStored(firefox, { prepare: pinRuntime(firefox, "firefox") });
+  assert.equal(firefoxBoot.bg.port.agreementRules, "firefox");
+  assert.equal(firefoxBoot.bg.port.fence, null);
+  assert.equal(firefoxBoot.mock.storageData.cfg.startup, "fresh");
+  assert.equal(await firefoxBoot.sandbox.SolstoneDB.get("meta", "consentVersion"), 2);
+  assert.equal((await readHello(firefox, "https://example.com")).error, "origin_not_granted");
+  firefox.grantedPermissions.add("*://*.example.com/*");
+  assert.equal((await readHello(firefox, "https://example.com")).ok, true);
+
+  const safari = createMockChrome();
+  setGrants(safari, ["*://*.example.com/*"]);
+  const safariBoot = await bootStored(safari, { prepare: pinRuntime(safari, "safari") });
+  assert.equal(safariBoot.bg.port.agreementRules, "safari");
+  assert.equal(safariBoot.bg.port.fence, null);
+  assert.equal(safariBoot.mock.storageData.cfg.startup, "fresh");
+  assert.equal(safariBoot.bg.port.paused, false);
+  assert.equal(safariBoot.bg.port.clearedNotice, false);
+  assert.equal(await safariBoot.sandbox.SolstoneDB.get("meta", "consentVersion"), 2);
+  assert.equal((await readHello(safari, "https://example.com")).ok, true);
+
+  await quiet("unrecognised runtime", (sandbox) => {
+    sandbox.browser = { runtime: {} };
+  });
+  await quiet("firefox ua without getBrowserInfo", null, FIREFOX_NAV);
+  await quiet("lowercase firefox", (sandbox) => {
+    sandbox.browser = { runtime: { getBrowserInfo: async () => ({ name: "firefox" }) } };
+  });
+  await quiet("mac safari ua", null, MAC_SAFARI_NAV);
+  await quiet("iphone ua", null, IPHONE_NAV);
+  await quiet("ipad ua", null, IPAD_NAV);
+  await quiet("getBrowserInfo throws", (sandbox) => {
+    sandbox.browser = { runtime: { getBrowserInfo: async () => { throw new Error("info failed"); } } };
+  });
+
+  const hung = createMockChrome();
+  setGrants(hung, ["*://*/*"]);
+  const hungSandbox = createSandbox(hung, true);
+  hungSandbox.indexedDB = new IDBFactory();
+  const clock = captureRuleTimer(hungSandbox);
+  let finishInfo = () => {};
+  hungSandbox.browser = {
+    runtime: {
+      getBrowserInfo: () => new Promise((resolve) => { finishInfo = resolve; }),
+    },
+  };
+  vm.runInNewContext(readExtFile("background.js"), hungSandbox);
+  for (let i = 0; i < 40 && typeof clock.pending() !== "function"; i += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(typeof clock.pending(), "function");
+  const started = Date.now();
+  clock.fire();
+  const hungBg = hungSandbox.SolstoneBackground;
+  await hungBg.ensureInit();
+  assert.ok(Date.now() - started < 1000);
+  assert.equal(hungBg.port.agreementRules, "chrome");
+  assert.equal(hungBg.port.getStatus().versionOneFence, false);
+  finishInfo({ name: "Firefox" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(hungBg.port.agreementRules, "chrome");
+  assert.equal((await readHello(hung, "https://example.com")).error, "origin_not_granted");
+});
+
+test("agreement: the act registers and reads the open tab outside the fence", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, ["*://*/*"]);
+  mock.tabsList.length = 0;
+  mock.tabsList.push({ id: 42, url: "https://outside.example/page" });
+  const booted = await bootStored(mock, { consent: 0 });
+  assert.equal(booted.alarmCreates(), 1);
+  assert.ok(booted.bg.port.fence);
+  const injected = [];
+  const orig = mock.chrome.scripting.executeScript;
+  mock.chrome.scripting.executeScript = async (details) => {
+    injected.push(details?.target?.tabId);
+    return orig(details);
+  };
+  const act = await pinSend(mock, { cmd: "acknowledgeDisclosure" });
+  assert.equal(act.ok, true, JSON.stringify(act));
+  assert.equal(booted.bg.port.fence, null);
+  assert.equal(booted.alarmCreates(), 1);
+  const scripts = await mock.chrome.scripting.getRegisteredContentScripts();
+  assert.ok(scripts.some((script) => script.id === "cs-all-sites"));
+  assert.ok(injected.includes(42));
+  assert.equal((await readHello(mock, "https://outside.example")).ok, true);
+});
+
+test("agreement: fenced consent-0 acts keep, end, or hold the fence", async () => {
+  for (const runtime of ["firefox", "safari"]) {
+    const mock = createMockChrome();
+    setGrants(mock, ["*://*/*"]);
+    mock.storageData.cfg = { chosenOrigins: ["https://news.com"] };
+    const booted = await bootStored(mock, { prepare: pinRuntime(mock, runtime) });
+    assert.equal(booted.mock.storageData.cfg.startup, "existing");
+    assert.ok(booted.bg.port.fence);
+    assert.equal(await booted.sandbox.SolstoneDB.get("meta", "consentVersion"), 2);
+    assert.equal((await readHello(mock, "https://other.com")).error, "origin_not_granted");
+    assert.equal((await readHello(mock, "https://news.com")).ok, true);
+  }
+
+  const plain = createMockChrome();
+  setGrants(plain, ["*://*/*"]);
+  const plainBoot = await bootStored(plain, { consent: 0 });
+  const plainAct = await pinSend(plain, { cmd: "acknowledgeDisclosure" });
+  assert.equal(plainAct.ok, true, JSON.stringify(plainAct));
+  assert.equal(plainBoot.bg.port.fence, null);
+  assert.equal(plainBoot.bg.port.consentVersion, 2);
+
+  const idb = new IDBFactory();
+  const kept = createMockChrome();
+  setGrants(kept, ["*://*.bank.com/*", "*://*.news.com/*"]);
+  kept.storageData.cfg = { chosenOrigins: ["https://news.com"], declinedHosts: ["bank.com"] };
+  const keptBoot = await bootStored(kept, { consent: 0, idb });
+  assert.ok(Array.from(keptBoot.bg.port.fence.declined).includes("bank.com"));
+  const actingGen = keptBoot.bg.port.excludedGen;
+  const keptAct = await pinSend(kept, { cmd: "acknowledgeDisclosure" });
+  assert.equal(keptAct.ok, true, JSON.stringify(keptAct));
+  assert.equal(keptBoot.bg.port.fence, null);
+  assert.equal(keptBoot.bg.port.excludedGen, actingGen + 1);
+  assert.ok(Array.from(keptBoot.bg.port.excludedHosts).includes("bank.com"));
+  const restarted = await bootStored(kept, { idb });
+  assert.ok(Array.from(restarted.bg.port.excludedHosts).includes("bank.com"));
+  assert.equal((await readHello(kept, "https://bank.com")).error, "origin_not_granted");
+
+  const thrown = createMockChrome();
+  setGrants(thrown, ["*://*.other.com/*", "*://*.news.com/*"]);
+  thrown.storageData.cfg = { chosenOrigins: ["https://news.com"], declinedHosts: ["bank.com"] };
+  const thrownBoot = await bootStored(thrown, { consent: 0 });
+  assert.equal(thrownBoot.bg.port.fence.answered, false);
+  thrown.options.getAllThrows = true;
+  answerable(thrownBoot.bg.port);
+  const thrownUi = await openOptions(thrownBoot, { gesture: { onRequest: () => true } });
+  const thrownEvery = findIds(thrownUi.cache, "firstRunEverySite")[0];
+  assert.equal(thrownEvery.dataset.act, "agree");
+  const thrownClick = thrownEvery.listeners.click();
+  assert.deepEqual(Array.from(thrownUi.requests[0].origins), ["*://*/*"]);
+  await thrownClick;
+  await settleUi();
+  const thrownReply = thrownUi.replies.find((entry) => entry.cmd === "acknowledgeDisclosure");
+  assert.equal(thrownReply.response.result, "agreed_fence_kept");
+  assert.equal(thrownBoot.bg.port.fence.answered, false);
+  assert.ok(thrownBoot.bg.port.fence);
+  assert.equal((await readHello(thrown, "https://bank.com")).error, "origin_not_granted");
+  assert.equal(hasId(thrownUi.cache, "everySiteNowOn"), false);
+  const failure = thrownUi.sandbox.SolstoneCopy.actionFailure("permissions_unavailable", "chrome");
+  assert.equal(thrownUi.document.getElementById("actionMessage").textContent, failure);
+  thrown.options.getAllThrows = false;
+  await thrownBoot.bg.beginRead();
+  await thrownUi.sandbox.SolstoneOptions.refresh();
+  await settleUi();
+  assert.ok(findShare(thrownUi.cache, "share-them-too"));
+
+  const twin = createMockChrome();
+  setGrants(twin, []);
+  twin.storageData.cfg = { chosenOrigins: ["https://bank.com"], declinedHosts: ["bank.com"] };
+  const twinBoot = await bootStored(twin, { consent: 0 });
+  answerable(twinBoot.bg.port);
+  let releaseTwin = () => {};
+  const twinGate = new Promise((resolve) => { releaseTwin = resolve; });
+  const twinUi = await openOptions(twinBoot, {
+    gesture: {
+      onRequest: () => twinGate.then(() => {
+        twin.grantedPermissions.add("*://*/*");
+        return true;
+      }),
+    },
+  });
+  const twinEvery = findIds(twinUi.cache, "firstRunEverySite")[0];
+  const twinOne = findIds(twinUi.cache, "firstRunOneSite")[0];
+  assert.equal(twinEvery.dataset.act, "agree");
+  assert.ok(twinOne);
+  const twinClick = twinEvery.listeners.click();
+  assert.deepEqual(Array.from(twinUi.requests[0].origins), ["*://*/*"]);
+  assert.equal(twinUi.sent.some((message) => message.cmd === "acknowledgeDisclosure"), false);
+  assert.ok(twinBoot.bg.port.fence);
+  twinOne.listeners.click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(twinBoot.bg.port.fence);
+  assert.equal(twinUi.sent.filter((message) => message.cmd === "acknowledgeDisclosure").length, 0);
+  releaseTwin();
+  await twinClick;
+  await settleUi();
+  assert.equal(twinBoot.bg.port.fence, null);
+  assert.ok(Array.from(twinBoot.bg.port.excludedHosts).includes("bank.com"));
+  const twinIdb = twinBoot.sandbox.indexedDB;
+  const twinAgain = await bootStored(twin, { idb: twinIdb });
+  assert.equal((await readHello(twin, "https://bank.com")).error, "origin_not_granted");
+  assert.ok(Array.from(twinAgain.bg.port.excludedHosts).includes("bank.com"));
+
+  const overlap = createMockChrome();
+  setGrants(overlap, ["*://*/*"]);
+  overlap.storageData.cfg = { chosenOrigins: ["https://news.com"] };
+  const overlapBoot = await bootStored(overlap, { consent: 0 });
+  const hold = holdConsentPut(overlapBoot.sandbox.SolstoneDB);
+  const first = pinSend(overlap, { cmd: "acknowledgeDisclosure" });
+  await hold.entered;
+  const second = await pinSend(overlap, { cmd: "acknowledgeDisclosure" });
+  assert.equal(second.ok, false);
+  assert.equal(second.result, "agree_in_flight");
+  assert.ok(overlapBoot.bg.port.fence);
+  hold.release();
+  const done = await first;
+  assert.equal(done.ok, true, JSON.stringify(done));
+  assert.equal(hold.hits(), 1);
+  assert.equal(overlapBoot.bg.port.fence, null);
+  hold.restore();
+});
+
+async function questionState(booted, nav = {}) {
+  answerable(booted.bg.port);
+  const ui = await openOptions(booted, { nav });
+  return { ui, shown: hasId(ui.cache, "firstRunQuestion") };
+}
+
+test("agreement: first run shows once, and chrome still asks when the flag is set", async () => {
+  const firefox = createMockChrome();
+  setGrants(firefox, []);
+  const firefoxBoot = await bootStored(firefox, { prepare: pinRuntime(firefox, "firefox") });
+  assert.equal(firefoxBoot.mock.storageData.cfg.startup, "fresh");
+  assert.equal((await questionState(firefoxBoot)).shown, true);
+
+  const safari = createMockChrome();
+  setGrants(safari, []);
+  const safariBoot = await bootStored(safari, { prepare: pinRuntime(safari, "safari") });
+  assert.equal(safariBoot.mock.storageData.cfg.startup, "fresh");
+  assert.equal((await questionState(safariBoot)).shown, true);
+
+  const upgrade = createMockChrome();
+  setGrants(upgrade, ["*://*.news.com/*"]);
+  upgrade.storageData.cfg = { chosenOrigins: ["https://news.com"] };
+  const upgradeBoot = await bootStored(upgrade, { prepare: pinRuntime(upgrade, "firefox") });
+  assert.equal(upgradeBoot.mock.storageData.cfg.startup, "existing");
+  assert.equal(upgradeBoot.bg.port.firstRunAnswered, true);
+  assert.equal((await questionState(upgradeBoot)).shown, false);
+
+  const clearedIdb = new IDBFactory();
+  const clearedMock = createMockChrome();
+  await bootStored(clearedMock, { idb: clearedIdb, prepare: pinRuntime(clearedMock, "safari") });
+  for (const key of Object.keys(clearedMock.storageData)) delete clearedMock.storageData[key];
+  const clearedBoot = await bootStored(clearedMock, { idb: clearedIdb, prepare: pinRuntime(clearedMock, "safari") });
+  assert.equal(clearedBoot.mock.storageData.cfg.startup, "cleared");
+  assert.equal(clearedBoot.bg.port.firstRunAnswered, true);
+  assert.equal(clearedBoot.bg.port.paused, true);
+  assert.equal(clearedBoot.bg.port.clearedNotice, true);
+  assert.equal((await questionState(clearedBoot)).shown, false);
+
+  const alarmMock = createMockChrome();
+  let reloads = 0;
+  alarmMock.chrome.runtime.reload = () => { reloads += 1; };
+  const alarmIdb = new IDBFactory();
+  const alarmFirst = await startSafari(alarmMock, alarmIdb);
+  for (const key of Object.keys(alarmMock.storageData)) delete alarmMock.storageData[key];
+  alarmMock.listeners.onAlarm[0]({ name: "native-port" });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(reloads, 1);
+  assert.equal(await alarmFirst.SolstoneDB.get("meta", "inst"), undefined);
+  const alarmBoot = await bootStored(alarmMock, { idb: alarmIdb, prepare: pinRuntime(alarmMock, "safari") });
+  assert.equal(alarmBoot.mock.storageData.cfg.startup, "cleared");
+  assert.equal(alarmBoot.bg.port.firstRunAnswered, true);
+  assert.equal((await questionState(alarmBoot)).shown, false);
+
+  const flagIdb = new IDBFactory();
+  const flagMock = createMockChrome();
+  setGrants(flagMock, ["*://*.news.com/*"]);
+  flagMock.storageData.cfg = { chosenOrigins: ["https://news.com"] };
+  const flagBoot = await bootStored(flagMock, { idb: flagIdb, prepare: pinRuntime(flagMock, "firefox") });
+  assert.equal(flagBoot.bg.port.firstRunAnswered, true);
+  await flagBoot.bg.setCfg({ showPageIndicator: true });
+  const flagAgain = await bootStored(flagMock, { idb: flagIdb, prepare: pinRuntime(flagMock, "firefox") });
+  assert.equal(flagAgain.bg.port.firstRunAnswered, true);
+  assert.equal(flagAgain.bg.port.showPageIndicator, true);
+  assert.equal((await questionState(flagAgain)).shown, false);
+
+  const chrome = createMockChrome();
+  setGrants(chrome, ["*://*.news.com/*"]);
+  chrome.storageData.cfg = { siteGrant: "live", startup: "existing", firstRunAnswered: true, fence: newsFence() };
+  const chromeBoot = await bootStored(chrome);
+  assert.equal(chromeBoot.bg.port.consentVersion, 0);
+  assert.equal(chromeBoot.bg.port.firstRunAnswered, true);
+  assert.equal((await questionState(chromeBoot)).shown, true);
+});
+
+test("agreement: every site live omits the one-site button", async () => {
+  const chrome = createMockChrome();
+  setGrants(chrome, ["*://*/*"]);
+  const chromeBoot = await bootStored(chrome, { consent: 0 });
+  answerable(chromeBoot.bg.port);
+  const chromeUi = await openOptions(chromeBoot);
+  assert.equal(hasId(chromeUi.cache, "firstRunEverySite"), true);
+  assert.equal(hasId(chromeUi.cache, "firstRunOneSite"), false);
+
+  for (const runtime of ["firefox", "safari"]) {
+    const mock = createMockChrome();
+    setGrants(mock, ["*://*/*"]);
+    mock.storageData.cfg = { siteGrant: "live", startup: "fresh", fence: null };
+    const booted = await bootStored(mock, { prepare: pinRuntime(mock, runtime) });
+    assert.equal(booted.bg.port.firstRunAnswered, false);
+    answerable(booted.bg.port);
+    const ui = await openOptions(booted);
+    assert.equal(hasId(ui.cache, "firstRunOneSite"), false);
+    assert.equal(hasId(ui.cache, "firstRunQuestion"), false);
+    assert.equal(ui.sent.filter((message) => message.cmd === "answerFirstRun").length, 1);
+    assert.equal(hasId(ui.cache, "settingsEverySiteOn"), true);
+    assert.equal(ui.document.getElementById("settingsView").hidden, false);
+  }
+});
+
+test("agreement: first-run every site asks before the handler awaits", async () => {
+  async function press(runtime, onRequest) {
+    const mock = createMockChrome();
+    setGrants(mock, []);
+    const nav = runtime === "edge" ? EDGE_NAV : undefined;
+    const prepare = runtime === "firefox" ? pinRuntime(mock, "firefox") : undefined;
+    const booted = await bootStored(mock, { nav, prepare });
+    answerable(booted.bg.port);
+    const ui = await openOptions(booted, { gesture: { onRequest } });
+    const button = findIds(ui.cache, "firstRunEverySite")[0];
+    assert.ok(button);
+    assert.equal(button.hidden, false);
+    assert.equal(ui.document.getElementById("welcomeView").dataset.rules, runtime === "firefox" ? "firefox" : "chrome");
+    if (runtime === "firefox") assert.equal(button.dataset.act, undefined);
+    else assert.equal(button.dataset.act, "agree");
+    const acksBefore = ui.sent.filter((message) => message.cmd === "acknowledgeDisclosure").length;
+    const answersBefore = ui.sent.filter((message) => message.cmd === "answerFirstRun").length;
+    const pending = button.listeners.click();
+    assert.deepEqual(Array.from(ui.requests[0].origins), ["*://*/*"]);
+    await pending;
+    await settleUi();
+    return { mock, booted, ui, acksBefore, answersBefore };
+  }
+
+  for (const runtime of ["chrome", "edge", "firefox"]) {
+    const declined = await press(runtime, () => false);
+    assert.equal(declined.mock.grantedPermissions.has("*://*/*"), false);
+    assert.equal(hasId(declined.ui.cache, "firstRunDeclined"), true);
+    assert.equal(hasId(declined.ui.cache, "everySiteNowOn"), false);
+    if (runtime === "firefox") {
+      assert.equal(await declined.booted.sandbox.SolstoneDB.get("meta", "consentVersion"), 2);
+      assert.equal(declined.ui.sent.filter((message) => message.cmd === "acknowledgeDisclosure").length, declined.acksBefore);
+      assert.equal(declined.ui.sent.filter((message) => message.cmd === "answerFirstRun").length, declined.answersBefore);
+      assert.equal(hasId(declined.ui.cache, "firstRunQuestion"), true);
+    } else {
+      assert.equal(await declined.booted.sandbox.SolstoneDB.get("meta", "consentVersion"), 2);
+      assert.ok(declined.ui.sent.filter((message) => message.cmd === "acknowledgeDisclosure").length > declined.acksBefore);
+    }
+
+    const thrown = await press(runtime, () => { throw new Error("sync request"); });
+    assert.equal(thrown.mock.grantedPermissions.has("*://*/*"), false);
+    assert.equal(await thrown.booted.sandbox.SolstoneDB.get("meta", "consentVersion"), 2);
+    assert.equal(hasId(thrown.ui.cache, "firstRunDeclined"), true);
+    assert.equal(hasId(thrown.ui.cache, "everySiteNowOn"), false);
+
+    const rejected = await press(runtime, () => Promise.reject(new Error("rejected request")));
+    assert.equal(rejected.mock.grantedPermissions.has("*://*/*"), false);
+    assert.equal(await rejected.booted.sandbox.SolstoneDB.get("meta", "consentVersion"), 2);
+    assert.equal(hasId(rejected.ui.cache, "firstRunDeclined"), true);
+    assert.equal(hasId(rejected.ui.cache, "everySiteNowOn"), false);
+  }
+});
+
+test("agreement: fresh safari with a live grant reads, and chrome keeps an empty fence", async () => {
+  for (const patterns of [["*://*/*"], ["*://*.example.com/*"]]) {
+    const mock = createMockChrome();
+    setGrants(mock, patterns);
+    const booted = await bootStored(mock, { prepare: pinRuntime(mock, "safari") });
+    assert.equal(booted.mock.storageData.cfg.startup, "fresh");
+    assert.equal(booted.bg.port.fence, null);
+    assert.equal(booted.bg.port.paused, false);
+    assert.equal(booted.bg.port.clearedNotice, false);
+    assert.equal((await readHello(mock, "https://example.com")).ok, true);
+  }
+
+  const clearMock = createMockChrome();
+  setGrants(clearMock, ["*://*/*"]);
+  const clearIdb = new IDBFactory();
+  await bootStored(clearMock, { idb: clearIdb, prepare: pinRuntime(clearMock, "safari") });
+  for (const key of Object.keys(clearMock.storageData)) delete clearMock.storageData[key];
+  const cleared = await bootStored(clearMock, { idb: clearIdb, prepare: pinRuntime(clearMock, "safari") });
+  assert.equal(cleared.bg.port.paused, true);
+  assert.equal(cleared.bg.port.clearedNotice, true);
+  assert.equal(cleared.mock.storageData.cfg.startup, "cleared");
+
+  const chrome = createMockChrome();
+  setGrants(chrome, ["*://*.news.com/*"]);
+  const chromeBoot = await bootStored(chrome);
+  assert.equal(chromeBoot.mock.storageData.cfg.startup, "existing");
+  assert.deepEqual(Array.from(chromeBoot.bg.port.fence.entries), []);
+  assert.equal(chromeBoot.bg.port.consentVersion, 0);
+});
+
+function paintable(overrides = {}) {
+  return Object.assign({
+    ok: true,
+    inst: "00112233-4455-6677-8899-aabbccddeeff",
+    captureEpoch: 1,
+    connected: true,
+    handshake: "complete",
+    connectionGeneration: 1,
+    everConnected: true,
+    appAnswered: true,
+    brand: "chrome",
+    platform: "mac",
+    hostCapture: "permitted",
+    hostDelivery: "delivered",
+    custody: { full: false, stale: false },
+    lease: { token: "t", generation: "g", freshnessMs: 60000, receivedAt: 0, standing: true },
+    capturePermitted: true,
+    addSiteEligible: true,
+    paused: false,
+    pressure: { active: false },
+    consentVersion: 0,
+    consentAccepted: false,
+    agreementRules: "chrome",
+    versionOneFence: false,
+    firstRunAnswered: false,
+    livePatterns: [],
+    fence: null,
+    excludedHosts: [],
+    appLeftOut: [],
+    showPageIndicator: false,
+    updateCheck: "no-update",
+    gate: { open: false, reason: "missing-consent" },
+    openTabs: { known: false, openOrigins: null, anyGrantedTabOpen: null },
+  }, overrides);
+}
+
+async function scriptedOptions(reply, nav = {}) {
+  const mock = createMockChrome();
+  const ui = openShareUi({ mock }, OPTIONS_UI, () => false, "https://example.com/", nav, null, reply);
+  await settleUi();
+  return ui;
+}
+
+function acceptedCfg(fence) {
+  return {
+    siteGrant: "live",
+    startup: "existing",
+    firstRunAnswered: true,
+    fence,
+  };
+}
+
+async function pairClean(booted) {
+  const port = booted.bg.port;
+  port.fence.cleanAt = null;
+  port.fence.sawMore = false;
+  port.wallNow = () => 8_000_000;
+  await booted.bg.beginRead();
+  assert.ok(port.fence);
+  port.wallNow = () => 8_060_000;
+  await booted.bg.beginRead();
+  return port.fence;
+}
+
+test("agreement: every site appearing while the question is open", async () => {
+  const chromeState = paintable({
+    agreementRules: "chrome",
+    consentVersion: 0,
+    consentAccepted: false,
+    livePatterns: [],
+  });
+  const chromeUi = await scriptedOptions(() => chromeState);
+  const chromeOne = findIds(chromeUi.cache, "firstRunOneSite")[0];
+  assert.ok(chromeOne);
+  chromeState.livePatterns = ["*://*/*"];
+  await chromeUi.sandbox.SolstoneOptions.refresh();
+  await settleUi();
+  assert.equal(hasId(chromeUi.cache, "firstRunOneSite"), false);
+  const acks = chromeUi.sent.filter((message) => message.cmd === "acknowledgeDisclosure").length;
+  chromeOne.listeners.click();
+  assert.equal(hasId(chromeUi.cache, "firstRunAlreadyAllowed"), true);
+  assert.equal(chromeUi.sent.filter((message) => message.cmd === "acknowledgeDisclosure").length, acks);
+
+  for (const rules of ["firefox", "safari"]) {
+    const current = paintable({
+      agreementRules: rules,
+      brand: rules,
+      consentVersion: 2,
+      consentAccepted: true,
+      firstRunAnswered: false,
+      livePatterns: [],
+    });
+    const ui = await scriptedOptions((message) => {
+      if (message.cmd === "answerFirstRun") {
+        current.firstRunAnswered = true;
+        return { ok: true };
+      }
+      return current;
+    });
+    const one = findIds(ui.cache, "firstRunOneSite")[0];
+    assert.ok(one);
+    current.livePatterns = ["*://*/*"];
+    const pending = one.listeners.click();
+    await pending;
+    await settleUi();
+    assert.equal(ui.sent.filter((message) => message.cmd === "answerFirstRun").length, 1);
+    assert.equal(hasId(ui.cache, "settingsEverySiteOn"), true);
+    assert.equal(ui.document.getElementById("settingsView").hidden, false);
+    assert.equal(hasId(ui.cache, "firstRunQuestion"), false);
+  }
+});
+
+test("agreement: stored consent gates the read", async () => {
+  async function feed(consent) {
+    const mock = createMockChrome();
+    setGrants(mock, ["*://example.com/*"]);
+    mock.storageData.cfg = acceptedCfg(null);
+    const booted = await bootStored(mock, consent === undefined ? {} : { consent });
+    answerable(booted.bg.port);
+    const status = booted.bg.port.getStatus();
+    const hello = await readHello(mock, "https://example.com");
+    const content = contentHarness(booted.sandbox.SolstoneCaptureGate);
+    if (hello && hello.ok === true) {
+      content.requests[0](hello);
+      content.tick();
+    }
+    const state = await pinSend(mock, { cmd: "getState" });
+    return { booted, status, hello, reads: content.reads, state };
+  }
+
+  for (const consent of [1, 2]) {
+    const read = await feed(consent);
+    assert.equal(read.hello.ok, true, String(consent));
+    assert.equal(read.status.gate.open, true, String(consent));
+    assert.equal(read.status.consentAccepted, true, String(consent));
+    assert.equal(read.reads > 0, true, String(consent));
+    assert.equal(read.state.ok, true, String(consent));
+    assert.equal(read.state.consentAccepted, true, String(consent));
+    assert.equal(Object.hasOwn(read.status, "ok"), false);
+  }
+  for (const consent of [0, 3, undefined]) {
+    const read = await feed(consent);
+    assert.equal(read.hello.ok, true, String(consent));
+    assert.equal(read.status.gate.open, false, String(consent));
+    assert.equal(read.status.gate.reason, "missing-consent", String(consent));
+    assert.equal(read.status.consentAccepted, false, String(consent));
+    assert.equal(read.reads, 0, String(consent));
+    assert.equal(read.state.consentAccepted, false, String(consent));
+  }
+});
+
+test("agreement: the welcome act stores 2", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, []);
+  const booted = await bootStored(mock, { consent: 0 });
+  answerable(booted.bg.port);
+  const ui = await openOptions(booted);
+  const one = findIds(ui.cache, "firstRunOneSite")[0];
+  assert.equal(one.dataset.act, "agree");
+  await one.listeners.click();
+  await settleUi();
+  const ack = ui.replies.find((entry) => entry.cmd === "acknowledgeDisclosure");
+  assert.equal(ack.response.ok, true);
+  assert.equal(await booted.sandbox.SolstoneDB.get("meta", "consentVersion"), 2);
+  assert.equal(booted.bg.port.consentVersion, 2);
+});
+
+test("agreement: stored 1 adds a site and an owner at 2 is past consent-needed", async () => {
+  async function offer(consent) {
+    const mock = createMockChrome();
+    setGrants(mock, ["*://*.example.com/*"]);
+    mock.storageData.cfg = acceptedCfg(null);
+    const booted = await bootStored(mock, { consent });
+    answerable(booted.bg.port);
+    booted.bg.port.openTabs = {
+      known: true,
+      openOrigins: ["https://example.com"],
+      anyGrantedTabOpen: true,
+    };
+    const status = booted.bg.port.getStatus();
+    const derived = booted.sandbox.SolstoneStatus.derive(status, { anyGrantedTabOpen: true });
+    assert.notEqual(derived.kind, "consent-needed");
+    assert.equal(booted.sandbox.SolstoneStatus.siteRow("https://example.com", status).kind, "on-now");
+    const popup = await openOptions(booted, {
+      files: POPUP_UI,
+      pageUrl: "https://news.example/page",
+      gesture: {
+        onRequest: (details) => {
+          mock.grantedPermissions.add(details.origins[0]);
+          return true;
+        },
+      },
+    });
+    assert.equal(popup.document.getElementById("siteCount").hidden, false);
+    const action = popup.document.getElementById("pageSiteAction");
+    assert.equal(action.hidden, false);
+    assert.equal(action.disabled, false);
+    assert.equal(action.textContent, "add this site");
+    await action.onclick();
+    await settleUi();
+    const added = popup.replies.find((entry) => entry.cmd === "addGrantedOrigin");
+    assert.equal(added.response.ok, true, JSON.stringify(added.response));
+    assert.notEqual(added.response.error, "missing_consent");
+    const hello = await readHello(mock, "https://news.example");
+    assert.equal(hello.ok, true, JSON.stringify(hello));
+    assert.notEqual(hello.error, "missing_consent");
+  }
+  await offer(1);
+  await offer(2);
+});
+
+test("agreement: an all-sites owner at consent 1 keeps no fence", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, ["*://*/*"]);
+  mock.storageData.cfg = { siteMode: "all", allSitesConsent: 1, chosenOrigins: ["https://bank.com"] };
+  const booted = await bootStored(mock, { consent: 1 });
+  assert.equal(booted.bg.port.fence, null);
+  assert.equal(booted.bg.port.consentVersion, 1);
+  assert.equal((await readHello(mock, "https://bank.com")).ok, true);
+});
+
+test("agreement: accepted owners see settings, not the welcome", async () => {
+  for (const consent of [1, 2]) {
+    const mock = createMockChrome();
+    setGrants(mock, ["*://*.example.com/*"]);
+    mock.storageData.cfg = acceptedCfg(null);
+    const booted = await bootStored(mock, { consent });
+    answerable(booted.bg.port);
+    const options = await openOptions(booted);
+    assert.equal(options.document.getElementById("welcomeView").hidden, true, String(consent));
+    assert.equal(options.document.getElementById("settingsView").hidden, false, String(consent));
+    assert.equal(hasId(options.cache, "firstRunQuestion"), false, String(consent));
+    const popup = await openOptions(booted, { files: POPUP_UI });
+    assert.equal(hasId(popup.cache, "firstRunQuestion"), false, String(consent));
+  }
+});
+
+test("agreement: status flags follow the stored consent and the runtime", async () => {
+  const cases = [
+    ["chrome", 1, "chrome", true, undefined, undefined],
+    ["edge", 1, "chrome", true, EDGE_NAV, undefined],
+    ["firefox", 1, "firefox", false, undefined, "firefox"],
+    ["safari", 1, "safari", false, undefined, "safari"],
+    ["firefox-ua", 1, "chrome", true, FIREFOX_NAV, undefined],
+    ["chrome", 2, "chrome", false, undefined, undefined],
+    ["chrome", 0, "chrome", false, undefined, undefined],
+    ["chrome", 3, "chrome", false, undefined, undefined],
+  ];
+  for (const [label, consent, rules, fenceFlag, nav, runtime] of cases) {
+    const mock = createMockChrome();
+    setGrants(mock, ["*://*.news.com/*"]);
+    const booted = await bootStored(mock, {
+      consent,
+      nav,
+      prepare: runtime ? pinRuntime(mock, runtime) : undefined,
+    });
+    const status = booted.bg.port.getStatus();
+    const state = await pinSend(mock, { cmd: "getState" });
+    assert.equal(status.agreementRules, rules, label);
+    assert.equal(state.agreementRules, rules, label);
+    assert.equal(status.versionOneFence, fenceFlag, label);
+    assert.equal(state.versionOneFence, fenceFlag, label);
+    assert.equal(status.consentAccepted, consent === 1 || consent === 2, label);
+    assert.equal(state.ok, true, label);
+    assert.equal(state.consentAccepted, status.consentAccepted, label);
+    assert.equal(Object.hasOwn(status, "ok"), false, label);
+    if (consent === 1) {
+      assert.equal(await booted.sandbox.SolstoneDB.get("meta", "consentVersion"), 1, label);
+      assert.equal(booted.bg.port.consentVersion, 1, label);
+    }
+    if (label === "firefox-ua") assert.equal(booted.bg.port.brand, "firefox");
+    if (label === "edge") assert.equal(booted.bg.port.brand, "edge");
+  }
+
+  const absent = createMockChrome();
+  setGrants(absent, ["*://*.news.com/*"]);
+  const absentBoot = await bootStored(absent);
+  assert.equal(absentBoot.bg.port.getStatus().consentAccepted, false);
+  assert.equal(absentBoot.bg.port.getStatus().versionOneFence, false);
+  assert.equal((await pinSend(absent, { cmd: "getState" })).consentAccepted, false);
+
+  const cleared = createMockChrome();
+  setGrants(cleared, ["*://*.news.com/*"]);
+  const clearedBoot = await bootStored(cleared, { consent: 1 });
+  delete clearedBoot.bg.port.agreementRules;
+  assert.equal(clearedBoot.bg.port.getStatus().agreementRules, "chrome");
+  assert.equal(clearedBoot.bg.port.getStatus().versionOneFence, false);
+});
+
+test("agreement: an empty status does not send the agreement", async () => {
+  for (const raw of [{}, { ok: false }]) {
+    const ui = await scriptedOptions(() => raw);
+    const welcome = ui.document.getElementById("welcomeView");
+    assert.equal(welcome.hidden, false);
+    assert.equal(welcome.dataset.rules, "chrome");
+    assert.equal(ui.document.getElementById("settingsView").hidden, true);
+    assert.equal(hasId(ui.cache, "firstRunQuestion"), true);
+    const every = findIds(ui.cache, "firstRunEverySite")[0];
+    const one = findIds(ui.cache, "firstRunOneSite")[0];
+    assert.equal(every.dataset.act, "agree");
+    assert.equal(one.dataset.act, "agree");
+    every.listeners.click();
+    one.listeners.click();
+    assert.equal(ui.sent.some((message) => message.cmd === "acknowledgeDisclosure"), false);
+    assert.equal(ui.sent.some((message) => message.cmd === "answerFirstRun"), false);
+  }
+});
+
+test("agreement: options welcome and question follow consentAccepted", async () => {
+  const settings = await scriptedOptions(() => paintable({
+    consentVersion: 2,
+    consentAccepted: true,
+    agreementRules: "chrome",
+    firstRunAnswered: true,
+  }));
+  assert.equal(settings.document.getElementById("welcomeView").hidden, true);
+  assert.equal(settings.document.getElementById("settingsView").hidden, false);
+  assert.equal(hasId(settings.cache, "firstRunQuestion"), false);
+
+  const question = await scriptedOptions(() => paintable({
+    consentVersion: 2,
+    consentAccepted: false,
+    agreementRules: "chrome",
+    firstRunAnswered: true,
+  }));
+  assert.equal(question.document.getElementById("welcomeView").hidden, false);
+  assert.equal(question.document.getElementById("settingsView").hidden, true);
+  assert.equal(hasId(question.cache, "firstRunQuestion"), true);
+});
+
+test("agreement: firefox user agent on chrome keeps chrome rules in the question", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, []);
+  const booted = await bootStored(mock, { nav: FIREFOX_NAV, consent: 0 });
+  assert.equal(booted.bg.port.brand, "firefox");
+  assert.equal(booted.bg.port.agreementRules, "chrome");
+  answerable(booted.bg.port);
+  const ui = await openOptions(booted);
+  const welcome = ui.document.getElementById("welcomeView");
+  assert.equal(welcome.dataset.rules, "chrome");
+  assert.equal(findIds(ui.cache, "firstRunEverySite")[0].dataset.act, "agree");
+  assert.equal(findIds(ui.cache, "firstRunOneSite")[0].dataset.act, "agree");
+});
+
+test("agreement: a phone shows settings", async () => {
+  for (const nav of [IPHONE_NAV, IPAD_NAV]) {
+    const mock = createMockChrome();
+    setGrants(mock, []);
+    const booted = await bootStored(mock, { prepare: pinRuntime(mock, "safari") });
+    assert.equal(booted.mock.storageData.cfg.startup, "fresh");
+    answerable(booted.bg.port);
+    const ui = await openOptions(booted, { nav });
+    assert.equal(ui.document.getElementById("welcomeView").hidden, true);
+    assert.equal(ui.document.getElementById("settingsView").hidden, false);
+    assert.equal(hasId(ui.cache, "firstRunQuestion"), false);
+  }
+});
+
+test("agreement: acknowledging at stored 1 leaves the number and the fence", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, ["*://*.news.com/*"]);
+  mock.storageData.cfg = acceptedCfg(newsFence());
+  const booted = await bootStored(mock, { consent: 1 });
+  const before = booted.bg.port.fence;
+  const act = await pinSend(mock, { cmd: "acknowledgeDisclosure", version: 9 });
+  assert.equal(act.ok, true);
+  assert.equal(act.consentVersion, 1);
+  assert.equal(await booted.sandbox.SolstoneDB.get("meta", "consentVersion"), 1);
+  assert.equal(booted.bg.port.consentVersion, 1);
+  assert.equal(booted.bg.port.fence, before);
+});
+
+test("agreement: a version-1 chrome fence stays through two clean reads", async () => {
+  async function held(nav) {
+    const mock = createMockChrome();
+    setGrants(mock, ["*://*.news.com/*"]);
+    mock.storageData.cfg = acceptedCfg(newsFence());
+    const booted = await bootStored(mock, { consent: 1, nav });
+    assert.equal(booted.bg.port.agreementRules, "chrome");
+    assert.equal(booted.bg.port.getStatus().versionOneFence, true);
+    assert.ok(await pairClean(booted));
+    assert.equal((await readHello(mock, "https://other.com")).error, "origin_not_granted");
+    assert.equal((await readHello(mock, "https://news.com")).ok, true);
+    mock.grantedPermissions.add("*://*/*");
+    await booted.bg.beginRead();
+    assert.equal(booted.bg.port.fence.sawMore, true);
+    answerable(booted.bg.port);
+    const ui = await openOptions(booted);
+    assert.ok(findShare(ui.cache, "share-every-site"));
+    return booted;
+  }
+  await held();
+  const odd = await held(FIREFOX_NAV);
+  assert.equal(odd.bg.port.brand, "firefox");
+  assert.equal(odd.bg.port.agreementRules, "chrome");
+
+  const acted = createMockChrome();
+  setGrants(acted, ["*://*.news.com/*"]);
+  acted.storageData.cfg = { chosenOrigins: ["https://news.com"] };
+  const actedBoot = await bootStored(acted, { consent: 0 });
+  acted.options.getAllThrows = true;
+  const kept = await pinSend(acted, { cmd: "acknowledgeDisclosure" });
+  assert.equal(kept.result, "agreed_fence_kept");
+  assert.equal(actedBoot.bg.port.consentVersion, 2);
+  assert.ok(actedBoot.bg.port.fence);
+  acted.options.getAllThrows = false;
+  assert.equal(await pairClean(actedBoot), null);
+
+  for (const runtime of ["firefox", "safari"]) {
+    const mock = createMockChrome();
+    setGrants(mock, ["*://*.news.com/*"]);
+    mock.storageData.cfg = { chosenOrigins: ["https://news.com"] };
+    const booted = await bootStored(mock, { prepare: pinRuntime(mock, runtime) });
+    assert.equal(booted.bg.port.consentVersion, 2);
+    assert.ok(booted.bg.port.fence);
+    assert.equal(await pairClean(booted), null);
+  }
+
+  const fresh = createMockChrome();
+  setGrants(fresh, ["*://*/*"]);
+  const freshBoot = await bootStored(fresh, { consent: 0 });
+  const act = await pinSend(fresh, { cmd: "acknowledgeDisclosure" });
+  assert.equal(act.ok, true);
+  assert.equal(freshBoot.bg.port.fence, null);
+  assert.equal(freshBoot.bg.port.consentVersion, 2);
+  assert.equal((await readHello(fresh, "https://news.com")).ok, true);
+});
+
+test("agreement: version 1 chrome shows the share note beside both offers", async () => {
+  async function fencedOwner({ consent = 1, runtime, nav, fence = newsFence({ answered: true }), grants = ["*://*.news.com/*"] } = {}) {
+    const mock = createMockChrome();
+    setGrants(mock, grants);
+    mock.storageData.cfg = acceptedCfg(fence);
+    const booted = await bootStored(mock, {
+      consent,
+      nav,
+      prepare: runtime ? pinRuntime(mock, runtime) : undefined,
+    });
+    answerable(booted.bg.port);
+    return booted;
+  }
+
+  async function notesFor(booted, gesture) {
+    const ui = await openOptions(booted, { gesture });
+    return { ui, notes: findIds(ui.cache, "versionOneShareNote") };
+  }
+
+  const shown = await fencedOwner();
+  const shownUi = await notesFor(shown);
+  assert.equal(shownUi.notes.length, 2);
+  assert.equal(shownUi.notes.every((note) => note.hidden !== true), true);
+  const quiet = findIds(shownUi.ui.cache, "share-every-site")[0];
+  const access = shownUi.ui.document.getElementById("accessAllow");
+  assert.equal(quiet.textContent, "share every site");
+  assert.equal(access.textContent, "share every site");
+
+  async function clickShare(which) {
+    const booted = await fencedOwner();
+    const ui = await openOptions(booted, {
+      gesture: {
+        onRequest() {
+          booted.mock.grantedPermissions.add("*://*/*");
+          return true;
+        },
+      },
+    });
+    const button = which === "quiet"
+      ? findIds(ui.cache, "share-every-site")[0]
+      : ui.document.getElementById("accessAllow");
+    const pending = button.listeners.click();
+    assert.deepEqual(Array.from(ui.requests[0].origins), ["*://*/*"]);
+    await pending;
+    await settleUi();
+    assert.equal(booted.bg.port.fence, null);
+    assert.equal(booted.bg.port.consentVersion, 1);
+    assert.equal(await booted.sandbox.SolstoneDB.get("meta", "consentVersion"), 1);
+  }
+  await clickShare("quiet");
+  await clickShare("access");
+
+  const absent = [
+    await fencedOwner({ runtime: "firefox" }),
+    await fencedOwner({ runtime: "safari" }),
+    await fencedOwner({ consent: 2 }),
+    await fencedOwner({ fence: null, grants: ["http://*/*"] }),
+  ];
+  for (const booted of absent) {
+    const ui = await notesFor(booted);
+    assert.equal(ui.notes.length, 0);
+  }
+  const unfenced = absent[3];
+  const unfencedUi = await openOptions(unfenced);
+  assert.equal(unfencedUi.document.getElementById("accessAllow").textContent, "share every site");
+
+  const odd = await fencedOwner({ nav: FIREFOX_NAV });
+  assert.equal(odd.bg.port.brand, "firefox");
+  assert.equal(odd.bg.port.agreementRules, "chrome");
+  const oddUi = await notesFor(odd);
+  assert.equal(oddUi.notes.length, 2);
+  assert.equal(odd.bg.port.getStatus().versionOneFence, true);
 });
 

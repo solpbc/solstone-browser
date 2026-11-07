@@ -13,7 +13,7 @@ await import(new URL("../extension/lib/status.js", import.meta.url));
 const S = globalThis.SolstoneStatus;
 
 function mockStatus(overrides = {}) {
-  return Object.assign({
+  const status = Object.assign({
     inst: "00112233-4455-6677-8899-aabbccddeeff",
     captureEpoch: 1,
     everConnected: true,
@@ -48,7 +48,12 @@ function mockStatus(overrides = {}) {
     capturePermitted: true,
     addSiteEligible: true,
     gate: { open: true },
+    consentAccepted: true,
   }, overrides);
+  if (!Object.hasOwn(overrides, "consentAccepted")) {
+    status.consentAccepted = status.consentVersion === 1 || status.consentVersion === 2;
+  }
+  return status;
 }
 
 test("derive emits the exact status derivation shape", () => {
@@ -397,7 +402,6 @@ test("an enqueue error under every site is a row", () => {
 
 test("agreement versions stay at 1", () => {
   assert.equal(globalThis.SolstoneHosts.ALL_SITES_CONSENT_VERSION, 1);
-  assert.equal(globalThis.SolstoneCaptureGate.CONSENT_VERSION, 1);
 });
 
 test("an app pause while reading stays open does not use the paused presentation", () => {
@@ -477,5 +481,31 @@ test("siteRow: site-wide entry with open tab is on-now, not not-taken-in", () =>
   const row = S.siteRow("https://measure.test", status);
   assert.equal(row.kind, "on-now");
   assert.equal(row.label, "on now");
+});
+
+test("agreement page: derive kind on follows consentAccepted", () => {
+  const status = mockStatus({
+    consentVersion: 2,
+    consentAccepted: true,
+    hostDelivery: "delivered",
+    openTabs: { known: true, openOrigins: ["https://example.com"], anyGrantedTabOpen: true },
+  });
+  assert.equal(S.derive(status, { anyGrantedTabOpen: true }).kind, "on");
+});
+
+test("agreement page: consent-needed follows consentAccepted", () => {
+  const status = mockStatus({ consentVersion: 2, consentAccepted: false });
+  assert.equal(S.derive(status).kind, "consent-needed");
+});
+
+test("agreement page: siteRow opens the gate from consentAccepted", () => {
+  const status = mockStatus({
+    consentVersion: 2,
+    consentAccepted: true,
+    fence: null,
+    livePatterns: ["*://*.example.com/*"],
+    openTabs: { known: true, openOrigins: ["https://example.com"], anyGrantedTabOpen: true },
+  });
+  assert.equal(S.siteRow("https://example.com", status).kind, "on-now");
 });
 

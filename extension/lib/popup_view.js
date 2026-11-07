@@ -164,7 +164,7 @@
       pageNoteKey = Copy?.popupNoteKey ? Copy.popupNoteKey(state, page, "not-added") : "";
       const rawNotAddedNote = pageNoteKey && Copy ? Copy[pageNoteKey] : "";
       pageNote = typeof rawNotAddedNote === "function" ? rawNotAddedNote(state.brand) : (rawNotAddedNote || "");
-      const canAdd = state.addSiteEligible === true && state.consentVersion === 1;
+      const canAdd = state.addSiteEligible === true && state.consentAccepted === true;
       siteAction = { id: "add-site", label: "add this site", disabled: !canAdd, primary: true };
       if (pageKind === "web" && page.ok && Copy?.MOBILE !== true) {
         siteSecondary = { id: "leave-out", label: "leave this site out" };
@@ -282,7 +282,7 @@
       },
     });
 
-    if (state.consentVersion === 1) {
+    if (state.consentAccepted === true) {
       const line = Copy ? Copy.sharingSummary(isEverySite, siteCount, excludedCount) : `${siteCount} sites`;
       sections.push({ id: "siteCount", mode: isEverySite ? "all" : "selected", text: line });
     }
@@ -312,21 +312,20 @@
 
     const H = globalThis.SolstoneHosts;
     const inHand = effects ? (effects.status || effects.state) : null;
-    if (inHand && (inHand.consentVersion !== 1 || inHand.addSiteEligible !== true)) {
+    if (inHand && (inHand.consentAccepted !== true || inHand.addSiteEligible !== true)) {
       return { ok: false, denied: true, ineligible: true };
     }
 
+    const pattern = H ? H.matchPatternFor(host) : `*://${host}/*`;
     if (inHand && inHand.fence !== null && inHand.fence !== undefined) {
       const livePatterns = inHand.livePatterns || [];
       if (H && H.grantLevel(host, livePatterns, false, scheme)) {
         return effects.cmd({ cmd: "addGrantedOrigin", origin });
       }
+      try {
+        effects.cmd({ cmd: "intendAddOrigin", origin });
+      } catch (_e) {}
     }
-
-    const pattern = H ? H.matchPatternFor(host) : `*://${host}/*`;
-    try {
-      effects.cmd({ cmd: "intendAddOrigin", origin });
-    } catch (_e) {}
 
     let granted = false;
     try {
@@ -342,7 +341,7 @@
     }
 
     const freshState = await effects.cmd({ cmd: "getState" });
-    if (!freshState || freshState.consentVersion !== 1) {
+    if (!freshState || freshState.consentAccepted !== true) {
       try { effects.cmd({ cmd: "clearAddIntent", origin }); } catch (_e) {}
       return { ok: false, denied: true, ineligible: true };
     }
@@ -378,28 +377,11 @@
     return result;
   }
 
-  // The sheet names the site by host; a caller may hand in a full origin for the grant.
-  function sheetHost(input) {
-    if (!/^https?:\/\//i.test(input)) return input;
-    try {
-      return new URL(input).host;
-    } catch (_e) {
-      return input;
-    }
-  }
-
   async function addSite(host, effects) {
-    if (effects.status?.consentVersion !== 1 || effects.status?.addSiteEligible !== true) {
+    if (effects.status?.consentAccepted !== true || effects.status?.addSiteEligible !== true) {
       return { ok: false, cancelled: true, ineligible: true };
     }
-    // On iPhone and iPad, Safari's own prompt is the only question.
-    if (effects.skipSheet === true) return grantSite(host, effects);
-    // The sheet calls confirm inside the owner's confirming click, so the
-    // browser's prompt opens from that click. Firefox refuses a permission
-    // request made after the click's handler has returned.
-    const outcome = await effects.disclose(sheetHost(host), () => grantSite(host, effects));
-    if (!outcome) return { ok: false, cancelled: true };
-    return outcome;
+    return grantSite(host, effects);
   }
 
   globalThis.SolstonePopupView = { arrange, siteCountLine, grantSite, addSite };

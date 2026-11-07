@@ -28,6 +28,7 @@
     return operation;
   }
   let pauseEpoch = 0;
+  let agreeInFlight = false;
 
   function originGranted(port, origin) {
     return H.originGranted(port, origin);
@@ -156,7 +157,7 @@
   function addGrantedOrigin(origin, deps) {
     const port = deps.port;
     return enqueueGrant(async () => {
-      if (port.consentVersion !== Gate.CONSENT_VERSION) {
+      if (!Gate.consentAccepted(port.consentVersion)) {
         return { ok: false, error: "missing_consent" };
       }
       try {
@@ -346,17 +347,45 @@
         }
 
         case "acknowledgeDisclosure": {
-          if (msg.version === Gate.CONSENT_VERSION) {
-            try {
-              await DB.put("meta", Gate.CONSENT_VERSION, "consentVersion");
-              port.consentVersion = Gate.CONSENT_VERSION;
-              port.notify();
-              return { ok: true, consentVersion: port.consentVersion };
-            } catch (_err) {
-              return { ok: false, error: "storage_error" };
-            }
+          if (agreeInFlight) return { ok: false, result: "agree_in_flight" };
+          if (Gate.consentAccepted(port.consentVersion)) {
+            return { ok: true, consentVersion: port.consentVersion };
           }
-          return { ok: false, error: "invalid_consent_version" };
+          agreeInFlight = true;
+          try {
+            await DB.put("meta", Gate.CONSENT_VERSION, "consentVersion");
+            port.consentVersion = Gate.CONSENT_VERSION;
+            port.notify();
+            if (port.fence === null || typeof port.fence !== "object") {
+              return { ok: true, consentVersion: port.consentVersion };
+            }
+            let read;
+            try {
+              read = await patternsJustRead(port, deps);
+            } catch (_e) {
+              read = null;
+            }
+            if (!Array.isArray(read)) {
+              return { ok: false, result: "agreed_fence_kept", consentVersion: port.consentVersion };
+            }
+            await endFence(port, deps, read);
+            return { ok: true, consentVersion: port.consentVersion };
+          } catch (_err) {
+            return { ok: false, error: "storage_error" };
+          } finally {
+            agreeInFlight = false;
+          }
+        }
+
+        case "answerFirstRun": {
+          try {
+            if (deps.setCfg) await deps.setCfg({ firstRunAnswered: true });
+            port.firstRunAnswered = true;
+            port.notify();
+            return { ok: true };
+          } catch (_err) {
+            return { ok: false, error: "storage_error" };
+          }
         }
 
         case "dismissTruncation": {

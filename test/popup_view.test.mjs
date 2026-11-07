@@ -444,6 +444,24 @@ test("grantSite succeeds post-grant with consentVersion === 1 even if addSiteEli
   assert.deepEqual(result, { ok: true });
 });
 
+test("consent revoked during the permission await does not call addGrantedOrigin", async () => {
+  const calls = [];
+  const result = await View.grantSite("example.com", {
+    cmd: async (message) => {
+      calls.push(message.cmd);
+      if (message.cmd === "getState") return { consentVersion: 0 };
+      return { ok: true };
+    },
+    requestPermission: async () => {
+      calls.push("permission");
+      return true;
+    },
+  });
+  assert.deepEqual(calls, ["intendAddOrigin", "permission", "getState", "clearAddIntent"]);
+  assert.equal(calls.includes("addGrantedOrigin"), false);
+  assert.deepEqual(result, { ok: false, denied: true, ineligible: true });
+});
+
 test("popup_view: site-wide page shows added site state, not not added", () => {
   const pageSec = (st, p) => View.arrange(derived(), st, p).find((s) => s.id === "page");
   const s = state({
@@ -622,4 +640,9 @@ test("popup_view: fenced every-site, upgrade questions, and permissionsUnavailab
   const pNoAdd = View.arrange(derived(), permUnavail, { origin: "https://other.example", host: "other.example", ok: true, kind: "web" })
     .find((s) => s.id === "page");
   assert.equal(pNoAdd.siteAction, null);
+  assert.equal(pNoAdd.state, globalThis.SolstoneCopy.actionFailure("permissions_unavailable", permUnavail.brand));
+  const stillPlain = View.arrange(derived(), state(), { origin: "https://other.example", host: "other.example", ok: true, kind: "web" })
+    .find((s) => s.id === "page");
+  assert.equal(stillPlain.state, "not added");
+  assert.equal(stillPlain.siteAction?.id, "add-site");
 });

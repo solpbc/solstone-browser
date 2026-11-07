@@ -392,7 +392,7 @@ test("an enqueue error under every site is a row", () => {
     broadGrant: true, fence: null, livePatterns: ["*://*/*"], allSitesRegistration: "failed",
   }));
   assert.equal(turningOn.kind, "all-sites-registration");
-  assert.match(turningOn.reason, /turning on all sites/);
+  assert.equal(turningOn.reason, globalThis.SolstoneCopy.accessCopy("chrome").failedBody);
 });
 
 test("agreement versions stay at 1", () => {

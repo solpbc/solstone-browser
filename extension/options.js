@@ -243,7 +243,8 @@
       showError: showActionError,
       brand: state?.brand,
       requestPermission: (request) => chrome.permissions.request(request),
-      showDenied: (action) => announce("permission declined. this site stays paused.", "bad"),
+      showDenied: () => announce(Copy.accessCopy(state?.brand).declined, "bad"),
+      showOk: (message) => announce(message, "ok"),
       lossSeq: () => state?.lossNotice?.seq,
     };
   }
@@ -481,12 +482,6 @@
     // Sites Section
     renderSites();
 
-    // Adoption Notices
-    if (state?.adoptionNotices && state.adoptionNotices.length > 0) {
-      announce(Copy.adoptedAnnouncement(state.brand, state.adoptionNotices), "ok");
-      cmd({ cmd: "dismissAdoptionNotices" });
-    }
-
     // Indicator Section
     if ($("showPageIndicator")) $("showPageIndicator").checked = !!(state && state.showPageIndicator);
     if ($("pauseWithApp")) $("pauseWithApp").checked = state?.pauseWithApp !== false;
@@ -505,7 +500,7 @@
       sections.push({
         id: "clearedNotice",
         kind: "cleared-notice",
-        text: Copy?.clearedStorageNotice ? Copy.clearedStorageNotice() : (Copy?.CLEARED_STORAGE_NOTICE || "safari cleared extension storage. solstone is paused."),
+        text: Copy.clearedStorageNotice(),
       });
     }
 
@@ -548,10 +543,10 @@
       sections.push({
         id: "upgradeQuiet",
         kind: "upgrade-quiet",
-        text: Copy?.fenceQuiet ? Copy.fenceQuiet(st.brand) : (Copy?.FENCE_QUIET_LINE || "sharing the sites you chose."),
+        text: Copy.fenceQuiet(st.brand),
         action: {
           id: "share-every-site",
-          label: Copy?.SHARE_EVERY_SITE || "share every site",
+          label: Copy.SHARE_EVERY_SITE,
           primary: true,
         },
       });
@@ -607,8 +602,6 @@
           p.textContent = sec.text;
           div.append(p);
         } else if (sec.kind === "upgrade-question") {
-          const h2 = document.createElement("h2");
-          h2.textContent = sec.title;
           const p = document.createElement("p");
           p.textContent = sec.body;
           const actions = document.createElement("div");
@@ -620,16 +613,16 @@
             b.textContent = btn.label;
             b.addEventListener("click", async () => {
               if (btn.id === "share-every-site") {
-                const requested = requestShareEverySite();
-                if (requested && typeof requested.then === "function") await requested;
-                await cmd({ cmd: "shareEverySite" });
-              } else if (btn.id === "share-them-too") await cmd({ cmd: "shareThemToo" });
+                await runShareEverySite();
+                return;
+              }
+              if (btn.id === "share-them-too") await cmd({ cmd: "shareThemToo" });
               else if (btn.id === "keep-my-sites") await cmd({ cmd: "keepMySites" });
               await refresh();
             });
             actions.append(b);
           }
-          div.append(h2, p, actions);
+          div.append(p, actions);
         } else if (sec.kind === "upgrade-quiet") {
           const p = document.createElement("p");
           p.textContent = sec.text;
@@ -639,12 +632,7 @@
           b.type = "button";
           b.className = "primary";
           b.textContent = sec.action.label;
-          b.addEventListener("click", async () => {
-            const requested = requestShareEverySite();
-            if (requested && typeof requested.then === "function") await requested;
-            await cmd({ cmd: "shareEverySite" });
-            await refresh();
-          });
+          b.addEventListener("click", () => runShareEverySite());
           actions.append(b);
           div.append(p, actions);
         } else if (["stop-still", "stop-none", "stop-some"].includes(sec.kind)) {
@@ -655,6 +643,7 @@
         topContainer.append(div);
       }
     }
+    if (modelSections.some((sec) => sec.id === "stopResult")) stopResultCode = null;
   }
 
   // The request starts before this handler awaits, while the click still counts.
@@ -667,12 +656,45 @@
     }
   }
 
+  // Announce after refresh, so the next paint does not wipe the sentence.
+  // A request that resolves false is a decline. Safari does not ask.
+  async function runShareEverySite() {
+    const requested = requestShareEverySite();
+    let granted = null;
+    if (requested && typeof requested.then === "function") {
+      try { granted = await requested; }
+      catch (_e) { granted = null; }
+    }
+    if (granted === false) {
+      await refresh();
+      announce(Copy.accessCopy(state?.brand).declined, "bad");
+      return;
+    }
+    const result = await cmd({ cmd: "shareEverySite" });
+    await refresh();
+    const held = result?.result === "share_held" || result?.result === "question_every_site";
+    if (!held && !result?.error && result?.ok !== false) {
+      announce(Copy.accessCopy(state?.brand).nowAllowed, "ok");
+    }
+  }
+
   function offersShareEverySite() {
     if (!state?.fence || state.fence.sawMore === true) return false;
     return Hosts?.everySiteLive?.(state.livePatterns || []) !== true;
   }
 
+  function clearDeniedList() {
+    if ($("accessDenied")) $("accessDenied").hidden = true;
+    if ($("accessDeniedTitle")) $("accessDeniedTitle").textContent = "";
+    if ($("accessDeniedList")) $("accessDeniedList").replaceChildren();
+    if ($("accessDeniedHelp")) {
+      $("accessDeniedHelp").textContent = "";
+      $("accessDeniedHelp").hidden = true;
+    }
+  }
+
   function renderAccess(isBroad) {
+    clearDeniedList();
     const panel = $("accessPanel");
     if (!panel) return;
     const offerShare = offersShareEverySite();
@@ -689,7 +711,11 @@
       if ($("accessMissing")) $("accessMissing").hidden = false;
       if ($("accessTitle")) $("accessTitle").textContent = "";
       if (safari) {
-        if ($("accessBody")) $("accessBody").textContent = `${Copy.safariStopLine()}${words.grantedNote ? " " + words.grantedNote : ""}`;
+        if ($("accessBody")) {
+          const parts = [Copy.everySiteOnLine(state?.brand), Copy.safariStopLine()];
+          if (words.grantedNote) parts.push(words.grantedNote);
+          $("accessBody").textContent = parts.join(" ");
+        }
         if ($("accessSteps")) {
           $("accessSteps").replaceChildren();
           $("accessSteps").hidden = true;
@@ -699,7 +725,7 @@
         if ($("accessChecking")) $("accessChecking").textContent = "";
         if ($("accessAllow")) $("accessAllow").hidden = true;
       } else {
-        if ($("accessBody")) $("accessBody").textContent = "";
+        if ($("accessBody")) $("accessBody").textContent = Copy.everySiteOnLine(state?.brand);
         if ($("accessSteps")) {
           $("accessSteps").replaceChildren();
           $("accessSteps").hidden = true;
@@ -754,23 +780,6 @@
         }
       }
     }
-
-    const denied = (state?.browserDeniedOrigins || []);
-    if ($("accessDenied")) $("accessDenied").hidden = denied.length === 0;
-    if ($("accessDeniedTitle")) $("accessDeniedTitle").textContent = words.deniedTitle;
-    const list = $("accessDeniedList");
-    if (list) {
-      list.replaceChildren();
-      for (const origin of denied) {
-        const item = document.createElement("li");
-        try { item.textContent = new URL(origin).hostname; } catch (_e) { item.textContent = origin; }
-        list.append(item);
-      }
-    }
-    if ($("accessDeniedHelp")) {
-      $("accessDeniedHelp").textContent = words.deniedHelp;
-      $("accessDeniedHelp").hidden = !words.deniedHelp;
-    }
   }
 
   function renderSites() {
@@ -789,7 +798,9 @@
 
     if ($("listHeading")) $("listHeading").textContent = "your sites";
     if ($("siteModeHelp")) {
-      $("siteModeHelp").textContent = Copy.addHelp(state?.brand);
+      $("siteModeHelp").textContent = state?.permissionsUnavailable === true
+        ? Copy.actionFailure("permissions_unavailable", state?.brand)
+        : Copy.addHelp(state?.brand);
       $("siteModeHelp").hidden = false;
     }
     if ($("siteInputLabel")) $("siteInputLabel").textContent = "add a site";
@@ -870,6 +881,62 @@
     return show();
   }
 
+  function findChild(parent, id) {
+    if (!parent || !parent.children) return null;
+    for (const child of parent.children) {
+      if (child.id === id) return child;
+    }
+    return null;
+  }
+
+  function removeChild(parent, node) {
+    if (!parent || !node) return;
+    if (typeof node.remove === "function") node.remove();
+    if (Array.isArray(parent.children)) {
+      parent.children = parent.children.filter((child) => child !== node);
+    }
+  }
+
+  // The notice sits above the welcome view. Settings keeps its own copy.
+  function renderWelcomeClearedNotice() {
+    const welcome = $("welcomeView");
+    if (!welcome) return;
+    const parent = welcome.parentNode;
+    const notice = parent ? findChild(parent, "welcomeClearedNotice") : null;
+    const show = state?.clearedNotice === true && welcome.hidden !== true;
+    if (!show) {
+      removeChild(parent, notice);
+      return;
+    }
+    let section = notice;
+    if (!section) {
+      section = document.createElement("section");
+      section.id = "welcomeClearedNotice";
+      section.className = "card cleared-notice";
+    }
+    section.replaceChildren();
+    const text = document.createElement("p");
+    text.textContent = Copy.clearedStorageNotice();
+    const resume = document.createElement("button");
+    resume.type = "button";
+    resume.textContent = "resume";
+    resume.addEventListener("click", async () => {
+      clearAnnouncement();
+      const result = await cmd({ cmd: "setPaused", paused: false });
+      if (result?.error) showActionError(result.error);
+      await refresh();
+    });
+    section.append(text, resume);
+    if (parent && typeof parent.insertBefore === "function") {
+      parent.insertBefore(section, welcome);
+    } else if (parent && Array.isArray(parent.children)) {
+      parent.children = parent.children.filter((child) => child !== section);
+      const at = parent.children.indexOf(welcome);
+      parent.children.splice(at < 0 ? 0 : at, 0, section);
+      section.parentNode = parent;
+    }
+  }
+
   function show() {
     link = Status.present(link, latest, undefined, Date.now());
     if (linkTimer != null) clearTimeout(linkTimer);
@@ -901,6 +968,7 @@
     } else {
       renderSettings(derived);
     }
+    renderWelcomeClearedNotice();
 
     return { derived };
   }
@@ -1025,9 +1093,8 @@
         announce(Copy?.stopResultCopy(state?.brand, result.result), "ok");
       }
     } else {
-      const requested = requestShareEverySite();
-      if (requested && typeof requested.then === "function") await requested;
-      await cmd({ cmd: "shareEverySite" });
+      await runShareEverySite();
+      return;
     }
     await refresh();
   });

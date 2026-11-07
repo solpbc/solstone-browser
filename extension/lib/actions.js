@@ -4,9 +4,31 @@
 (function () {
   "use strict";
 
-  function shareResult(result) {
-    if (result?.result === "share_held" || result?.result === "question_every_site") return result.result;
-    return result?.error || "storage_error";
+  function heldShare(result) {
+    return result?.result === "share_held" || result?.result === "question_every_site";
+  }
+
+  function shareFailure(result) {
+    if (heldShare(result)) return "";
+    if (result?.error || result?.ok === false) return result?.error || "storage_error";
+    return "";
+  }
+
+  // Safari does not ask. A missing request is not a decline. Only a request
+  // that resolves false is.
+  async function requestEverySite(effects) {
+    if (effects.brand === "safari" || typeof effects.requestPermission !== "function") return null;
+    try {
+      return await effects.requestPermission({ origins: ["*://*/*"] });
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function announceShare(effects, sentence) {
+    if (!sentence) return;
+    if (typeof effects.showOk === "function") effects.showOk(sentence);
+    else if (typeof effects.showActionMessage === "function") effects.showActionMessage(sentence);
   }
 
   async function run(action, effects) {
@@ -45,17 +67,25 @@
       return true;
     }
     if (action.id === "share-every-site") {
-      if (effects.brand !== "safari" && typeof effects.requestPermission === "function") {
-        try { await effects.requestPermission({ origins: ["*://*/*"] }); } catch (_e) {}
+      const requested = await requestEverySite(effects);
+      if (requested === false) {
+        await refresh();
+        if (typeof effects.showDenied === "function") effects.showDenied(action);
+        return true;
       }
       const result = await cmd({ cmd: "shareEverySite" });
-      if (result?.error || result?.ok === false) effects.showError(shareResult(result));
+      const failure = shareFailure(result);
+      if (failure) effects.showError(failure);
       await refresh();
+      if (!failure && !heldShare(result)) {
+        announceShare(effects, globalThis.SolstoneCopy?.accessCopy(effects.brand).nowAllowed);
+      }
       return true;
     }
     if (action.id === "share-them-too") {
       const result = await cmd({ cmd: "shareThemToo" });
-      if (result?.error || result?.ok === false) effects.showError(shareResult(result));
+      const failure = shareFailure(result);
+      if (failure) effects.showError(failure);
       await refresh();
       return true;
     }

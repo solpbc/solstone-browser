@@ -735,3 +735,332 @@ test("settings reads the browser's grants after a failed add, through its own ef
   const source = readFileSync(new URL("../extension/options.js", import.meta.url), "utf8");
   assert.match(source, /getAllPermissions: \(\) => chrome\.permissions\.getAll\(\)/);
 });
+
+test("options: cleared notice precedes welcome, and the share sentences use accessCopy", async (t) => {
+  const timers = [];
+  const originalTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn) => { timers.push(fn); return timers.length; };
+  t.after(() => { globalThis.setTimeout = originalTimeout; });
+
+  class OptionNode {
+    constructor(id = "") {
+      this.id = id;
+      this.children = [];
+      this.className = "";
+      this.hidden = false;
+      this.disabled = false;
+      this.checked = false;
+      this.value = "";
+      this.type = "";
+      this.listeners = {};
+      this.dataset = {};
+      this.parentNode = null;
+      this.tagName = "";
+      this._textContent = "";
+    }
+    get textContent() {
+      return this._textContent + this.children.map((child) => child.textContent).join("");
+    }
+    set textContent(value) {
+      this._textContent = String(value);
+      this.children = [];
+    }
+    get firstChild() { return this.children[0] || null; }
+    addEventListener(type, listener) {
+      this.listeners[type] = type === "click" ? armClick(listener) : listener;
+    }
+    append(...children) {
+      for (const child of children) {
+        child.parentNode = this;
+        this.children.push(child);
+      }
+    }
+    appendChild(child) { this.append(child); }
+    replaceChildren(...children) {
+      this.children = [];
+      this.append(...children);
+    }
+    insertBefore(node, before) {
+      this.children = this.children.filter((child) => child !== node);
+      const at = before ? this.children.indexOf(before) : -1;
+      this.children.splice(at < 0 ? this.children.length : at, 0, node);
+      node.parentNode = this;
+    }
+    remove() {
+      if (this.parentNode && Array.isArray(this.parentNode.children)) {
+        this.parentNode.children = this.parentNode.children.filter((child) => child !== this);
+      }
+      this.parentNode = null;
+    }
+    focus() {}
+  }
+
+  const ids = [
+    "pageHeader", "pageTitle", "pageSubTitle", "welcomeView", "settingsView",
+    "warmCard", "warmKinship0", "warmKinship1", "warmKinship2",
+    "step1Heading", "step1Check", "step1Body", "step1ActionBtn",
+    "step2Heading", "step2Check", "step2Content", "step2PendingText", "agreeDisclosureBtn", "step2Completed",
+    "step2DisclosureBody", "step2ReReadBody", "step3Heading", "step3Content", "step3Check", "step3Body",
+    "welcomeShowPageIndicator", "welcomeSiteList",
+    "statusCard", "statusLead", "statusStateChip", "statusReason", "statusAlso", "statusActions",
+    "sitesHeading", "siteInputLabel", "siteModeHelp", "modeSelected", "modeAll", "offersBlock",
+    "broadInSelectedNote", "accessPanel", "accessGranted", "accessMissing", "accessTitle", "accessBody",
+    "accessSteps", "accessReturn", "accessAllow", "accessCheck", "accessChecking",
+    "accessDenied", "accessDeniedTitle", "accessDeniedList", "accessDeniedHelp",
+    "listHeading", "regrant", "exactOnly", "keptNote", "leftOutDetails", "leftOutSummary", "leftOutList",
+    "addForm", "newHost", "addBtn", "siteList", "showPageIndicator", "pauseWithApp", "actionMessage",
+    "ver", "optionsMark", "settingsDisclosureBody", "siteDisclosure", "pauseSwitch",
+  ];
+  const nodes = Object.fromEntries(ids.map((id) => [id, new OptionNode(id)]));
+  const wrap = new OptionNode("wrap");
+  wrap.children = [nodes.welcomeView, nodes.settingsView];
+  nodes.welcomeView.parentNode = wrap;
+  nodes.settingsView.parentNode = wrap;
+  const findId = (node, id) => {
+    if (!node) return null;
+    if (node.id === id) return node;
+    for (const child of node.children || []) {
+      const found = findId(child, id);
+      if (found) return found;
+    }
+    return null;
+  };
+  globalThis.document = {
+    getElementById: (id) => nodes[id] || findId(wrap, id),
+    createElement: (tag) => {
+      const node = new OptionNode();
+      node.tagName = tag;
+      return node;
+    },
+    addEventListener() {},
+  };
+  globalThis.window = { addEventListener() {} };
+
+  const sent = [];
+  let liveState = null;
+  let shareAnswer = { ok: true };
+  let stopAnswer = { ok: true, result: "every_site_off_some" };
+  let allowRequest = true;
+  let permissionRequests = 0;
+  globalThis.chrome = {
+    runtime: {
+      sendMessage(message, callback) {
+        sent.push(message);
+        if (message.cmd === "getState") callback(liveState);
+        else if (message.cmd === "shareEverySite") callback(shareAnswer);
+        else if (message.cmd === "stopSharingEverySite") callback(stopAnswer);
+        else callback({ ok: true });
+      },
+      connect() {
+        return { onMessage: { addListener() {} }, onDisconnect: { addListener() {} }, disconnect() {} };
+      },
+      openOptionsPage() {},
+      reload() {},
+    },
+    tabs: { create() {} },
+    permissions: {
+      request: pageGestureRequest(async () => {
+        permissionRequests += 1;
+        return allowRequest;
+      }),
+    },
+  };
+
+  await import("fake-indexeddb/auto");
+  const root = new URL("../", import.meta.url);
+  for (const file of [
+    "extension/lib/copy.js",
+    "extension/lib/hosts.js",
+    "extension/lib/status.js",
+    "extension/lib/failures.js",
+    "extension/lib/disclosure.js",
+    "extension/lib/popup_view.js",
+    "extension/lib/actions.js",
+    "extension/native-browser/constants.js",
+    "extension/native-browser/schemas.js",
+    "extension/native-browser/schema-validator.js",
+    "extension/native-browser/codec.js",
+    "extension/lib/uuid.js",
+    "extension/lib/db.js",
+    "extension/lib/blocks.js",
+    "extension/lib/segment.js",
+    "extension/lib/gate.js",
+    "extension/lib/left_out.js",
+    "extension/lib/native_outbox.js",
+    "extension/lib/native_port.js",
+  ]) {
+    await import(new URL(file, root));
+  }
+  const Copy = globalThis.SolstoneCopy;
+  const Status = globalThis.SolstoneStatus;
+  const controller = new globalThis.SolstoneNativePort({
+    inst: "00000000-0000-0000-0000-000000000001",
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+    connectNative: () => null,
+  });
+  controller.connectionGeneration = 1;
+  controller.clearedNotice = true;
+  controller.consentVersion = 0;
+  liveState = controller.getStatus();
+
+  await import(new URL("../extension/options.js?group6-notices", import.meta.url));
+  await globalThis.SolstoneOptions.refresh();
+
+  assert.equal(nodes.welcomeView.hidden, false);
+  assert.equal(wrap.children[0].id, "welcomeClearedNotice");
+  assert.equal(wrap.children[1], nodes.welcomeView);
+  assert.equal(wrap.children[0].children[0].textContent, Copy.clearedStorageNotice());
+  assert.equal(wrap.children[0].children[1].textContent, "resume");
+  assert.equal(nodes.step1Heading.textContent, Status.welcomeHold(liveState).heading);
+  assert.equal(nodes.step2Heading.textContent, "what the solstone extension takes in");
+  assert.equal(nodes.step3Heading.textContent, "choose your first site");
+  assert.equal(nodes.warmKinship0.textContent, Copy.WARM_CARD[0]);
+  assert.equal(nodes.warmKinship1.textContent, Copy.WARM_CARD[1]);
+  assert.equal(nodes.warmKinship2.textContent, Copy.WARM_CARD[2]);
+  assert.equal(nodes.step3Body.textContent, Copy.step3Body(liveState.brand));
+  const beforeResume = sent.length;
+  await wrap.children[0].children[1].listeners.click();
+  assert.deepEqual(sent.slice(beforeResume).find((message) => message.cmd === "setPaused"), { cmd: "setPaused", paused: false });
+
+  function section(kind) {
+    const walk = (node, found = []) => {
+      if (!node) return found;
+      if (node.dataset && node.dataset.kind === kind) found.push(node);
+      for (const child of node.children || []) walk(child, found);
+      return found;
+    };
+    return walk(nodes.settingsView)[0];
+  }
+  function buttonLabeled(rootNode, label) {
+    const walk = (node) => {
+      if (!node) return null;
+      if (node.listeners?.click && node._textContent === label) return node;
+      for (const child of node.children || []) {
+        const found = walk(child);
+        if (found) return found;
+      }
+      return null;
+    };
+    return walk(rootNode);
+  }
+
+  controller.clearedNotice = false;
+  controller.consentVersion = 1;
+  controller.hostCapture = "permitted";
+  controller.capturePermitted = true;
+  controller.lease = { token: "t", freshnessMs: 60000, receivedAt: Date.now(), standing: true };
+  controller.paused = false;
+  controller.fence = null;
+  controller.broadGrant = true;
+  controller.livePatterns = ["*://*/*"];
+  controller.brand = "chrome";
+  liveState = controller.getStatus();
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.welcomeView.hidden, true);
+  assert.equal(wrap.children.find((child) => child.id === "welcomeClearedNotice"), undefined);
+  assert.equal(nodes.accessBody.textContent, Copy.everySiteOnLine(liveState.brand));
+
+  controller.brand = "safari";
+  liveState = controller.getStatus();
+  await globalThis.SolstoneOptions.refresh();
+  assert.ok(nodes.accessBody.textContent.includes(Copy.everySiteOnLine(liveState.brand)));
+  assert.ok(nodes.accessBody.textContent.includes(Copy.safariStopLine()));
+
+  controller.brand = "chrome";
+  controller.broadGrant = false;
+  controller.fence = {
+    entries: ["https://example.com"], exact: [], siteWide: [], sawMore: false, answered: false,
+  };
+  controller.livePatterns = ["*://*.example.com/*"];
+  liveState = controller.getStatus();
+  await globalThis.SolstoneOptions.refresh();
+  const requestsBefore = permissionRequests;
+  await nodes.accessAllow.listeners.click();
+  assert.equal(permissionRequests, requestsBefore + 1);
+  assert.equal(nodes.actionMessage.textContent, Copy.accessCopy(liveState.brand).nowAllowed);
+
+  controller.fence = {
+    entries: ["https://example.com"], exact: [], exactKnown: true, siteWide: [], sawMore: true, answered: false,
+  };
+  controller.livePatterns = ["*://*/*"];
+  controller.broadGrant = true;
+  liveState = controller.getStatus();
+  await globalThis.SolstoneOptions.refresh();
+  const upgrade = section("upgrade-question");
+  assert.ok(upgrade);
+  assert.equal(upgrade.children.some((child) => child.tagName === "h2"), false);
+  assert.equal(upgrade.children[0].textContent, Copy.fenceQuestion(liveState.brand, "every").body);
+  await buttonLabeled(upgrade, "share every site").listeners.click();
+  assert.equal(nodes.actionMessage.textContent, Copy.accessCopy(liveState.brand).nowAllowed);
+
+  controller.fence = {
+    entries: ["https://example.com"], exact: [], exactKnown: true, siteWide: [], sawMore: true, answered: true,
+  };
+  controller.livePatterns = ["*://*.example.com/*"];
+  controller.broadGrant = false;
+  liveState = controller.getStatus();
+  await globalThis.SolstoneOptions.refresh();
+  const quiet = section("upgrade-quiet");
+  assert.ok(quiet);
+  await buttonLabeled(quiet, "share every site").listeners.click();
+  assert.equal(nodes.actionMessage.textContent, Copy.accessCopy(liveState.brand).nowAllowed);
+
+  allowRequest = false;
+  controller.fence = {
+    entries: ["https://example.com"], exact: [], siteWide: [], sawMore: false, answered: false,
+  };
+  controller.livePatterns = ["*://*.example.com/*"];
+  liveState = controller.getStatus();
+  await globalThis.SolstoneOptions.refresh();
+  const declinedFrom = sent.length;
+  await nodes.accessAllow.listeners.click();
+  assert.equal(nodes.actionMessage.textContent, Copy.accessCopy(liveState.brand).declined);
+  assert.equal(sent.slice(declinedFrom).some((message) => message.cmd === "shareEverySite"), false);
+  allowRequest = true;
+
+  controller.brand = "safari";
+  liveState = controller.getStatus();
+  await globalThis.SolstoneOptions.refresh();
+  const safariRequests = permissionRequests;
+  await nodes.accessAllow.listeners.click();
+  assert.equal(permissionRequests, safariRequests);
+  assert.equal(nodes.actionMessage.textContent, Copy.accessCopy("safari").nowAllowed);
+  controller.brand = "chrome";
+
+  shareAnswer = { ok: false, result: "share_held" };
+  liveState = controller.getStatus();
+  await globalThis.SolstoneOptions.refresh();
+  await nodes.accessAllow.listeners.click();
+  assert.notEqual(nodes.actionMessage.textContent, Copy.accessCopy(liveState.brand).nowAllowed);
+  assert.equal(nodes.actionMessage.textContent.includes("something went wrong"), false);
+  assert.equal(nodes.actionMessage.textContent.includes("couldn't save that"), false);
+  shareAnswer = { ok: true };
+
+  controller.fence = null;
+  controller.broadGrant = true;
+  controller.livePatterns = ["*://*/*"];
+  liveState = controller.getStatus();
+  await globalThis.SolstoneOptions.refresh();
+  await nodes.accessAllow.listeners.click();
+  const stop = section("stop-some");
+  assert.ok(stop);
+  assert.equal(stop.children[0].textContent, Copy.stopResultCopy(liveState.brand, "every_site_off_some"));
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(section("stop-some"), undefined);
+
+  const stained = controller.getStatus();
+  stained.browserDeniedOrigins = ["https://denied.example"];
+  liveState = stained;
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.accessDenied.hidden, true);
+  assert.equal(nodes.accessDeniedList.children.length, 0);
+
+  const unchecked = controller.getStatus();
+  unchecked.permissionsUnavailable = true;
+  liveState = unchecked;
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.siteModeHelp.textContent, Copy.actionFailure("permissions_unavailable", unchecked.brand));
+
+  assert.doesNotMatch(optionsSource, /adoptedAnnouncement|dismissAdoptionNotices|browserDeniedOrigins|h2\.textContent = sec\.title|FENCE_QUESTION|FENCE_QUIET_LINE|CLEARED_STORAGE_NOTICE/);
+  assert.doesNotMatch(optionsSource, /stays paused/);
+});

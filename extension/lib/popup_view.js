@@ -179,6 +179,9 @@
     }
 
     if (state.permissionsUnavailable === true && siteAction?.id === "add-site") {
+      if (pageState === "not added") {
+        pageState = Copy.actionFailure("permissions_unavailable", state.brand);
+      }
       siteAction = null;
     }
 

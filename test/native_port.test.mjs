@@ -2402,3 +2402,17 @@ test("port: AC8 nothing is sent on a connection whose frames lack left_out", asy
   assert.equal(mockPort2.sent.length, 0);
 });
 
+test("getStatus clearedNotice follows the controller flag", async () => {
+  await resetDB();
+  const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+    connectNative: () => new MockPort(),
+  });
+  assert.equal(controller.getStatus().clearedNotice, false);
+  controller.clearedNotice = true;
+  assert.equal(controller.getStatus().clearedNotice, true);
+  controller.clearedNotice = false;
+  assert.equal(controller.getStatus().clearedNotice, false);
+});
+

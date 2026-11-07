@@ -102,9 +102,8 @@
       showError: showActionError,
       brand: state?.brand,
       requestPermission: (request) => chrome.permissions.request(request),
-      showDenied: (action) => showActionMessage(action?.id === "allow-all-sites"
-        ? globalThis.SolstoneCopy.accessCopy(state?.brand).declined
-        : "permission declined. this site stays paused."),
+      showDenied: () => showActionMessage(globalThis.SolstoneCopy.accessCopy(state?.brand).declined),
+      showOk: (message) => showActionMessage(message),
       lossSeq: () => state?.lossNotice?.seq,
     });
   }
@@ -324,6 +323,105 @@
     });
   }
 
+  function childById(parent, id) {
+    if (!parent || !parent.children) return null;
+    for (const child of parent.children) {
+      if (child.id === id) return child;
+    }
+    return null;
+  }
+
+  function detach(parent, node) {
+    if (!parent || !node) return;
+    if (typeof node.remove === "function") node.remove();
+    if (Array.isArray(parent.children)) {
+      parent.children = parent.children.filter((child) => child !== node);
+    }
+  }
+
+  // Real pages anchor on the existing sections. The test document keeps those
+  // sections by id and not as children, so a missing anchor uses a stable index.
+  function placePinned(parent, node, before, fallbackIndex) {
+    if (!parent || !node) return;
+    if (before && before.parentNode === parent && typeof parent.insertBefore === "function") {
+      parent.insertBefore(node, before);
+      return;
+    }
+    if (!Array.isArray(parent.children)) {
+      if (typeof parent.insertBefore === "function") parent.insertBefore(node, before || null);
+      return;
+    }
+    parent.children = parent.children.filter((child) => child !== node);
+    const at = before ? parent.children.indexOf(before) : -1;
+    const index = at >= 0 ? at : Math.min(fallbackIndex, parent.children.length);
+    parent.children.splice(index, 0, node);
+    node.parentNode = parent;
+  }
+
+  function fillNotice(section, text, onResume) {
+    section.replaceChildren();
+    const paragraph = document.createElement("p");
+    paragraph.textContent = text;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "resume";
+    button.addEventListener("click", onResume);
+    section.append(paragraph, button);
+  }
+
+  async function resumeFromNotice() {
+    showActionMessage("");
+    const result = await cmd({ cmd: "setPaused", paused: false });
+    if (result?.error) showActionError(result.error);
+    await refresh();
+  }
+
+  function renderPopupExtras(shown, sections) {
+    const main = $("popupMain");
+    if (!main) return;
+    const Copy = globalThis.SolstoneCopy;
+    let notice = childById(main, "clearedNotice");
+    if (shown?.clearedNotice) {
+      if (!notice) {
+        notice = document.createElement("section");
+        notice.id = "clearedNotice";
+        notice.className = "blk";
+      }
+      notice.hidden = false;
+      fillNotice(notice, Copy.clearedStorageNotice(), resumeFromNotice);
+      placePinned(main, notice, $("verdict"), 0);
+    } else {
+      detach(main, notice);
+    }
+
+    const question = sections.find((section) => section.id === "upgradeQuestion");
+    let block = childById(main, "upgradeQuestion");
+    if (question) {
+      if (!block) {
+        block = document.createElement("section");
+        block.id = "upgradeQuestion";
+        block.className = "blk";
+      }
+      block.hidden = false;
+      block.replaceChildren();
+      const body = document.createElement("p");
+      body.textContent = question.body;
+      const actions = document.createElement("div");
+      for (const spec of question.buttons || []) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = spec.label;
+        button.className = spec.primary ? "primary" : "";
+        button.addEventListener("click", () => runAction({ id: spec.id, label: spec.label, primary: spec.primary }));
+        actions.append(button);
+      }
+      block.append(body, actions);
+      placePinned(main, block, $("page"), 1);
+    } else {
+      detach(main, block);
+    }
+  }
+
   function renderCurrent() {
     const about = globalThis.SolstoneAbout.block(chrome.runtime.getManifest().version, state?.about);
     if ($("aboutBlock").textContent !== about) {
@@ -343,6 +441,7 @@
     const shown = link.status;
     const derived = Status.derive(shown, extras);
     const sections = View.arrange(derived, shown, page, extras);
+    renderPopupExtras(shown, sections);
     renderVerdict(sections.find((section) => section.id === "verdict"));
     renderSiteIssues(sections.find((section) => section.id === "siteIssues"));
     renderPage(sections.find((section) => section.id === "page"));

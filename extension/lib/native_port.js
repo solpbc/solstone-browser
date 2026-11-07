@@ -514,6 +514,7 @@
         lossNotice: this.lossNotice ? { ...this.lossNotice } : null,
         drift: this.drift ? { ...this.drift } : null,
         paused: !!this.paused,
+        clearedNotice: !!this.clearedNotice,
         consentVersion: this.consentVersion,
         livePatterns: [...(this.livePatterns || [])],
         fence: this.fence ? JSON.parse(JSON.stringify(this.fence)) : null,

@@ -251,7 +251,7 @@
           sub: "nothing new is taken in until this is saved", reason: "", action: null, connecting: null });
       } else if (isEverySite && status.allSitesRegistration === "failed") {
         items.push({ layer: 3, kind: "all-sites-registration", mark: "attention", badge: "!", headline: "couldn't start on your sites",
-          sub: "nothing new is taken in from this browser", reason: `something went wrong turning on all sites in ${bName}.`,
+          sub: "nothing new is taken in from this browser", reason: C.accessCopy(brand).failedBody,
           action: { id: "retry-all-sites", label: "try again" }, connecting: null });
       } else if (!isEverySite && siteCount === 0) {
         items.push({

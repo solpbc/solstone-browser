@@ -83,18 +83,8 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     return n === 1 ? one : many.replace("{n}", String(n));
   }
 
-  // Section 7.6 strings for fence question, share, stop, and cleared storage
-  const FENCE_QUESTION = {
-    title: "share every site?",
-    body: "your browser allows solstone on every website. share every site, or keep the sites you chose?",
-    shareThemToo: "share them too",
-    keepMySites: "keep my sites",
-  };
-
-  const FENCE_QUIET_LINE = "sharing the sites you chose.";
   const SHARE_EVERY_SITE = "share every site";
   const STOP_SHARING_EVERY_SITE = "stop sharing every site";
-  const CLEARED_STORAGE_NOTICE = "safari cleared extension storage. solstone is paused.";
 
   function fenceQuestion(brand, kind, host) {
     const browser = browserName(brand);
@@ -450,11 +440,8 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     appLeftOutNotChecked,
     appLeftOutAppAway,
     extensionLeftOut,
-    FENCE_QUESTION,
-    FENCE_QUIET_LINE,
     SHARE_EVERY_SITE,
     STOP_SHARING_EVERY_SITE,
-    CLEARED_STORAGE_NOTICE,
     stopResultCopy,
     fenceQuestion,
     fenceQuiet,

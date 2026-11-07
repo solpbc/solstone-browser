@@ -546,3 +546,197 @@ test("the popup reads the browser's grants after a failed add, through its own e
   const source = readFileSync(new URL("../extension/popup.js", import.meta.url), "utf8");
   assert.match(source, /getAllPermissions: \(\) => chrome\.permissions\.getAll\(\)/);
 });
+
+test("popup: cleared notice from getStatus is first, including when consent is 0", async (t) => {
+  const timers = [];
+  const originalTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn) => { timers.push(fn); return timers.length; };
+  t.after(() => { globalThis.setTimeout = originalTimeout; });
+
+  class NoticeNode {
+    constructor(id = "") {
+      this.id = id;
+      this.children = [];
+      this.className = "";
+      this.textContent = "";
+      this.hidden = false;
+      this.disabled = false;
+      this.listeners = {};
+      this.parentNode = null;
+    }
+    addEventListener(type, listener) {
+      this.listeners[type] = type === "click" ? armClick(listener) : listener;
+    }
+    append(...children) { this.children.push(...children); }
+    replaceChildren(...children) { this.children = children; }
+    scrollIntoView() {}
+    focus() {}
+  }
+
+  const ids = [
+    "aboutBlock", "aboutCopy", "aboutMessage", "actionMessage", "verdict", "verdictDot", "verdictHeadline", "verdictSub",
+    "verdictNote", "verdictReason", "verdictActions", "siteIssues", "siteIssueRows", "pageHost", "pageNote",
+    "currentPageState", "pageSiteAction", "pageSiteSecondary", "pauseAction", "siteCount", "siteCountText",
+    "disclosure", "disclosureTitle", "disclosureWhat", "disclosureUnsent", "disclosureDestination",
+    "disclosureDestinationDetail", "disclosureChrome", "disclosureConfirm", "disclosureCancel",
+    "popupMain", "popupFooter", "allSitesLink", "settingsLink", "headerMark", "pageLearn", "pageHint",
+    "page",
+  ];
+  const nodes = Object.fromEntries(ids.map((id) => [id, new NoticeNode(id)]));
+  nodes.disclosure.hidden = true;
+  nodes.popupMain.children = ["verdict", "siteIssues", "page", "siteCount"].map((id) => {
+    nodes[id].parentNode = nodes.popupMain;
+    return nodes[id];
+  });
+  const findId = (node, id) => {
+    if (!node) return null;
+    if (node.id === id) return node;
+    for (const child of node.children || []) {
+      const found = findId(child, id);
+      if (found) return found;
+    }
+    return null;
+  };
+  globalThis.document = {
+    getElementById: (id) => nodes[id] || findId(nodes.popupMain, id),
+    createElement: () => new NoticeNode(),
+    addEventListener() {},
+  };
+
+  const sent = [];
+  let liveState = null;
+  let shareAnswer = { ok: true };
+  let allowRequest = true;
+  const pageUrl = "https://other.example/path";
+  globalThis.chrome = {
+    runtime: {
+      getManifest: () => ({ version: "0.5.9" }),
+      sendMessage(message, callback) {
+        sent.push(message);
+        if (message.cmd === "getState") callback(liveState);
+        else if (message.cmd === "shareEverySite") callback(shareAnswer);
+        else callback({ ok: true });
+      },
+      openOptionsPage() {},
+      reload() {},
+      connect() {
+        return { onMessage: { addListener() {} }, onDisconnect: { addListener() {} } };
+      },
+    },
+    tabs: { query: async () => [{ id: 4, url: pageUrl }], create() {} },
+    permissions: { request: pageGestureRequest(async () => allowRequest), contains: async () => true, getAll: async () => ({ origins: [] }) },
+  };
+
+  await import("fake-indexeddb/auto");
+  const root = new URL("../", import.meta.url);
+  for (const file of [
+    "extension/native-browser/constants.js",
+    "extension/native-browser/schemas.js",
+    "extension/native-browser/schema-validator.js",
+    "extension/native-browser/codec.js",
+    "extension/lib/uuid.js",
+    "extension/lib/db.js",
+    "extension/lib/blocks.js",
+    "extension/lib/hosts.js",
+    "extension/lib/segment.js",
+    "extension/lib/gate.js",
+    "extension/lib/left_out.js",
+    "extension/lib/native_outbox.js",
+    "extension/lib/native_port.js",
+    "extension/lib/copy.js",
+    "extension/lib/about.js",
+    "extension/lib/status.js",
+    "extension/lib/failures.js",
+    "extension/lib/disclosure.js",
+    "extension/lib/popup_view.js",
+    "extension/lib/actions.js",
+  ]) {
+    await import(new URL(file, root));
+  }
+  const PortController = globalThis.SolstoneNativePort;
+  const Copy = globalThis.SolstoneCopy;
+  const controller = new PortController({
+    inst: "00000000-0000-0000-0000-000000000001",
+    runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
+    connectNative: () => null,
+  });
+  controller.connectionGeneration = 1;
+  controller.clearedNotice = true;
+  controller.consentVersion = 0;
+  liveState = controller.getStatus();
+  assert.equal(liveState.clearedNotice, true);
+  assert.equal(liveState.consentVersion, 0);
+
+  await import(new URL("../extension/popup.js?group6-notices", import.meta.url));
+  await globalThis.SolstonePopup.refresh();
+
+  const notice = nodes.popupMain.children.find((child) => child.id === "clearedNotice");
+  assert.equal(nodes.popupMain.children[0]?.id, "clearedNotice");
+  assert.equal(notice.children[0].textContent, Copy.clearedStorageNotice());
+  assert.equal(notice.children[1].textContent, "resume");
+  const beforeResume = sent.length;
+  await notice.children[1].listeners.click();
+  assert.deepEqual(sent.slice(beforeResume).find((message) => message.cmd === "setPaused"), { cmd: "setPaused", paused: false });
+
+  controller.clearedNotice = false;
+  controller.consentVersion = 1;
+  controller.hostCapture = "permitted";
+  controller.capturePermitted = true;
+  controller.lease = { token: "t", freshnessMs: 60000, receivedAt: Date.now(), standing: true };
+  controller.paused = false;
+  controller.fence = {
+    entries: ["https://fenced.example"],
+    siteWide: [],
+    exact: ["https://fenced.example"],
+    exactKnown: true,
+    sawMore: true,
+    answered: false,
+  };
+  controller.livePatterns = ["*://*/*"];
+  controller.broadGrant = true;
+  liveState = controller.getStatus();
+  await globalThis.SolstonePopup.refresh();
+  assert.equal(nodes.popupMain.children.find((child) => child.id === "clearedNotice"), undefined);
+  const page = { origin: "https://other.example", host: "other.example", ok: true, kind: "web" };
+  const arranged = globalThis.SolstonePopupView.arrange(null, liveState, page);
+  const question = arranged.find((section) => section.id === "upgradeQuestion");
+  const block = nodes.popupMain.children.find((child) => child.id === "upgradeQuestion");
+  assert.ok(question);
+  assert.equal(block.children[0].textContent, question.body);
+  assert.deepEqual(block.children[1].children.map((button) => button.textContent), question.buttons.map((button) => button.label));
+  const pageIndex = nodes.popupMain.children.findIndex((child) => child.id === "page");
+  const questionIndex = nodes.popupMain.children.findIndex((child) => child.id === "upgradeQuestion");
+  if (pageIndex >= 0) assert.ok(questionIndex < pageIndex);
+
+  const shareButton = block.children[1].children.find((button) => button.textContent === question.buttons[0].label);
+  await shareButton.listeners.click();
+  assert.equal(nodes.actionMessage.textContent, Copy.accessCopy(liveState.brand).nowAllowed);
+
+  shareAnswer = { ok: false, result: "share_held" };
+  await block.children[1].children.find((button) => button.textContent === question.buttons[0].label).listeners.click();
+  assert.equal(nodes.actionMessage.textContent, "");
+  shareAnswer = { ok: true };
+
+  allowRequest = false;
+  const declinedFrom = sent.length;
+  await nodes.popupMain.children.find((child) => child.id === "upgradeQuestion").children[1].children[0].listeners.click();
+  assert.equal(nodes.actionMessage.textContent, Copy.accessCopy(liveState.brand).declined);
+  assert.equal(sent.slice(declinedFrom).some((message) => message.cmd === "shareEverySite"), false);
+  allowRequest = true;
+
+  controller.fence = null;
+  controller.livePatterns = [];
+  controller.broadGrant = false;
+  liveState = controller.getStatus();
+  await globalThis.SolstonePopup.refresh();
+  assert.equal(nodes.currentPageState.textContent, "not added");
+  assert.equal(nodes.pageSiteAction.hidden, false);
+
+  const unavailable = controller.getStatus();
+  unavailable.permissionsUnavailable = true;
+  liveState = unavailable;
+  await globalThis.SolstonePopup.refresh();
+  assert.equal(nodes.currentPageState.textContent, Copy.actionFailure("permissions_unavailable", unavailable.brand));
+  assert.equal(nodes.pageSiteAction.hidden, true);
+  assert.doesNotMatch(popupSource, /stays paused/);
+});

@@ -33,6 +33,48 @@ export function pageGestureRequest(impl) {
   };
 }
 
+function matchHasPort(pattern) {
+  const match = /^[a-z*]+:\/\/([^/]+)/i.exec(String(pattern || ""));
+  if (!match) return false;
+  return /:\d+$/.test(match[1]);
+}
+
+function patternCovers(pattern, urlString) {
+  let url;
+  try { url = new URL(urlString); } catch (_e) { return false; }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  const raw = String(pattern || "").trim();
+  if (raw === "*://*/*" || raw === "<all_urls>") return true;
+  if (raw === "http://*/*") return url.protocol === "http:";
+  if (raw === "https://*/*") return url.protocol === "https:";
+  const match = /^(\*|https?):\/\/(\*\.)?([^/]+)\/\*$/.exec(raw);
+  if (!match) return false;
+  if (match[1] === "https" && url.protocol !== "https:") return false;
+  if (match[1] === "http" && url.protocol !== "http:") return false;
+  let host = match[3];
+  let port = "";
+  const colon = host.lastIndexOf(":");
+  if (colon > 0 && /^\d+$/.test(host.slice(colon + 1)) && !host.slice(0, colon).includes(":")) {
+    port = host.slice(colon + 1);
+    host = host.slice(0, colon);
+  }
+  if (port) {
+    const pagePort = url.port || (url.protocol === "https:" ? "443" : "80");
+    if (pagePort !== port) return false;
+  }
+  const pageHost = url.hostname.toLowerCase();
+  host = host.toLowerCase();
+  if (match[2]) return pageHost === host || pageHost.endsWith(`.${host}`);
+  return pageHost === host;
+}
+
+function presentScript(script) {
+  const copy = { ...script, matches: [...(script.matches || [])].sort() };
+  if (!copy.excludeMatches || copy.excludeMatches.length === 0) delete copy.excludeMatches;
+  else copy.excludeMatches = [...copy.excludeMatches].sort();
+  return copy;
+}
+
 export function createMockChrome(options = {}) {
   const opts = Object.assign({
     requestResolvesWithoutGrant: false,
@@ -93,8 +135,15 @@ export function createMockChrome(options = {}) {
       },
       tabs: {
         query: (queryInfo, cb) => {
-          if (typeof cb === "function") cb(tabsList);
-          return Promise.resolve(tabsList);
+          const tabs = tabsList.map((tab) => {
+            const copy = { ...tab };
+            if (!copy.url) return copy;
+            const covered = [...grantedPermissions].some((pattern) => patternCovers(pattern, copy.url));
+            if (!covered) delete copy.url;
+            return copy;
+          });
+          if (typeof cb === "function") cb(tabs);
+          return Promise.resolve(tabs);
         },
         sendMessage: (tabId, msg, cb) => {
           sentTabMessages.push({ tabId, msg });
@@ -112,13 +161,19 @@ export function createMockChrome(options = {}) {
       },
       scripting: {
         registerContentScripts: async (scripts) => {
-          for (const s of scripts) registeredScripts.set(s.id, s);
+          for (const script of scripts) {
+            const listed = [...(script.matches || []), ...(script.excludeMatches || [])];
+            if (listed.some(matchHasPort)) throw new Error("Invalid match pattern");
+            if (registeredScripts.has(script.id)) throw new Error("Duplicate script ID");
+          }
+          for (const script of scripts) registeredScripts.set(script.id, script);
         },
         unregisterContentScripts: async ({ ids }) => {
           for (const id of ids) registeredScripts.delete(id);
         },
         getRegisteredContentScripts: async ({ ids } = {}) => {
-          return ids ? ids.map((id) => registeredScripts.get(id)).filter(Boolean) : [...registeredScripts.values()];
+          const scripts = ids ? ids.map((id) => registeredScripts.get(id)).filter(Boolean) : [...registeredScripts.values()];
+          return scripts.map(presentScript);
         },
         executeScript: async () => {
           if (opts.executeScriptRejects) throw new Error("executeScript rejected");

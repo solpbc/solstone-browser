@@ -996,9 +996,46 @@ test("router: while livePatterns contains *://*/*, a skim with no nonce from any
   const resBroad = await Router.route(skimNoNonce, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(resBroad.ok, false);
   assert.equal(resBroad.error, "read_not_authorized");
+  assert.equal(port.permissionEpoch, 0);
+
+  const read = await Router.route({
+    kind: "read",
+    realmToken: "r1",
+    action: "skim",
+    requestId: 1,
+    captureEpoch: port.captureEpoch,
+    leaseToken: port.lease?.token,
+  }, sender, { runtimeId: EXT_ID, port, confirmRealm, executeBrowserRead: async () => true });
+  assert.equal(read.ok, true);
+  const binding = Router.frameBindings.values().next().value;
+  const nonce = binding.readNonce;
+  assert.equal(typeof nonce, "string");
+  assert.ok(nonce.length > 0);
+  const skimOnce = { ...skimNoNonce, readNonce: nonce };
+  const once = await Router.route(skimOnce, sender, { runtimeId: EXT_ID, port, confirmRealm });
+  assert.equal(once.ok, true);
+  assert.equal(binding.readNonce, null);
+  const twice = await Router.route(skimOnce, sender, { runtimeId: EXT_ID, port, confirmRealm });
+  assert.equal(twice.ok, false);
+  assert.equal(twice.error, "read_not_authorized");
+
+  grantedOrigins.clear();
+  grantedOrigins.add("http://*/*");
+  const portScheme = makePort();
+  portScheme.livePatterns = ["http://*/*"];
+  portScheme.broadGrant = true;
+  const schemeSender = { ...sender, url: "http://example.com/page", origin: "http://example.com" };
+  assert.equal((await Router.route({ kind: "hello", realmToken: "r-http" }, schemeSender, { runtimeId: EXT_ID, port: portScheme, confirmRealm })).ok, true);
+  const schemeSkim = await Router.route(
+    { ...skimNoNonce, realmToken: "r-http", captureEpoch: portScheme.captureEpoch, leaseToken: portScheme.lease?.token },
+    schemeSender,
+    { runtimeId: EXT_ID, port: portScheme, confirmRealm },
+  );
+  assert.equal(schemeSkim.ok, false);
+  assert.equal(schemeSkim.error, "read_not_authorized");
 
   // Same skim is not rejected for a missing nonce when no broad pattern is live
-  grantedOrigins.delete("*://*/*");
+  grantedOrigins.delete("http://*/*");
   const portNarrow = makePort();
   portNarrow.grantedOrigins.add("https://example.com");
   await Router.route({ kind: "hello", realmToken: "r2" }, sender, { runtimeId: EXT_ID, port: portNarrow, confirmRealm });
@@ -1008,6 +1045,36 @@ test("router: while livePatterns contains *://*/*, a skim with no nonce from any
     { runtimeId: EXT_ID, port: portNarrow, confirmRealm }
   );
   assert.equal(resNarrow.ok, true);
+});
+
+test("router: a subdomain page's error is kept on the covering grant's row origin", async () => {
+  await resetDB();
+  grantedOrigins.add("*://*.bank.com/*");
+  const port = makePort();
+  port.livePatterns = ["*://*.bank.com/*"];
+  port.broadGrant = false;
+  port.fence = null;
+  const origin = "https://login.bank.com";
+  const pageSender = { id: EXT_ID, tab: { id: 71 }, frameId: 0, url: "https://login.bank.com/page", origin };
+  assert.equal((await Router.route({ kind: "hello", realmToken: "r-sub" }, pageSender, { runtimeId: EXT_ID, port, confirmRealm })).ok, true);
+  port.enqueueObservedSkim = async () => {
+    const err = new Error("enqueue_failed");
+    err.code = "enqueue_failed";
+    throw err;
+  };
+  const result = await Router.route({
+    kind: "skim",
+    realmToken: "r-sub",
+    documentKey: DOCUMENT_KEY,
+    captureEpoch: port.captureEpoch,
+    connectionGeneration: port.connectionGeneration,
+    destinationGeneration: port.destinationGeneration,
+    leaseToken: port.lease?.token,
+    blocks: [{ id: "1", type: "heading", depth: 0, text: "Login" }],
+  }, pageSender, { runtimeId: EXT_ID, port, confirmRealm });
+  assert.equal(result.ok, false);
+  assert.equal(port.getStatus().enqueue["https://bank.com"], "enqueue_failed");
+  assert.equal(port.getStatus().enqueue[origin], undefined);
 });
 
 test("router: read: executeScript rejection fault handling and notification behavior", async () => {

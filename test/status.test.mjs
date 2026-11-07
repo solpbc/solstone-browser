@@ -373,6 +373,28 @@ test("a site's error row never shows an internal code", () => {
   assert.equal(row.label, "couldn't start on this site. remove it and add it again.");
 });
 
+test("an enqueue error under every site is a row", () => {
+  const status = mockStatus({
+    broadGrant: true,
+    fence: null,
+    livePatterns: ["*://*/*"],
+    enqueue: { "https://bank.com": "enqueue_failed" },
+    excludedHosts: ["left.example"],
+    faults: { "https://denied.example": "denied" },
+  });
+  const row = S.siteRow("https://bank.com", status);
+  assert.equal(row.kind, "error");
+  assert.notEqual(row.label, "enqueue_failed");
+  assert.ok(S.derive(status).items.some((item) => item.kind === "site-error"));
+  assert.equal(S.siteRow("https://left.example", status).kind, "excluded");
+  assert.equal(S.siteRow("https://denied.example", status).kind, "denied-by-browser");
+  const turningOn = S.derive(mockStatus({
+    broadGrant: true, fence: null, livePatterns: ["*://*/*"], allSitesRegistration: "failed",
+  }));
+  assert.equal(turningOn.kind, "all-sites-registration");
+  assert.match(turningOn.reason, /turning on all sites/);
+});
+
 test("agreement versions stay at 1", () => {
   assert.equal(globalThis.SolstoneHosts.ALL_SITES_CONSENT_VERSION, 1);
   assert.equal(globalThis.SolstoneCaptureGate.CONSENT_VERSION, 1);

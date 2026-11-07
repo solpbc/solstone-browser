@@ -407,6 +407,15 @@ test("lifecycle: doInit retains held outbox batches without recording expiry los
 
 
 
+function openGate(port) {
+  port.hostCapture = "permitted";
+  port.capturePermitted = true;
+  port.consentVersion = 1;
+  port.paused = false;
+  port.pressure = { active: false };
+  port.lease = { token: "t", generation: "g", receivedAt: port.now(), freshnessMs: 10000 };
+}
+
 test("lifecycle: an open tab that cannot answer after injection asks for a reload", async () => {
   for (const [label, tab, reply, expected] of [
     ["answers", {id: 101, url: "https://example.com/page", status: "complete"}, {ok: true}, "ready"],
@@ -415,12 +424,9 @@ test("lifecycle: an open tab that cannot answer after injection asks for a reloa
     ["still loading", {id: 101, url: "https://example.com/page", status: "loading"}, undefined, "ready"],
     ["private", {id: 101, url: "https://example.com/page", status: "complete", incognito: true}, undefined, "ready"],
   ]) {
-    const {mock, bg} = await startWorker();
+    const {mock, sandbox, bg} = await startWorker({ siteGrant: "live", fence: null }, { noGrants: true });
     const port = bg.port;
-    port.hostCapture = "permitted";
-    port.capturePermitted = true;
-    port.consentVersion = 1;
-    port.lease = {token: "t", generation: "g", receivedAt: port.now(), freshnessMs: 10000};
+    openGate(port);
     mock.grantedPermissions.add("*://example.com/*");
     mock.chrome.tabs.query = async () => [tab];
     const pings = [];
@@ -430,12 +436,368 @@ test("lifecycle: an open tab that cannot answer after injection asks for a reloa
       if (reply instanceof Error) throw reply;
       return reply;
     };
-    const result = await bg.registerSite("example.com");
-    assert.equal(result, expected, label);
-    const asked = pings.filter(p => p.msg?.kind === "ping");
+    await bg.beginRead();
+    await new Promise((resolve) => setImmediate(resolve));
+    const rowOrigin = "https://example.com";
+    if (expected === "ready") assert.equal(port.registration[rowOrigin], undefined, label);
+    else assert.equal(port.registration[rowOrigin], "reload", label);
+    const asked = pings.filter((p) => p.msg?.kind === "ping");
     assert.equal(asked.length, tab.status === "complete" && !tab.incognito ? 1 : 0, label);
     if (asked.length) assert.equal(asked[0].options?.frameId, 0, label);
+    if (expected === "reload") {
+      const row = sandbox.SolstoneStatus.siteRow(rowOrigin, port.getStatus());
+      assert.equal(row.kind, "reload-tab", label);
+    }
   }
+});
+
+test("a subdomain tab's reload row is the covering grant's row origin", async () => {
+  const {mock, sandbox, bg} = await startWorker({ siteGrant: "live", fence: null }, { noGrants: true });
+  const port = bg.port;
+  openGate(port);
+  const tab = { id: 7, url: "https://login.bank.com/home", status: "complete" };
+  mock.chrome.tabs.query = async () => [tab];
+  mock.chrome.tabs.sendMessage = async (_tabId, msg) => (msg?.kind === "ping" ? undefined : undefined);
+  mock.grantedPermissions.add("*://*.bank.com/*");
+  await bg.beginRead();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(port.registration["https://bank.com"], "reload");
+  assert.equal(port.registration["https://login.bank.com"], undefined);
+  assert.equal(sandbox.SolstoneStatus.siteRow("https://bank.com", port.getStatus()).kind, "reload-tab");
+});
+
+test("a registration that throws keeps a failed row on the grant's row origin", async () => {
+  const {mock, sandbox, bg} = await startWorker({ siteGrant: "live", fence: null }, { noGrants: true });
+  const port = bg.port;
+  openGate(port);
+  mock.chrome.scripting.registerContentScripts = async () => { throw new Error("Invalid match pattern"); };
+  mock.grantedPermissions.add("*://*.bank.com/*");
+  await bg.beginRead();
+  assert.equal(port.registration["https://bank.com"], "failed");
+  assert.equal(port.registration["https://login.bank.com"], undefined);
+  const row = sandbox.SolstoneStatus.siteRow("https://bank.com", port.getStatus());
+  assert.equal(row.kind, "error");
+  assert.notEqual(row.label, "failed");
+});
+
+test("a script records its result on every row origin it serves", async () => {
+  const {mock, bg} = await startWorker({ siteGrant: "live", fence: null }, { noGrants: true });
+  openGate(bg.port);
+  mock.tabsList = [{ id: 7, url: "https://bank.com/home", status: "complete" }];
+  mock.chrome.tabs.query = async () => mock.tabsList;
+  mock.chrome.tabs.sendMessage = async (_tabId, msg) => (msg?.kind === "ping" ? undefined : undefined);
+  mock.grantedPermissions.add("https://bank.com/*");
+  mock.grantedPermissions.add("http://bank.com/*");
+  await bg.beginRead();
+  assert.equal(bg.port.registration["https://bank.com"], "reload");
+  assert.equal(bg.port.registration["http://bank.com"], "reload");
+  const scripts = await mock.chrome.scripting.getRegisteredContentScripts();
+  assert.equal(scripts.length, 1);
+  assert.equal(scripts[0].id, "cs-bank.com");
+});
+
+test("a plain owner registers each non-broad grant with its scheme and host", async () => {
+  const cases = [
+    ["*://localhost/*", "cs-localhost", ["*://localhost/*"]],
+    ["*://192.168.1.5/*", "cs-192.168.1.5", ["*://192.168.1.5/*"]],
+    ["*://router.local/*", "cs-router.local", ["*://router.local/*"]],
+    ["*://bank.com/*", "cs-bank.com", ["*://bank.com/*"]],
+    ["https://bank.com/*", "cs-bank.com", ["https://bank.com/*"]],
+    ["https://*.bank.com/*", "cs-bank.com", ["https://*.bank.com/*"]],
+  ];
+  for (const [pattern, id, matches] of cases) {
+    const {mock, bg} = await startWorker({ siteGrant: "live", fence: null }, { noGrants: true });
+    mock.grantedPermissions.add(pattern);
+    await bg.beginRead();
+    const scripts = await mock.chrome.scripting.getRegisteredContentScripts();
+    assert.equal(scripts.length, 1, pattern);
+    assert.equal(scripts[0].id, id, pattern);
+    assert.deepEqual(scripts[0].matches, matches, pattern);
+    assert.equal(scripts[0].excludeMatches, undefined, pattern);
+  }
+});
+
+test("a port-bearing grant registers the portless host and keeps the gate's port", async () => {
+  const {mock, sandbox, bg} = await startWorker({ siteGrant: "live", fence: null }, { noGrants: true });
+  mock.grantedPermissions.add("*://localhost:5015/*");
+  await bg.beginRead();
+  const scripts = await mock.chrome.scripting.getRegisteredContentScripts();
+  const script = scripts.find((item) => item.id === "cs-localhost");
+  assert.ok(script);
+  assert.deepEqual(script.matches, ["*://localhost/*"]);
+  const Hosts = sandbox.SolstoneHosts;
+  assert.equal(Hosts.originGranted(bg.port, "http://localhost:8080"), false);
+  assert.equal(Hosts.originGranted(bg.port, "http://localhost:5015"), true);
+  assert.equal(Object.hasOwn(mock.storageData.cfg, "grantWatch"), false);
+  assert.deepEqual(Array.from(mock.storageData.grantWatch.patterns), ["*://localhost:5015/*"]);
+});
+
+test("patterns for one host share a script and widening updates matches", async () => {
+  const {mock, bg} = await startWorker({ siteGrant: "live", fence: null }, { noGrants: true });
+  mock.chrome.tabs.sendMessage = async () => ({ ok: true });
+  mock.grantedPermissions.add("https://bank.com/*");
+  await bg.beginRead();
+  mock.grantedPermissions.add("*://bank.com/*");
+  mock.grantedPermissions.add("*://*.bank.com/*");
+  await bg.beginRead();
+  let scripts = await mock.chrome.scripting.getRegisteredContentScripts();
+  assert.equal(scripts.length, 1);
+  assert.equal(scripts[0].id, "cs-bank.com");
+  assert.deepEqual(scripts[0].matches, ["*://*.bank.com/*", "*://bank.com/*", "https://bank.com/*"].sort());
+  mock.grantedPermissions.clear();
+  mock.grantedPermissions.add("*://*.bank.com/*");
+  await bg.beginRead();
+  scripts = await mock.chrome.scripting.getRegisteredContentScripts();
+  assert.equal(scripts.length, 1);
+  assert.equal(scripts[0].id, "cs-bank.com");
+  assert.deepEqual(scripts[0].matches, ["*://*.bank.com/*"]);
+});
+
+test("every site registers cs-all-sites, and one scheme plus a site registers only that site", async () => {
+  const all = await startWorker({ siteGrant: "live", fence: null, excludedHosts: ["bank.com"] }, { noGrants: true });
+  all.mock.grantedPermissions.add("*://*/*");
+  await all.bg.beginRead();
+  const allScripts = await all.mock.chrome.scripting.getRegisteredContentScripts();
+  assert.equal(allScripts.length, 1);
+  assert.equal(allScripts[0].id, "cs-all-sites");
+  assert.deepEqual(allScripts[0].matches, ["*://*/*"]);
+  assert.deepEqual(allScripts[0].excludeMatches, ["*://*.bank.com/*"]);
+
+  const one = await startWorker({ siteGrant: "live", fence: null }, { noGrants: true });
+  one.mock.grantedPermissions.add("http://*/*");
+  one.mock.grantedPermissions.add("*://*.bank.com/*");
+  await one.bg.beginRead();
+  const scripts = await one.mock.chrome.scripting.getRegisteredContentScripts();
+  assert.equal(scripts.some((item) => item.id === "cs-all-sites"), false);
+  const bank = scripts.find((item) => item.id === "cs-bank.com");
+  assert.ok(bank);
+  assert.deepEqual(bank.matches, ["*://*.bank.com/*"]);
+  assert.equal(one.sandbox.SolstoneHosts.originGranted(one.bg.port, "https://bank.com"), true);
+  assert.equal(one.bg.port.broadGrant, true);
+  const tabs = await one.mock.chrome.tabs.query({});
+  assert.equal(Object.hasOwn(tabs[0], "url"), false);
+});
+
+test("a fence registers the entry host in the turn it is added", async () => {
+  const fence = {
+    entries: [], exact: [], exactKnown: true, siteWide: [], declined: [],
+    answered: false, sawMore: false, cleanAt: null,
+  };
+  const mock = createMockChrome();
+  mock.storageData.cfg = { siteGrant: "live", fence };
+  mock.grantedPermissions.clear();
+  mock.grantedPermissions.add("*://*/*");
+  mock.grantedPermissions.add("*://*.other.com/*");
+  const sandbox = createSandbox(mock);
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  const bg = sandbox.SolstoneBackground;
+  await bg.ensureInit();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(mock.registeredScripts.has("cs-other.com"), false);
+  assert.equal(mock.registeredScripts.has("cs-bank.com"), false);
+  assert.equal(mock.registeredScripts.has("cs-all-sites"), false);
+
+  bg.port.consentVersion = 1;
+  const optionsSender = { id: mock.chrome.runtime.id, url: `chrome-extension://${mock.chrome.runtime.id}/options.html` };
+  const added = await new Promise((resolve) => mock.listeners.onMessage[0](
+    { cmd: "addGrantedOrigin", origin: "https://bank.com" },
+    optionsSender,
+    resolve,
+  ));
+  assert.equal(added.ok, true, JSON.stringify(added));
+  assert.ok(bg.port.fence.entries.includes("https://bank.com"));
+  const scripts = await mock.chrome.scripting.getRegisteredContentScripts();
+  assert.equal(scripts.some((item) => item.id === "cs-other.com"), false);
+  assert.equal(scripts.some((item) => item.id === "cs-all-sites"), false);
+  const bank = scripts.find((item) => item.id === "cs-bank.com");
+  assert.ok(bank);
+  assert.deepEqual(bank.matches, ["*://*.bank.com/*"]);
+});
+
+test("an unchanged wake does not register, unregister, inject, or fan out, and hello still admits the site", async () => {
+  const mock = createMockChrome();
+  mock.storageData.cfg = { siteGrant: "live", fence: null };
+  mock.storageData.grantWatch = { patterns: ["*://bank.com/*"], injectedVersion: "0.5.9" };
+  mock.grantedPermissions.clear();
+  mock.grantedPermissions.add("*://bank.com/*");
+  mock.registeredScripts.set("cs-bank.com", {
+    id: "cs-bank.com",
+    matches: ["*://bank.com/*"],
+    js: [],
+    runAt: "document_idle",
+    allFrames: true,
+    persistAcrossSessions: true,
+  });
+  let registerCalls = 0;
+  let unregisterCalls = 0;
+  let executeCalls = 0;
+  const origReg = mock.chrome.scripting.registerContentScripts;
+  const origUnreg = mock.chrome.scripting.unregisterContentScripts;
+  const origExec = mock.chrome.scripting.executeScript;
+  mock.chrome.scripting.registerContentScripts = async (...args) => { registerCalls++; return origReg(...args); };
+  mock.chrome.scripting.unregisterContentScripts = async (...args) => { unregisterCalls++; return origUnreg(...args); };
+  mock.chrome.scripting.executeScript = async (...args) => { executeCalls++; return origExec(...args); };
+  mock.chrome.tabs.sendMessage = (tabId, msg, ...args) => {
+    mock.sentTabMessages.push({ tabId, msg });
+    if (msg?.kind === "confirmRealm") {
+      const cb = typeof args[0] === "function" ? args[0] : (typeof args[1] === "function" ? args[1] : null);
+      if (cb) cb({ realmToken: "r" });
+      return Promise.resolve({ realmToken: "r" });
+    }
+    const cb = typeof args[0] === "function" ? args[0] : (typeof args[1] === "function" ? args[1] : null);
+    if (cb) cb();
+    return Promise.resolve();
+  };
+  const sandbox = createSandbox(mock);
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  const bg = sandbox.SolstoneBackground;
+  await bg.ensureInit();
+  await new Promise((resolve) => setImmediate(resolve));
+  const fanout = () => mock.sentTabMessages.filter((item) => item.msg?.kind === "resnapshot").length;
+  assert.equal(registerCalls, 0);
+  assert.equal(unregisterCalls, 0);
+  assert.equal(executeCalls, 0);
+  assert.equal(fanout(), 0);
+  const sender = { id: mock.chrome.runtime.id, tab: { id: 101 }, frameId: 0, url: "https://bank.com/page", origin: "https://bank.com" };
+  const hello = await new Promise((resolve) => mock.listeners.onMessage[0](
+    { kind: "hello", realmToken: "r", documentKey: "0123456789abcdef0123456789abcdef" },
+    sender,
+    resolve,
+  ));
+  assert.equal(hello.ok, true);
+  assert.equal(registerCalls, 0);
+  assert.equal(unregisterCalls, 0);
+  assert.equal(executeCalls, 0);
+  assert.equal(fanout(), 0);
+  assert.equal(sandbox.SolstoneHosts.originGranted(bg.port, "https://bank.com"), true);
+});
+
+test("a stored grant list plus a failed read stays closed at hello", async () => {
+  const mock = createMockChrome({ getAllThrows: true });
+  mock.storageData.cfg = { siteGrant: "live", fence: null };
+  mock.storageData.grantWatch = { patterns: ["*://bank.com/*"], injectedVersion: "0.0.1" };
+  mock.grantedPermissions.clear();
+  let executeCalls = 0;
+  mock.chrome.scripting.executeScript = async () => { executeCalls++; };
+  const sandbox = createSandbox(mock);
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  const bg = sandbox.SolstoneBackground;
+  await bg.ensureInit();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(Array.from(bg.port.livePatterns), []);
+  assert.equal(bg.port.broadGrant, false);
+  assert.equal(executeCalls, 0);
+  assert.equal(mock.storageData.grantWatch.injectedVersion, "0.0.1");
+  assert.equal(sandbox.SolstoneHosts.originGranted(bg.port, "https://bank.com"), false);
+  const sender = { id: mock.chrome.runtime.id, tab: { id: 101 }, frameId: 0, url: "https://bank.com/page", origin: "https://bank.com" };
+  const hello = await new Promise((resolve) => mock.listeners.onMessage[0](
+    { kind: "hello", realmToken: "r", documentKey: "0123456789abcdef0123456789abcdef" },
+    sender,
+    resolve,
+  ));
+  assert.equal(hello.ok, false);
+  assert.equal(hello.error, "origin_not_granted");
+  assert.deepEqual(Array.from(bg.port.livePatterns), []);
+  assert.equal(executeCalls, 0);
+});
+
+test("a failed registration is retried on the next wake and still skips the grant fan-out", async () => {
+  const {mock, bg} = await startWorker({ siteGrant: "live", fence: null }, { noGrants: true });
+  mock.grantedPermissions.add("*://bank.com/*");
+  await bg.beginRead();
+  mock.registeredScripts.clear();
+  mock.sentTabMessages.length = 0;
+  let registers = 0;
+  mock.chrome.scripting.registerContentScripts = async () => {
+    registers++;
+    throw new Error("Invalid match pattern");
+  };
+  await bg.beginRead();
+  await bg.beginRead();
+  assert.equal(registers, 2);
+  assert.equal(mock.sentTabMessages.filter((item) => item.msg?.kind === "resnapshot").length, 0);
+  assert.equal(mock.registeredScripts.has("cs-bank.com"), false);
+});
+
+test("a stalled register still publishes the new lease", async () => {
+  const {mock, bg} = await startWorker({ siteGrant: "live", fence: null }, { noGrants: true });
+  let release;
+  const hung = new Promise((resolve) => { release = resolve; });
+  let started = false;
+  mock.chrome.scripting.registerContentScripts = async () => {
+    started = true;
+    await hung;
+  };
+  mock.grantedPermissions.add("*://bank.com/*");
+  mock.sentTabMessages.length = 0;
+  const pending = bg.beginRead();
+  for (let i = 0; i < 30 && !started; i++) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(started, true);
+  const lease = mock.sentTabMessages.find((item) => item.msg?.kind === "leaseUpdate");
+  assert.ok(lease);
+  assert.ok(lease.msg.livePatterns.includes("*://bank.com/*"));
+  release();
+  await pending;
+});
+
+test("an update re-injects once into granted tabs, and the same version injects nothing", async () => {
+  function fencedMock(injectedVersion) {
+    const mock = createMockChrome();
+    mock.storageData.cfg = {
+      siteGrant: "live",
+      excludedHosts: ["left.example"],
+      fence: {
+        entries: ["https://bank.com"],
+        exact: ["https://bank.com"],
+        exactKnown: true,
+        siteWide: [],
+        declined: [],
+        answered: false,
+        sawMore: false,
+        cleanAt: null,
+      },
+    };
+    mock.storageData.grantWatch = { patterns: ["*://*/*"], injectedVersion };
+    mock.grantedPermissions.clear();
+    mock.grantedPermissions.add("*://*/*");
+    mock.registeredScripts.set("cs-bank.com", {
+      id: "cs-bank.com",
+      matches: ["*://*.bank.com/*"],
+      js: [],
+      runAt: "document_idle",
+      allFrames: true,
+      persistAcrossSessions: true,
+    });
+    mock.tabsList.splice(0, mock.tabsList.length,
+      { id: 1, url: "https://bank.com/home" },
+      { id: 2, url: "https://other.com/home" },
+      { id: 3, url: "https://left.example/home" },
+      { id: 4, url: "https://bank.com/private", incognito: true },
+      { id: 5 },
+    );
+    const injected = [];
+    let registerCalls = 0;
+    mock.chrome.scripting.registerContentScripts = async () => { registerCalls++; };
+    mock.chrome.scripting.executeScript = async (details) => { injected.push(details?.target?.tabId); };
+    return { mock, injected, registerCalls: () => registerCalls };
+  }
+
+  const first = fencedMock(null);
+  const sandbox = createSandbox(first.mock);
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  await sandbox.SolstoneBackground.ensureInit();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(first.injected, [1]);
+  assert.equal(first.registerCalls(), 0);
+  assert.equal(first.mock.storageData.grantWatch.injectedVersion, "0.5.9");
+
+  const again = fencedMock("0.5.9");
+  const sandboxAgain = createSandbox(again.mock);
+  vm.runInNewContext(readExtFile("background.js"), sandboxAgain);
+  await sandboxAgain.SolstoneBackground.ensureInit();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(again.injected, []);
+  assert.equal(again.registerCalls(), 0);
 });
 
 test("lifecycle: permission prompt onAdded followed by add completes with matching epochs", async () => {

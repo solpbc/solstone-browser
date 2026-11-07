@@ -147,6 +147,9 @@ function setCfg(patch) {
 
 let port = null;
 let initPromise = null;
+// Last successful permission read and the manifest version already injected.
+// Kept out of cfg so a stored list cannot become the live grant by itself.
+let grantWatch = { patterns: [], injectedVersion: null };
 let permissionEpoch = 0;
 let badgeEpoch = 0;
 let openTabsGeneration = 0;
@@ -396,43 +399,145 @@ async function tabAnswers(tab) {
   }
 }
 
-async function registerSite(host) {
-  const matchHost = H.matchHostFor(host);
-  const id = "cs-" + matchHost;
-  const pattern = H.matchPatternFor(host);
+function sameStringSet(left, right) {
+  const a = [...(left || [])].map(String).sort();
+  const b = [...(right || [])].map(String).sort();
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
 
+function stripMatchPort(pattern) {
+  return String(pattern || "").trim().replace(/:\d+(?=\/\*$)/, "");
+}
+
+function rememberGrantWatch(stored) {
+  const patterns = Array.isArray(stored?.patterns) ? stored.patterns.filter((p) => typeof p === "string") : [];
+  const injectedVersion = typeof stored?.injectedVersion === "string" ? stored.injectedVersion : null;
+  grantWatch = { patterns, injectedVersion };
+}
+
+async function saveGrantWatch() {
   try {
-    await chrome.scripting.unregisterContentScripts({ ids: [id] });
-  } catch (_e) {
-    /* not registered */
+    await chrome.storage.local.set({
+      grantWatch: {
+        patterns: [...grantWatch.patterns],
+        injectedVersion: grantWatch.injectedVersion,
+      },
+    });
+  } catch (_e) {}
+}
+
+function leftOutExcludeMatches() {
+  const hosts = Array.from(new Set([...(port?.excludedHosts || []), ...(port?.appLeftOut || [])])).sort();
+  const matches = [];
+  for (const host of hosts) {
+    const pattern = H.matchPatternFor(host);
+    if (pattern) matches.push(pattern);
+  }
+  return matches;
+}
+
+function addScriptGroup(groups, id, match, rowOrigin) {
+  if (!id || !match) return;
+  let group = groups.get(id);
+  if (!group) {
+    group = { id, matches: new Set(), rowOrigins: new Set() };
+    groups.set(id, group);
+  }
+  group.matches.add(match);
+  if (rowOrigin) group.rowOrigins.add(rowOrigin);
+}
+
+function desiredScripts() {
+  const patterns = port?.livePatterns || [];
+  const fenced = port?.fence !== null && typeof port.fence === "object";
+  if (!fenced && H.everySiteLive(patterns)) {
+    const broad = patterns.filter((pattern) => H.isBroadPattern(pattern));
+    return [{
+      id: "cs-all-sites",
+      matches: broad.length > 0 ? broad : ["*://*/*"],
+      excludeMatches: leftOutExcludeMatches(),
+      rowOrigins: [],
+    }];
   }
 
+  const groups = new Map();
+  if (fenced) {
+    for (const entry of port.fence.entries || []) {
+      let url;
+      try { url = new URL(entry); } catch (_e) { continue; }
+      const host = url.hostname.toLowerCase();
+      if (!host) continue;
+      addScriptGroup(groups, "cs-" + host, H.matchPatternFor(host), url.origin);
+    }
+  } else {
+    for (const pattern of patterns) {
+      if (H.isBroadPattern(pattern)) continue;
+      const row = H.grantRowOrigin(pattern);
+      if (!row) continue;
+      let host = "";
+      try { host = new URL(row).hostname.toLowerCase(); } catch (_e) { continue; }
+      if (!host) continue;
+      addScriptGroup(groups, "cs-" + host, stripMatchPort(pattern), row);
+    }
+  }
+
+  return [...groups.values()].map((group) => ({
+    id: group.id,
+    matches: [...group.matches],
+    excludeMatches: [],
+    rowOrigins: [...group.rowOrigins],
+  }));
+}
+
+function registrationsMatch(desired, registered) {
+  const ours = (registered || []).filter((script) => script?.id?.startsWith("cs-"));
+  if (ours.length !== desired.length) return false;
+  for (const script of desired) {
+    const current = ours.find((item) => item.id === script.id);
+    if (!current) return false;
+    if (!sameStringSet(current.matches, script.matches)) return false;
+    if (!sameStringSet(current.excludeMatches, script.excludeMatches)) return false;
+  }
+  return true;
+}
+
+async function registerPrepared(script) {
+  const record = {
+    id: script.id,
+    matches: [...script.matches],
+    js: CONTENT_SCRIPT_FILES,
+    runAt: "document_idle",
+    allFrames: true,
+    persistAcrossSessions: true,
+  };
+  if (script.excludeMatches.length > 0) record.excludeMatches = [...script.excludeMatches];
+
   try {
-    await chrome.scripting.registerContentScripts([
-      {
-        id,
-        matches: [pattern],
-        js: CONTENT_SCRIPT_FILES,
-        runAt: "document_idle",
-        allFrames: true,
-        persistAcrossSessions: true,
-      },
-    ]);
-  } catch (error) {
+    await chrome.scripting.registerContentScripts([record]);
+  } catch (_error) {
     let registered = [];
     try {
-      registered = await chrome.scripting.getRegisteredContentScripts({ ids: [id] });
+      registered = await chrome.scripting.getRegisteredContentScripts({ ids: [script.id] });
     } catch (_e) {
       return "failed";
     }
-    if (!Failures.contentScriptRegistrationSatisfied(id, registered)) return "failed";
+    const current = registered.find((item) => item?.id === script.id);
+    if (!current ||
+        !sameStringSet(current.matches, script.matches) ||
+        !sameStringSet(current.excludeMatches, script.excludeMatches) ||
+        !Failures.contentScriptRegistrationSatisfied(script.id, registered)) {
+      return "failed";
+    }
   }
 
   let hadTabError = false;
   try {
-    const tabs = await chrome.tabs.query({ url: pattern });
-    for (const tab of tabs) {
-      if (tab.id == null) continue;
+    const tabs = await chrome.tabs.query({ url: script.matches });
+    for (const tab of tabs || []) {
+      if (tab.id == null || tab.incognito || !tab.url) continue;
+      let origin = "";
+      try { origin = new URL(tab.url).origin; } catch (_e) { continue; }
+      if (!H.originGranted(port, origin)) continue;
       try {
         await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: CONTENT_SCRIPT_FILES });
         if (!(await tabAnswers(tab))) hadTabError = true;
@@ -443,36 +548,48 @@ async function registerSite(host) {
   } catch (_e) {
     /* host permission not yet effective */
   }
-
   return hadTabError ? "reload" : "ready";
 }
 
-async function unregisterSite(host) {
-  const matchHost = H.matchHostFor(host);
-  const pattern = H.matchPatternFor(matchHost);
-  try {
-    await chrome.scripting.unregisterContentScripts({ ids: ["cs-" + matchHost] });
-  } catch (_e) {
-    /* not registered */
+async function applyDesiredScripts(desired, registered) {
+  const desiredIds = new Set(desired.map((script) => script.id));
+  const obsolete = (registered || []).filter((item) => item?.id?.startsWith("cs-") && !desiredIds.has(item.id));
+  if (obsolete.length) {
+    try { await chrome.scripting.unregisterContentScripts({ ids: obsolete.map((item) => item.id) }); } catch (_e) {}
   }
+  if (!desiredIds.has("cs-all-sites")) port.allSitesRegistration = null;
 
-  try {
-    const tabs = await chrome.tabs.query({ url: pattern });
-    for (const tab of tabs) {
-      let stillShared = false;
-      try { stillShared = !!port && H.originGranted(port, new URL(tab.url).origin); } catch (_e) {}
-      if (tab.id != null && !stillShared) {
-        chrome.tabs.sendMessage(tab.id, { kind: "stop" }, () => void chrome.runtime.lastError);
-        Router.destroyBinding(tab.id);
+  for (const script of desired) {
+    const current = (registered || []).find((item) => item.id === script.id);
+    const same = current &&
+      sameStringSet(current.matches, script.matches) &&
+      sameStringSet(current.excludeMatches, script.excludeMatches);
+    if (same) continue;
+    if (current) {
+      try { await chrome.scripting.unregisterContentScripts({ ids: [script.id] }); } catch (_e) {}
+    }
+    const status = await registerPrepared(script);
+    if (script.id === "cs-all-sites") {
+      port.allSitesRegistration = status === "failed" ? "failed" : "ready";
+    } else {
+      for (const origin of script.rowOrigins) {
+        await port.setRegistration?.(origin, status);
       }
     }
-  } catch (_e) {
-    /* ignore */
   }
 }
 
+async function registerSite() {
+  return syncSiteRegistrations();
+}
+
+async function unregisterSite() {
+  return syncSiteRegistrations();
+}
+
 let registrationChain = Promise.resolve();
-function syncSiteRegistrations() {
+function syncSiteRegistrations(options = {}) {
+  const grantFanout = options.grantFanout === true;
   registrationChain = registrationChain.catch(() => {}).then(async () => {
     if (!port) return;
     let registered = [];
@@ -481,101 +598,36 @@ function syncSiteRegistrations() {
     } catch (_e) {
       registered = [];
     }
-
-    if (port.fence !== null) {
-      const allSitesReg = registered.find(item => item.id === "cs-all-sites");
-      if (allSitesReg) {
-        try { await chrome.scripting.unregisterContentScripts({ ids: ["cs-all-sites"] }); } catch (_e) {}
-      }
-      port.allSitesRegistration = null;
-
-      const wantedHosts = new Set();
-      for (const entry of port.fence.entries || []) {
-        try {
-          const u = new URL(entry);
-          wantedHosts.add(u.host);
-        } catch (_e) {}
-      }
-      const wantedIds = new Set([...wantedHosts].map(h => "cs-" + H.matchHostFor(h)));
-      const obsolete = registered.filter(item => item.id.startsWith("cs-") && item.id !== "cs-all-sites" && !wantedIds.has(item.id));
-      if (obsolete.length) {
-        try { await chrome.scripting.unregisterContentScripts({ ids: obsolete.map(item => item.id) }); } catch (_e) {}
-      }
-
-      for (const host of wantedHosts) {
-        const id = "cs-" + H.matchHostFor(host);
-        if (!registered.some(item => item.id === id)) {
-          const status = await registerSite(host);
-          await port.setRegistration?.(host, status);
-        }
-      }
-    } else if (port.broadGrant) {
-      const perSite = registered.filter(item => item.id.startsWith("cs-") && item.id !== "cs-all-sites");
-      if (perSite.length) {
-        try { await chrome.scripting.unregisterContentScripts({ ids: perSite.map(item => item.id) }); } catch (_e) {}
-      }
-
-      const liveBroad = (port.livePatterns || []).filter(p =>
-        p === "*://*/*" || p === "<all_urls>" || p === "http://*/*" || p === "https://*/*"
-      );
-      const matches = liveBroad.length > 0 ? liveBroad : ["*://*/*"];
-      const effectiveExcludes = Array.from(new Set([...(port.excludedHosts || []), ...(port.appLeftOut || [])])).sort();
-      const excludeMatches = effectiveExcludes.map(H.matchPatternFor);
-
-      try {
-        await chrome.scripting.unregisterContentScripts({ ids: ["cs-all-sites"] }).catch(() => {});
-        await chrome.scripting.registerContentScripts([{
-          id: "cs-all-sites",
-          matches,
-          excludeMatches: excludeMatches.length > 0 ? excludeMatches : undefined,
-          js: CONTENT_SCRIPT_FILES,
-          runAt: "document_idle",
-          allFrames: true,
-          persistAcrossSessions: true,
-        }]);
-        port.allSitesRegistration = "ready";
-        const tabs = await chrome.tabs.query({ url: ["http://*/*", "https://*/*"] });
-        for (const tab of tabs) {
-          if (port.fence !== null || !port.broadGrant) break;
-          if (tab.id == null || tab.incognito) continue;
-          try { await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: CONTENT_SCRIPT_FILES }); }
-          catch (_e) {}
-        }
-      } catch (_e) {
-        port.allSitesRegistration = "failed";
-      }
-    } else {
-      const allSitesReg = registered.find(item => item.id === "cs-all-sites");
-      if (allSitesReg) {
-        try { await chrome.scripting.unregisterContentScripts({ ids: ["cs-all-sites"] }); } catch (_e) {}
-      }
-      port.allSitesRegistration = null;
-
-      const siteHosts = new Set();
-      for (const pat of port.livePatterns || []) {
-        if (pat === "*://*/*" || pat === "<all_urls>" || pat === "http://*/*" || pat === "https://*/*") continue;
-        const siteHost = H.patternSiteHost(pat);
-        if (siteHost) siteHosts.add(siteHost);
-      }
-      const wantedIds = new Set([...siteHosts].map(h => "cs-" + H.matchHostFor(h)));
-      const obsolete = registered.filter(item => item.id.startsWith("cs-") && item.id !== "cs-all-sites" && !wantedIds.has(item.id));
-      if (obsolete.length) {
-        try { await chrome.scripting.unregisterContentScripts({ ids: obsolete.map(item => item.id) }); } catch (_e) {}
-      }
-
-      for (const host of siteHosts) {
-        const id = "cs-" + H.matchHostFor(host);
-        if (!registered.some(item => item.id === id)) {
-          const status = await registerSite(host);
-          await port.setRegistration?.(host, status);
-        }
-      }
-    }
+    const desired = desiredScripts();
+    const matched = registrationsMatch(desired, registered);
+    if (matched && !grantFanout) return;
+    if (!matched) await applyDesiredScripts(desired, registered);
     port.notify();
     refreshOpenTabs();
-    requestSnapshots();
+    if (grantFanout) requestSnapshots();
   });
   return registrationChain;
+}
+
+async function reinjectOpenTabs() {
+  if (!port || grantWatch.injectedVersion === VERSION) return;
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({});
+  } catch (_e) {
+    tabs = [];
+  }
+  for (const tab of tabs || []) {
+    if (!tab || tab.id == null || tab.incognito || !tab.url) continue;
+    let origin = "";
+    try { origin = new URL(tab.url).origin; } catch (_e) { continue; }
+    if (!H.originGranted(port, origin)) continue;
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: CONTENT_SCRIPT_FILES });
+    } catch (_e) {}
+  }
+  grantWatch.injectedVersion = VERSION;
+  await saveGrantWatch();
 }
 
 async function pruneOrphanSiteErrors() {
@@ -636,7 +688,7 @@ function completeAddIntent(applied) {
   return H.admitFenceOrigin(port.fence, intent.origin, applied, port.excludedHosts, port.appLeftOut);
 }
 
-async function applySnapshot(applied, tombstoneFiltered) {
+async function applySnapshot(applied, tombstoneFiltered, options = {}) {
   if (!port) return;
   const prevPatterns = port.livePatterns || [];
   const same = prevPatterns.length === applied.length &&
@@ -686,12 +738,15 @@ async function applySnapshot(applied, tombstoneFiltered) {
     port.broadGrant = H.broadLive(applied);
   }
 
+  // The lease goes out before registration. A stalled register must not leave
+  // the previous, closed lease in place.
   if (patternsChanged || fenceEnded || fenceEntriesChanged) {
-    await pruneOrphanSiteErrors();
-    await syncSiteRegistrations();
     port.notify();
+  }
+  await pruneOrphanSiteErrors();
+  await syncSiteRegistrations({ grantFanout: options.grantFanout === true });
+  if (patternsChanged || fenceEnded || fenceEntriesChanged) {
     refreshOpenTabs();
-    requestSnapshots();
   }
 }
 
@@ -726,7 +781,13 @@ async function beginRead() {
   }
   const tombstoneFiltered = port.tombstones.size > 0;
   const applied = origins.filter((p) => !port.tombstones.has(p));
-  await applySnapshot(applied, tombstoneFiltered);
+  const grantFanout = !sameStringSet(applied, grantWatch.patterns);
+  await applySnapshot(applied, tombstoneFiltered, { grantFanout });
+  if (serial !== port.readSerial) return applied;
+  grantWatch.patterns = [...applied];
+  await saveGrantWatch();
+  if (serial !== port.readSerial) return applied;
+  await reinjectOpenTabs();
   return applied;
 }
 
@@ -764,6 +825,12 @@ async function doInit() {
 
   const rawStorage = await chrome.storage.local.get("cfg");
   const rawCfg = rawStorage.cfg;
+  try {
+    const watchStored = await chrome.storage.local.get("grantWatch");
+    rememberGrantWatch(watchStored?.grantWatch);
+  } catch (_e) {
+    grantWatch = { patterns: [], injectedVersion: null };
+  }
 
   let inMemoryFence = null;
   if (rawCfg?.siteGrant !== "live") {

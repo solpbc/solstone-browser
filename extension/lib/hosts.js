@@ -708,6 +708,63 @@
     return { fence: updatedFence, ended };
   }
 
+  // The row an owner sees for a grant. Broad patterns are not rows. A star
+  // scheme uses https, or http for a local name. A port stays on the row.
+  function grantRowOrigin(pattern) {
+    if (isBroadPattern(pattern)) return null;
+    const raw = String(pattern || "").trim();
+    let scheme = "";
+    let rest = "";
+    if (raw.startsWith("*://")) {
+      scheme = "*";
+      rest = raw.slice(4);
+    } else if (raw.startsWith("https://")) {
+      scheme = "https";
+      rest = raw.slice(8);
+    } else if (raw.startsWith("http://")) {
+      scheme = "http";
+      rest = raw.slice(7);
+    } else {
+      return null;
+    }
+    if (!rest.endsWith("/*")) return null;
+    rest = rest.slice(0, -2);
+    if (rest.startsWith("*.")) rest = rest.slice(2);
+    if (!rest || rest.includes("*") || rest.includes("/")) return null;
+    const parts = splitHost(rest);
+    const host = parts.hostname;
+    if (!host || host === "*") return null;
+    const hostPort = parts.port ? `${host}:${parts.port}` : host;
+    if (scheme === "http") return `http://${hostPort}`;
+    if (scheme === "https") return `https://${hostPort}`;
+    return `${isLocalHostname(host) ? "http" : "https"}://${hostPort}`;
+  }
+
+  // The row for a page: the most specific non-broad grant that allows it
+  // (longest host). A page under only a broad grant keeps its own origin.
+  function pageRowOrigin(patterns, page) {
+    let url;
+    try {
+      url = page instanceof URL ? page : new URL(page);
+    } catch (_e) {
+      return typeof page === "string" ? page : "";
+    }
+    let best = null;
+    let bestLen = -1;
+    for (const pattern of patterns || []) {
+      if (isBroadPattern(pattern) || !plainAllow(pattern, url)) continue;
+      const row = grantRowOrigin(pattern);
+      if (!row) continue;
+      let host = "";
+      try { host = new URL(row).hostname; } catch (_e) { continue; }
+      if (host.length > bestLen) {
+        best = row;
+        bestLen = host.length;
+      }
+    }
+    return best || url.origin;
+  }
+
   globalThis.SolstoneHosts = {
     splitHost,
     matchHostFor,
@@ -747,5 +804,7 @@
     fenceAllows,
     applySnapshotToFence,
     beyondExample,
+    grantRowOrigin,
+    pageRowOrigin,
   };
 })();

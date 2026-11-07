@@ -34,7 +34,7 @@
   }
 
   function siteKeyFor(port, origin) {
-    return origin;
+    return H.pageRowOrigin ? H.pageRowOrigin(port?.livePatterns, origin) : origin;
   }
 
   function mintCtx() {
@@ -137,6 +137,7 @@
       port.notify();
       deps.refreshOpenTabs?.();
       if (!H.originGranted(port, origin)) return null;
+      await deps.syncSiteRegistrations?.();
       return { ok: true, origin };
     }
     let url;
@@ -352,7 +353,7 @@
             await deps.beginRead();
           }
           let result;
-          if (H.broadLive(port.livePatterns)) {
+          if (H.everySiteLive(port.livePatterns)) {
             result = "still_every_site";
           } else {
             const isSitePattern = (p) => {
@@ -866,8 +867,7 @@
 
           if (!authorize()) return { ok: false, error: "authority_mismatch" };
 
-          // Errors and notes are kept on the chosen site the page belongs to
-          // (bank.com for login.bank.com), where the owner sees its row.
+          // Errors stay on the covering grant's row origin, where the owner sees its row.
           const siteKey = siteKeyFor(port, senderOrigin);
           // A page from this site was just read, so "reload this tab" is over.
           if (port.registration?.[siteKey] === "reload" && port.clearSiteError) {

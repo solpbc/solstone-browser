@@ -281,6 +281,21 @@ const ROWS = [
   },
 ];
 
+function ownerFence(row) {
+  const exactKnown = row.exactOnly !== "ABSENT";
+  const exact = exactKnown && Array.isArray(row.exactOnly) ? [...row.exactOnly] : [];
+  return {
+    entries: [...row.chosen],
+    exact,
+    exactKnown,
+    siteWide: [...(row.siteWide || [])],
+    declined: [...(row.declinedHosts || [])],
+    answered: false,
+    sawMore: false,
+    cleanAt: null,
+  };
+}
+
 function runRow(row) {
   // Oracle setup
   const state = {
@@ -321,29 +336,10 @@ function runRow(row) {
     }, page);
   }
 
-  // Fence setup
-  let fence = null;
-  // If the row was testing siteMode "all" (rows S-W), fence is null in the new model
-  if (row.siteMode === "all") {
-    fence = null;
-  } else {
-    const exactKnown = (row.exactOnly !== "ABSENT");
-    const exact = exactKnown ? [...row.exactOnly] : [];
-    const rawFence = {
-      entries: [...row.chosen],
-      exact,
-      exactKnown,
-      siteWide: [...(row.siteWide || [])],
-      declined: [...(row.declinedHosts || [])],
-      answered: false,
-      sawMore: false,
-      cleanAt: null,
-    };
-    const applied = NewHosts.applySnapshotToFence(rawFence, row.livePatterns, {
-      leftOutHosts: [...(row.excludedHosts || []), ...(row.appLeftOut || [])],
-    });
-    fence = applied.fence;
-  }
+  const applied = NewHosts.applySnapshotToFence(ownerFence(row), row.livePatterns, {
+    leftOutHosts: [...(row.excludedHosts || []), ...(row.appLeftOut || [])],
+  });
+  const fence = applied.fence;
 
   const fenceResults = {};
   for (const page of row.pages) {
@@ -365,6 +361,9 @@ test("oracle freeze and fence monotonicity", () => {
     "C:https://www.bank.com",
     "R:https://bank.com",
     "R:https://login.bank.com",
+    "S:https://bank.com",
+    "S:https://login.bank.com",
+    "S:http://localhost:5015",
   ]);
 
   let fenceTrueCount = 0;
@@ -380,19 +379,16 @@ test("oracle freeze and fence monotonicity", () => {
       if (fVal) fenceTrueCount++;
       if (oVal) oracleTrueCount++;
 
-      // Invariant: fence-true => oracle-true for fenced rows (non-siteMode rows)
-      if (row.siteMode !== "all") {
-        if (fVal) {
-          assert.equal(
-            oVal,
-            true,
-            `Violation: fence-true implies oracle-true failed for row ${row.id} on ${page}`
-          );
-        }
-        if (oVal && !fVal) {
-          const key = `${row.id}:${page}`;
-          discoveredDiscrepancies.push(key);
-        }
+      if (fVal) {
+        assert.equal(
+          oVal,
+          true,
+          `Violation: fence-true implies oracle-true failed for row ${row.id} on ${page}`
+        );
+      }
+      if (oVal && !fVal) {
+        const key = `${row.id}:${page}`;
+        discoveredDiscrepancies.push(key);
       }
     }
   }
@@ -411,6 +407,36 @@ test("oracle freeze and fence monotonicity", () => {
     discoveredDiscrepancies.sort(),
     Array.from(namedExpectedDiscrepancies).sort()
   );
+});
+
+test("siteMode all reads stay on the fence applier, and a clean read auto-ends", () => {
+  const wall = 1_000_000;
+  for (const row of ROWS.filter((item) => item.siteMode === "all")) {
+    const first = NewHosts.applySnapshotToFence(ownerFence(row), row.livePatterns, { wallNow: wall });
+    const later = NewHosts.applySnapshotToFence(first.fence, row.livePatterns, { wallNow: wall + 60000 });
+    if (row.id === "U") {
+      assert.equal(first.ended, false);
+      assert.ok(first.fence);
+      assert.equal(first.fence.sawMore, false);
+      assert.equal(first.fence.cleanAt, wall);
+      assert.equal(later.ended, true);
+      assert.equal(later.fence, null);
+      const after = NewHosts.applySnapshotToFence(later.fence, row.livePatterns, { wallNow: wall + 120000 });
+      assert.equal(after.fence, null);
+      assert.equal(after.ended, false);
+    } else {
+      assert.equal(first.ended, false);
+      assert.equal(first.fence.sawMore, true);
+      assert.notEqual(later.fence, null);
+      assert.equal(later.ended, false);
+      for (const page of row.pages) {
+        assert.equal(NewHosts.originGranted({
+          livePatterns: row.livePatterns,
+          fence: later.fence,
+        }, page), false, `${row.id}:${page}`);
+      }
+    }
+  }
 });
 
 test("plainAllow grammar 7.1", () => {

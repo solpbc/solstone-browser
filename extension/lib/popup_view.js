@@ -24,17 +24,20 @@
     const H = globalThis.SolstoneHosts;
     const Copy = globalThis.SolstoneCopy;
 
-    const isEverySite = !state.fence && (state.broadGrant === true || (Array.isArray(state.livePatterns) && H?.broadLive(state.livePatterns) === true));
+    const isEverySite = !state.fence && H?.everySiteLive?.(state.livePatterns) === true;
 
     let entriesForRows = [];
     if (state.fence) {
       entriesForRows = state.fence.entries || [];
     } else if (!isEverySite) {
       if (Array.isArray(state.livePatterns)) {
+        const seen = new Set();
         for (const p of state.livePatterns) {
-          if (!H.isBroadPattern(p)) {
-            const h = H.patternSiteHost(p) || H.matchHostFor(p);
-            if (h) entriesForRows.push(`https://${h}`);
+          if (H.isBroadPattern(p)) continue;
+          const row = H.grantRowOrigin ? H.grantRowOrigin(p) : null;
+          if (row && !seen.has(row)) {
+            seen.add(row);
+            entriesForRows.push(row);
           }
         }
       }
@@ -248,20 +251,13 @@
     } else if (isEverySite) {
       siteCount = 1;
     } else if (Array.isArray(state.livePatterns)) {
-      const hosts = new Set();
+      const rows = new Set();
       for (const pattern of state.livePatterns) {
-        if (!H.isBroadPattern(pattern)) {
-          const host = H.patternSiteHost(pattern) || H.matchHostFor(pattern);
-          if (host) hosts.add(host);
-          else {
-            try {
-              const u = new URL(pattern.replace(/^\*:\/\//, "https://").replace(/\/\*$/, ""));
-              if (u.hostname) hosts.add(u.hostname);
-            } catch (_e) {}
-          }
-        }
+        if (H.isBroadPattern(pattern)) continue;
+        const row = H.grantRowOrigin ? H.grantRowOrigin(pattern) : null;
+        if (row) rows.add(row);
       }
-      siteCount = hosts.size;
+      siteCount = rows.size;
     } else {
       siteCount = 0;
     }

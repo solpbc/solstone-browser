@@ -63,7 +63,7 @@
       const everConnected = !!status.everConnected;
       const lossNotice = status.lossNotice;
 
-      const isEverySite = !status.fence && (status.broadGrant === true || (status.livePatterns && globalThis.SolstoneHosts?.broadLive(status.livePatterns)));
+      const isEverySite = !status.fence && globalThis.SolstoneHosts?.everySiteLive?.(status.livePatterns) === true;
       let siteCount = 0;
       if (status.fence) {
         siteCount = (status.fence.entries || []).length;
@@ -650,7 +650,7 @@
     let host = "";
     try { host = new URL(entry).hostname; } catch (_e) {}
 
-    const isEverySite = !status.fence && (status.broadGrant === true || (status.livePatterns && globalThis.SolstoneHosts?.broadLive(status.livePatterns)));
+    const isEverySite = !status.fence && globalThis.SolstoneHosts?.everySiteLive?.(status.livePatterns) === true;
 
     const exactOnly = status.fence ? (status.fence.exact || []).includes(entry) : false;
     const siteWide = status.fence ? (status.fence.siteWide || []).includes(entry) : false;
@@ -683,6 +683,11 @@
       return { kind: "unknown", label: "this extension can't reach this page", action: null };
     }
 
+    if (registration === "failed" || enqueueError) {
+      const stored = registration === "failed" ? registration : enqueueError;
+      return { kind: "error", label: C ? C.classifyFailure(stored, status.brand) : String(stored), action: null };
+    }
+
     if (isEverySite) {
       if (status.paused || status.hostCapture === "paused") return { kind: "paused", label: "paused", action: null };
       if (status.allSitesRegistration === "failed" || !gateOpenFor(globalThis.SolstoneHosts?.originGranted ? globalThis.SolstoneHosts.originGranted(status, entry) : true)) {
@@ -696,11 +701,6 @@
     const isGranted = !isPendingRemove && (globalThis.SolstoneHosts?.originGranted
       ? globalThis.SolstoneHosts.originGranted(status, entry)
       : false);
-
-    if (registration === "failed" || enqueueError) {
-      const stored = registration === "failed" ? registration : enqueueError;
-      return { kind: "error", label: C ? C.classifyFailure(stored, status.brand) : String(stored), action: null };
-    }
 
     if (status.paused || status.hostCapture === "paused") {
       return {

@@ -402,6 +402,30 @@ test("secondary leave-out, include rules, and note keys in popup arrange", () =>
   assert.notEqual(pPrivate.note, globalThis.SolstoneCopy.desktopScreenOn);
 });
 
+test("one scheme is not every site, and a covering grant keeps its row", () => {
+  const oneScheme = state({ broadGrant: true, livePatterns: ["http://*/*"], fence: null });
+  const onePage = View.arrange(derived(), oneScheme, { origin: "https://bank.com", host: "bank.com", ok: true, kind: "web" })
+    .find((section) => section.id === "page");
+  const oneCount = View.arrange(derived(), oneScheme, { origin: "https://bank.com", host: "bank.com", ok: true, kind: "web" })
+    .find((section) => section.id === "siteCount");
+  assert.equal(onePage.siteAction?.id, "add-site");
+  assert.equal(oneCount.mode, "selected");
+  assert.equal(oneCount.text, "no sites yet");
+
+  const covered = state({
+    broadGrant: true,
+    livePatterns: ["http://*/*", "*://*.bank.com/*", "https://bank.com/*", "*://bank.com/*"],
+    fence: null,
+  });
+  const bankPage = View.arrange(derived(), covered, { origin: "https://bank.com", host: "bank.com", ok: true, kind: "web" })
+    .find((section) => section.id === "page");
+  const bankCount = View.arrange(derived(), covered, { origin: "https://bank.com", host: "bank.com", ok: true, kind: "web" })
+    .find((section) => section.id === "siteCount");
+  assert.equal(bankPage.siteAction?.id, "remove-site");
+  assert.equal(bankCount.mode, "selected");
+  assert.equal(bankCount.text, "1 site");
+});
+
 test("grantSite succeeds post-grant with consentVersion === 1 even if addSiteEligible is false post-grant", async () => {
   const calls = [];
   let postGrant = false;

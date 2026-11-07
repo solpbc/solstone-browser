@@ -135,10 +135,9 @@
       const H = globalThis.SolstoneHosts;
       const res = [];
       for (const p of state.livePatterns) {
-        if (!H?.isBroadPattern?.(p)) {
-          const h = H?.patternSiteHost?.(p) || H?.matchHostFor?.(p);
-          if (h) res.push(`https://${h}`);
-        }
+        if (H?.isBroadPattern?.(p)) continue;
+        const row = H?.grantRowOrigin?.(p);
+        if (row) res.push(row);
       }
       return res;
     }
@@ -772,7 +771,7 @@
 
   function renderSites() {
     const H = globalThis.SolstoneHosts;
-    const isBroad = !state?.fence && (state?.broadGrant === true || (Array.isArray(state?.livePatterns) && H?.broadLive(state.livePatterns)));
+    const everySite = !state?.fence && H?.everySiteLive?.(state?.livePatterns) === true;
 
     if ($("modeSelected")) $("modeSelected").hidden = true;
     if ($("modeAll")) $("modeAll").hidden = true;
@@ -782,7 +781,7 @@
     if ($("exactOnly")) $("exactOnly").hidden = true;
     if ($("keptNote")) $("keptNote").hidden = true;
 
-    renderAccess(isBroad);
+    renderAccess(everySite);
 
     if ($("listHeading")) $("listHeading").textContent = "your sites";
     if ($("siteModeHelp")) {
@@ -795,17 +794,17 @@
     let visibleSites = [];
     if (state?.fence) {
       visibleSites = state.fence.entries || [];
-    } else if (isBroad) {
+    } else if (everySite) {
       visibleSites = [];
     } else if (Array.isArray(state?.livePatterns)) {
-      const hosts = new Set();
+      const origins = new Set();
       for (const pattern of state.livePatterns) {
         if (!H.isBroadPattern(pattern)) {
-          const host = H.patternSiteHost(pattern) || H.matchHostFor(pattern);
-          if (host) hosts.add(`https://${host}`);
+          const row = H.grantRowOrigin?.(pattern);
+          if (row) origins.add(row);
         }
       }
-      visibleSites = Array.from(hosts);
+      visibleSites = Array.from(origins);
     } else {
       visibleSites = [];
     }
@@ -1014,7 +1013,8 @@
     clearAnnouncement();
     const H = globalThis.SolstoneHosts;
     const isBroad = !state?.fence && (state?.broadGrant === true || (Array.isArray(state?.livePatterns) && H?.broadLive(state.livePatterns)));
-    if (isBroad) {
+    const everySite = !state?.fence && H?.everySiteLive?.(state?.livePatterns) === true;
+    if (isBroad && everySite) {
       const result = await cmd({ cmd: "stopSharingEverySite" });
       if (result?.result) {
         stopResultCode = result.result;

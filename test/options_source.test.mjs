@@ -362,6 +362,45 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   assert.equal(nodes.accessAllow.textContent, "stop sharing every site");
   assert.equal(nodes.leftOutDetails.hidden, false);
 
+  liveState = optionsState({
+    consentVersion: 1,
+    brand: "chrome",
+    broadGrant: true,
+    fence: null,
+    livePatterns: ["http://*/*", "*://*.bank.com/*"],
+  });
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.accessAllow.hidden, false);
+  assert.equal(nodes.accessAllow.textContent, "share every site");
+  assert.match(nodes.siteList.textContent, /bank\.com/);
+  const oneSchemeBefore = permissionRequests;
+  const oneSchemeFrom = sentMessages.length;
+  const oneSchemeClick = nodes.accessAllow.listeners.click();
+  assert.equal(permissionRequests, oneSchemeBefore + 1);
+  assert.deepEqual(lastPermissionRequest.origins, ["*://*/*"]);
+  await oneSchemeClick;
+  const oneSchemeSent = sentMessages.slice(oneSchemeFrom);
+  assert.ok(oneSchemeSent.some((message) => message.cmd === "shareEverySite"));
+  assert.equal(oneSchemeSent.some((message) => message.cmd === "stopSharingEverySite"), false);
+
+  liveState = optionsState({
+    consentVersion: 1,
+    brand: "chrome",
+    broadGrant: true,
+    fence: null,
+    livePatterns: ["http://*/*"],
+  });
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.accessAllow.textContent, "share every site");
+  assert.equal(nodes.siteList.children.length, 0);
+  const schemeBefore = permissionRequests;
+  const schemeFrom = sentMessages.length;
+  const schemeClick = nodes.accessAllow.listeners.click();
+  assert.equal(permissionRequests, schemeBefore + 1);
+  assert.deepEqual(lastPermissionRequest.origins, ["*://*/*"]);
+  await schemeClick;
+  assert.ok(sentMessages.slice(schemeFrom).some((message) => message.cmd === "shareEverySite"));
+
   // Fenced: every-site access panel is hidden
   liveState = optionsState({ consentVersion: 1, brand: "chrome", fence: { entries: ["https://example.com"], exact: [], siteWide: [] }, livePatterns: ["*://*/*"] });
   await globalThis.SolstoneOptions.refresh();

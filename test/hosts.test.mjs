@@ -372,3 +372,25 @@ test("grantLevel: a wider site grant covers a chosen name under it", () => {
   assert.equal(H.grantLevel("bank.com.evil.net", ["*://*.bank.com/*"]), null);
   assert.equal(H.grantLevel("bank.com", ["*://*.login.bank.com/*"]), null);
 });
+
+test("grantRowOrigin names the row for a grant and skips broad patterns", () => {
+  assert.equal(H.grantRowOrigin("http://bank.com/*"), "http://bank.com");
+  assert.equal(H.grantRowOrigin("https://bank.com/*"), "https://bank.com");
+  assert.equal(H.grantRowOrigin("https://*.bank.com/*"), "https://bank.com");
+  assert.equal(H.grantRowOrigin("*://*.bank.com/*"), "https://bank.com");
+  assert.equal(H.grantRowOrigin("*://bank.com/*"), "https://bank.com");
+  assert.equal(H.grantRowOrigin("*://localhost/*"), "http://localhost");
+  assert.equal(H.grantRowOrigin("*://localhost:5015/*"), "http://localhost:5015");
+  assert.equal(H.grantRowOrigin("*://192.168.1.5/*"), "http://192.168.1.5");
+  assert.equal(H.grantRowOrigin("*://router.local/*"), "http://router.local");
+  for (const pattern of ["*://*/*", "<all_urls>", "http://*/*", "https://*/*"]) {
+    assert.equal(H.grantRowOrigin(pattern), null, pattern);
+  }
+});
+
+test("pageRowOrigin uses the longest covering host, and a broad grant keeps the page", () => {
+  assert.equal(H.pageRowOrigin(["*://*.bank.com/*"], "https://login.bank.com"), "https://bank.com");
+  assert.equal(H.pageRowOrigin(["*://*.bank.com/*", "*://*.login.bank.com/*"], "https://a.login.bank.com"), "https://login.bank.com");
+  assert.equal(H.pageRowOrigin(["*://*/*"], "https://login.bank.com/path"), "https://login.bank.com");
+  assert.equal(H.pageRowOrigin(["http://*/*", "*://*.bank.com/*"], "https://bank.com"), "https://bank.com");
+});

@@ -968,6 +968,9 @@ function contentHarness(Gate) {
         if (entry.type === "pageshow") entry.fn(event || {});
       }
     },
+    intervalsArmed() {
+      return intervals.size;
+    },
     get reads() {
       return reads;
     },
@@ -3000,6 +3003,30 @@ test("content: the refusal cap holds across a lease renewal", async () => {
   h.requests[1](broadPageGrant(2));
   h.showVisible();
   assert.equal(reads(), 4);
+});
+
+test("content: a lease renewal keeps the refusal cap", async () => {
+  const { sandbox } = await startWorker({ siteGrant: "live", fence: null });
+  const h = contentHarness(sandbox.SolstoneCaptureGate);
+  h.requests[0](broadPageGrant(1));
+  const reads = () => h.sent.filter((m) => m.kind === "read").length;
+  h.tick();
+  h.failRead("browser_access_denied");
+  h.tick();
+  h.failRead("browser_access_denied");
+  h.tick();
+  h.failRead("read_not_executed");
+  assert.equal(reads(), 3);
+  assert.equal(h.intervalsArmed(), 0);
+  const renewed = Object.assign(broadPageGrant(1), {
+    lease: { token: "renewed", generation: "g", freshnessMs: 10000 },
+  });
+  h.msg(Object.assign({ kind: "leaseUpdate", showIndicator: false }, renewed));
+  assert.equal(h.requests.length, 2);
+  h.requests[1](renewed);
+  h.tick();
+  assert.equal(reads(), 3);
+  assert.equal(h.intervalsArmed(), 0);
 });
 
 test("a refused site is not joined when a later all-sites request is granted", async () => {

@@ -659,12 +659,8 @@ async function executeBrowserRead(binding, request, authorize) {
   return results?.some(item => item.frameId === binding.frameId && item.result === true) === true;
 }
 
-async function checkSafariClearedStorage() {
-  const kept = await DB.get("meta", "inst");
-  if (!kept) return { mismatch: false, cleared: false };
-  const mirror = await chrome.storage.local.get("inst");
-  if (mirror.inst === kept) return { mismatch: false, cleared: false };
-  const clearedCfg = {
+function clearedSafariCfg() {
+  return {
     paused: true,
     showPageIndicator: false,
     pauseWithApp: true,
@@ -675,13 +671,73 @@ async function checkSafariClearedStorage() {
     excludedHosts: [],
     appLeftOut: [],
   };
+}
+
+// Read-only. A throw rejects. Startup and the alarm share this comparison.
+async function detectSafariCleared() {
+  const kept = await DB.get("meta", "inst");
+  if (!kept) return { mismatch: false };
+  const mirror = await chrome.storage.local.get("inst");
+  if (mirror.inst === kept) return { mismatch: false };
+  return { mismatch: true };
+}
+
+async function checkSafariClearedStorage() {
+  const detected = await detectSafariCleared();
+  if (!detected.mismatch) return { mismatch: false, cleared: false };
   try {
-    await chrome.storage.local.set({ cfg: clearedCfg });
+    await chrome.storage.local.set({ cfg: clearedSafariCfg() });
   } catch (err) {
     return { mismatch: true, cleared: false, error: err };
   }
   for (const store of ["meta", "outbox", "producer"]) await DB.clear(store);
   return { mismatch: true, cleared: true };
+}
+
+const SAFARI_CHECK_BOUND_MS = 10000;
+let safariWatch = null;
+
+function beginSafariWatch() {
+  const watch = { phase: "detect", startedAt: Date.now(), abandoned: false, promise: null };
+  safariWatch = watch;
+  watch.promise = (async () => {
+    let detected;
+    try {
+      detected = await detectSafariCleared();
+    } catch (_e) {
+      if (safariWatch === watch) safariWatch = null;
+      return;
+    }
+    const elapsed = Date.now() - watch.startedAt;
+    if (watch.abandoned || !port || (watch.phase === "detect" && elapsed >= SAFARI_CHECK_BOUND_MS)) {
+      watch.abandoned = true;
+      if (safariWatch === watch) safariWatch = null;
+      return;
+    }
+    if (!detected.mismatch) {
+      if (safariWatch === watch) safariWatch = null;
+      return;
+    }
+    port.paused = true;
+    port.clearedNotice = true;
+    port.notify();
+    watch.phase = "clear";
+    try {
+      await chrome.storage.local.set({ cfg: clearedSafariCfg() });
+    } catch (_e) {
+      if (safariWatch === watch) safariWatch = null;
+      return;
+    }
+    try {
+      for (const store of ["meta", "outbox", "producer"]) await DB.clear(store);
+    } catch (_e) {
+      if (safariWatch === watch) safariWatch = null;
+      return;
+    }
+    if (safariWatch === watch) safariWatch = null;
+    chrome.runtime.reload();
+  })();
+  return watch.promise;
 }
 
 // A page click stores an intent, then asks the browser. The next read joins the
@@ -1134,26 +1190,13 @@ chrome.windows?.onFocusChanged?.addListener((windowId) => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== ALARM_NAME) return;
   let safariClear = null;
-  if (globalThis.SolstoneSafariPort?.isSafari(chrome.runtime) === true) {
-    if (port) {
-      const previousPaused = port.paused;
-      port.paused = true;
-      port.notify();
-      safariClear = checkSafariClearedStorage().then((res) => {
-        if (!port) return res;
-        if (!res.mismatch) {
-          port.paused = previousPaused;
-          port.notify();
-          return res;
-        }
-        if (res.cleared) chrome.runtime.reload();
-        return res;
-      }).catch(() => {});
-    } else {
-      safariClear = checkSafariClearedStorage().then((res) => {
-        if (res.mismatch && res.cleared) chrome.runtime.reload();
-      }).catch(() => {});
+  if (globalThis.SolstoneSafariPort?.isSafari(chrome.runtime) === true && port) {
+    if (safariWatch && safariWatch.phase === "detect" && Date.now() - safariWatch.startedAt >= SAFARI_CHECK_BOUND_MS) {
+      safariWatch.abandoned = true;
+      safariWatch = null;
     }
+    if (!safariWatch) safariClear = beginSafariWatch();
+    else safariClear = safariWatch.promise;
   }
   beginRead().catch(() => {});
   ensureInit().then(async () => {

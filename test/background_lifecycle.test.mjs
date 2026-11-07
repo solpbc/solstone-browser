@@ -993,13 +993,62 @@ test("tab facts prune only previously known closed document fingerprints",async(
  assert.equal(bg.port.truncationByOrigin[origin].count,before+1);
 });
 
-async function startSafari(mock, idb) {
+async function startSafari(mock, idb, clock) {
   mock.chrome.runtime.getURL = (path) => `safari-web-extension://6f4d5042-ab48-42e5-a191-38327b4ea30b/${path}`;
-  const sandbox = createSandbox(mock, true);
+  const sandbox = createSandbox(mock, true, clock);
   sandbox.indexedDB = idb;
   vm.runInNewContext(readExtFile("background.js"), sandbox);
   await sandbox.SolstoneBackground.ensureInit();
   return sandbox;
+}
+
+function holdMetaInst(DB) {
+  const original = DB.get.bind(DB);
+  const state = { armed: false, pending: [], waiters: [], reads: 0 };
+
+  function deliver() {
+    while (state.waiters.length > 0) {
+      const item = state.pending.find((entry) => !entry.issued);
+      if (!item) return;
+      item.issued = true;
+      state.waiters.shift()(item.handle);
+    }
+  }
+
+  DB.get = (store, key) => {
+    if (store === "meta" && key === "inst") {
+      state.reads += 1;
+      if (state.armed) {
+        return new Promise((resolve, reject) => {
+          const item = { issued: false, handle: null };
+          item.handle = {
+            release() {
+              Promise.resolve(original(store, key)).then(resolve, reject);
+            },
+          };
+          state.pending.push(item);
+          deliver();
+        });
+      }
+    }
+    return original(store, key);
+  };
+
+  return {
+    hold() { state.armed = true; },
+    unhold() { state.armed = false; },
+    get reads() { return state.reads; },
+    held() {
+      const item = state.pending.find((entry) => !entry.issued);
+      if (item) {
+        item.issued = true;
+        return Promise.resolve(item.handle);
+      }
+      return new Promise((resolve) => {
+        state.waiters.push(resolve);
+      });
+    },
+  };
 }
 
 test("safari: clearing the extension's storage also forgets what its database kept", async () => {
@@ -3489,5 +3538,322 @@ test("pin: a stale hello read loses to a newer revocation", async () => {
   newerRead.release();
   assert.equal((await hello).error, "origin_not_granted");
   await newer;
+});
+
+const SAFARI_PAGE = "https://example.com";
+const SAFARI_DOC = "0123456789abcdef0123456789abcdef";
+
+function safariClock() {
+  return { wall: 5_000_000, monotonic: 1_000 };
+}
+
+function prepareSafari(mock) {
+  setGrants(mock, ["*://*.example.com/*"]);
+  mock.storageData.cfg = { siteGrant: "live", fence: null, paused: false };
+}
+
+function safariSender(mock) {
+  return {
+    id: mock.chrome.runtime.id,
+    tab: { id: 7 },
+    frameId: 0,
+    url: SAFARI_PAGE + "/page",
+    origin: SAFARI_PAGE,
+  };
+}
+
+function sendSafari(mock, msg) {
+  return new Promise((resolve) => mock.listeners.onMessage[0](msg, safariSender(mock), resolve));
+}
+
+function sendSafariExt(mock, msg) {
+  return new Promise((resolve) => mock.listeners.onMessage[0](
+    msg,
+    { id: mock.chrome.runtime.id, url: mock.chrome.runtime.getURL("options.html") },
+    resolve,
+  ));
+}
+
+function answerAndCount(mock) {
+  const leaseUpdates = [];
+  mock.chrome.tabs.sendMessage = (tabId, msg, opts, cb) => {
+    const callback = typeof opts === "function" ? opts : cb;
+    mock.sentTabMessages.push({ tabId, msg });
+    if (msg?.kind === "leaseUpdate") leaseUpdates.push(msg);
+    if (msg?.kind === "confirmRealm") {
+      callback?.({ realmToken: "r" });
+      return Promise.resolve({ realmToken: "r" });
+    }
+    callback?.();
+    return Promise.resolve();
+  };
+  return leaseUpdates;
+}
+
+function armLease(port) {
+  port.consentVersion = 1;
+  port.hostCapture = "permitted";
+  port.capturePermitted = true;
+  port.paused = false;
+  port.lease = { token: "t", generation: "g", receivedAt: port.now(), freshnessMs: 10000 };
+}
+
+function safariSkim(port, epoch, leaseToken) {
+  return {
+    kind: "skim",
+    realmToken: "r",
+    documentKey: SAFARI_DOC,
+    captureEpoch: epoch,
+    connectionGeneration: port.connectionGeneration,
+    destinationGeneration: port.destinationGeneration,
+    leaseToken,
+    blocks: [{ id: "1", type: "text", depth: 0, text: "Synthetic tab 7" }],
+  };
+}
+
+function safariHello() {
+  return { kind: "hello", realmToken: "r", documentKey: SAFARI_DOC };
+}
+
+function flushTick() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+async function bootSafariLease(clock = safariClock()) {
+  const mock = createMockChrome();
+  prepareSafari(mock);
+  mock.chrome.runtime.reload = () => {};
+  const sandbox = await startSafari(mock, new IDBFactory(), clock);
+  const port = sandbox.SolstoneBackground.port;
+  armLease(port);
+  const leaseUpdates = answerAndCount(mock);
+  const hello = await sendSafari(mock, safariHello());
+  assert.equal(hello.ok, true, JSON.stringify(hello));
+  return { mock, sandbox, port, clock, leaseUpdates };
+}
+
+test("pin: a clean Safari check leaves an open lease able to skim", async () => {
+  const { mock, sandbox, port, leaseUpdates } = await bootSafariLease();
+  const epoch = port.captureEpoch;
+  const leaseToken = port.lease.token;
+  const inst = holdMetaInst(sandbox.SolstoneDB);
+  inst.hold();
+  const beforeUpdates = leaseUpdates.length;
+  const pending = mock.listeners.onAlarm[0]({ name: "native-port" });
+  const handle = await inst.held();
+  const during = sendSafari(mock, safariHello());
+  await flushTick();
+  assert.equal(leaseUpdates.length, beforeUpdates);
+  assert.equal(port.captureEpoch, epoch);
+  handle.release();
+  assert.equal((await during).ok, true);
+  await pending;
+  const beforeRows = (await sandbox.SolstoneNativeOutbox.getAll()).length;
+  const skim = await sendSafari(mock, safariSkim(port, epoch, leaseToken));
+  assert.equal(skim.ok, true, JSON.stringify(skim));
+  assert.equal((await sandbox.SolstoneNativeOutbox.getAll()).length, beforeRows + 1);
+});
+
+test("pin: pausing during a Safari check stays paused", async () => {
+  const { mock, sandbox, port } = await bootSafariLease();
+  const inst = holdMetaInst(sandbox.SolstoneDB);
+  inst.hold();
+  const pending = mock.listeners.onAlarm[0]({ name: "native-port" });
+  const handle = await inst.held();
+  const paused = await sendSafariExt(mock, { cmd: "setPaused", paused: true });
+  assert.equal(paused.ok, true, JSON.stringify(paused));
+  handle.release();
+  await pending;
+  assert.equal(port.paused, true);
+  assert.equal(mock.storageData.cfg.paused, true);
+  const hello = await sendSafari(mock, safariHello());
+  assert.equal(hello.paused, true);
+  const beforeRows = (await sandbox.SolstoneNativeOutbox.getAll()).length;
+  const skim = await sendSafari(mock, safariSkim(port, port.captureEpoch, port.lease.token));
+  assert.equal(skim.ok, false);
+  assert.equal((await sandbox.SolstoneNativeOutbox.getAll()).length, beforeRows);
+});
+
+test("pin: resuming during a Safari check stays resumed", async () => {
+  const { mock, sandbox, port } = await bootSafariLease();
+  const paused = await sendSafariExt(mock, { cmd: "setPaused", paused: true });
+  assert.equal(paused.ok, true, JSON.stringify(paused));
+  assert.equal(port.paused, true);
+  const inst = holdMetaInst(sandbox.SolstoneDB);
+  inst.hold();
+  const pending = mock.listeners.onAlarm[0]({ name: "native-port" });
+  const handle = await inst.held();
+  const resumed = await sendSafariExt(mock, { cmd: "setPaused", paused: false });
+  assert.equal(resumed.ok, true, JSON.stringify(resumed));
+  handle.release();
+  await pending;
+  assert.equal(port.paused, false);
+  assert.equal(mock.storageData.cfg.paused, false);
+  const beforeRows = (await sandbox.SolstoneNativeOutbox.getAll()).length;
+  const skim = await sendSafari(mock, safariSkim(port, port.captureEpoch, port.lease.token));
+  assert.equal(skim.ok, true, JSON.stringify(skim));
+  assert.equal((await sandbox.SolstoneNativeOutbox.getAll()).length, beforeRows + 1);
+});
+
+test("pin: a Safari mismatch pauses before it saves the cleared config", async () => {
+  const { mock, sandbox, port, leaseUpdates } = await bootSafariLease();
+  delete mock.storageData.inst;
+  const gate = deferred();
+  let seen = null;
+  const origSet = mock.chrome.storage.local.set.bind(mock.chrome.storage.local);
+  mock.chrome.storage.local.set = async (obj) => {
+    if (obj.cfg && obj.cfg.startup === "cleared") {
+      seen = {
+        paused: port.paused,
+        notice: port.clearedNotice,
+        leasePaused: leaseUpdates.some((msg) => msg.paused === true),
+      };
+      await gate.promise;
+    }
+    return origSet(obj);
+  };
+  const pending = mock.listeners.onAlarm[0]({ name: "native-port" });
+  for (let i = 0; i < 20 && !seen; i += 1) await flushTick();
+  assert.equal(seen && seen.paused, true);
+  assert.equal(seen && seen.notice, true);
+  assert.equal(seen && seen.leasePaused, true);
+  gate.resolve();
+  await pending;
+  const hello = await sendSafari(mock, safariHello());
+  assert.equal(hello.paused, true);
+});
+
+test("pin: a thrown Safari detection changes nothing", async () => {
+  const { mock, sandbox, port } = await bootSafariLease();
+  const paused = port.paused;
+  const notice = port.clearedNotice;
+  const epoch = port.captureEpoch;
+  const original = sandbox.SolstoneDB.get.bind(sandbox.SolstoneDB);
+  sandbox.SolstoneDB.get = async (store, key) => {
+    if (store === "meta" && key === "inst") throw new Error("inst read failed");
+    return original(store, key);
+  };
+  await mock.listeners.onAlarm[0]({ name: "native-port" });
+  assert.equal(port.paused, paused);
+  assert.equal(port.clearedNotice, notice);
+  assert.equal(port.captureEpoch, epoch);
+});
+
+test("pin: a hung Safari detection is abandoned at ten seconds", async () => {
+  const clock = safariClock();
+  const { mock, sandbox, port } = await bootSafariLease(clock);
+  const paused = port.paused;
+  const notice = port.clearedNotice;
+  const epoch = port.captureEpoch;
+  const inst = holdMetaInst(sandbox.SolstoneDB);
+  inst.hold();
+  mock.listeners.onAlarm[0]({ name: "native-port" });
+  await inst.held();
+  await flushTick();
+  assert.equal(port.paused, paused);
+  assert.equal(port.clearedNotice, notice);
+  assert.equal(port.captureEpoch, epoch);
+  assert.equal(inst.reads, 1);
+  clock.wall += 10000;
+  const next = mock.listeners.onAlarm[0]({ name: "native-port" });
+  await flushTick();
+  assert.equal(inst.reads, 2);
+  const fresh = await inst.held();
+  fresh.release();
+  await next;
+  const beforeRows = (await sandbox.SolstoneNativeOutbox.getAll()).length;
+  const skim = await sendSafari(mock, safariSkim(port, port.captureEpoch, port.lease.token));
+  assert.equal(skim.ok, true, JSON.stringify(skim));
+  assert.equal((await sandbox.SolstoneNativeOutbox.getAll()).length, beforeRows + 1);
+});
+
+test("pin: a Safari alarm before the port exists does not look for cleared storage", async () => {
+  const mock = createMockChrome();
+  prepareSafari(mock);
+  mock.chrome.runtime.getURL = (path) => `safari-web-extension://6f4d5042-ab48-42e5-a191-38327b4ea30b/${path}`;
+  const gate = deferred();
+  mock.chrome.alarms.create = () => gate.promise;
+  const sandbox = createSandbox(mock, true, safariClock());
+  sandbox.indexedDB = new IDBFactory();
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  const inst = holdMetaInst(sandbox.SolstoneDB);
+  const before = inst.reads;
+  mock.listeners.onAlarm[0]({ name: "native-port" });
+  await flushTick();
+  await flushTick();
+  assert.equal(inst.reads, before);
+  await sandbox.SolstoneDB.put("meta", "kept-inst", "inst");
+  mock.storageData.inst = "other-inst";
+  gate.resolve();
+  const port = await sandbox.SolstoneBackground.ensureInit();
+  assert.equal(port.paused, true);
+  assert.equal(mock.storageData.cfg.clearedNotice, true);
+});
+
+test("pin: two Safari alarms share one check", async () => {
+  const { mock, sandbox } = await bootSafariLease();
+  const inst = holdMetaInst(sandbox.SolstoneDB);
+  inst.hold();
+  mock.listeners.onAlarm[0]({ name: "native-port" });
+  await inst.held();
+  mock.listeners.onAlarm[0]({ name: "native-port" });
+  await flushTick();
+  assert.equal(inst.reads, 1);
+});
+
+test("pin: a Safari clear in progress is not abandoned after ten seconds", async () => {
+  const clock = safariClock();
+  const { mock, sandbox, port } = await bootSafariLease(clock);
+  delete mock.storageData.inst;
+  const inst = holdMetaInst(sandbox.SolstoneDB);
+  inst.hold();
+  const gate = deferred();
+  let entered = false;
+  const origSet = mock.chrome.storage.local.set.bind(mock.chrome.storage.local);
+  mock.chrome.storage.local.set = async (obj) => {
+    if (obj.cfg && obj.cfg.startup === "cleared") {
+      entered = true;
+      await gate.promise;
+    }
+    return origSet(obj);
+  };
+  const pending = mock.listeners.onAlarm[0]({ name: "native-port" });
+  const handle = await inst.held();
+  handle.release();
+  for (let i = 0; i < 20 && !entered; i += 1) await flushTick();
+  assert.equal(entered, true);
+  assert.equal(port.paused, true);
+  const reads = inst.reads;
+  clock.wall += 10001;
+  mock.listeners.onAlarm[0]({ name: "native-port" });
+  await flushTick();
+  assert.equal(inst.reads, reads);
+  assert.equal(port.paused, true);
+  gate.resolve();
+  await pending;
+});
+
+test("pin: a Safari mismatch at 9.9 seconds still clears", async () => {
+  const clock = safariClock();
+  const { mock, sandbox, port } = await bootSafariLease(clock);
+  delete mock.storageData.inst;
+  const inst = holdMetaInst(sandbox.SolstoneDB);
+  inst.hold();
+  let seen = null;
+  const origSet = mock.chrome.storage.local.set.bind(mock.chrome.storage.local);
+  mock.chrome.storage.local.set = async (obj) => {
+    if (obj.cfg && obj.cfg.startup === "cleared") {
+      seen = { paused: port.paused, notice: port.clearedNotice };
+    }
+    return origSet(obj);
+  };
+  const started = clock.wall;
+  const pending = mock.listeners.onAlarm[0]({ name: "native-port" });
+  const handle = await inst.held();
+  clock.wall = started + 9900;
+  handle.release();
+  await pending;
+  assert.equal(seen && seen.paused, true);
+  assert.equal(seen && seen.notice, true);
 });
 

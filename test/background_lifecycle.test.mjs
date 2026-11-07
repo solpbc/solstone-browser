@@ -3415,3 +3415,79 @@ test("pin: an older read after the fence-write await does not restore a revoked 
   assert.equal((await pinHello(mock, "https://shop.com")).ok, true);
 });
 
+function pinFrame(mock, origin, msg) {
+  return new Promise((resolve) => mock.listeners.onMessage[0](
+    msg,
+    { id: mock.chrome.runtime.id, tab: { id: 7 }, frameId: 0, url: origin + "/page", origin },
+    resolve,
+  ));
+}
+
+async function burstHellos(order) {
+  const mock = createMockChrome();
+  setGrants(mock, ["*://*/*"]);
+  mock.storageData.cfg = { siteGrant: "live", fence: null };
+  const { bg } = await bootPin(mock);
+  const port = bg.port;
+  port.hostCapture = "permitted";
+  port.capturePermitted = true;
+  port.consentVersion = 1;
+  port.paused = false;
+  port.lease = { token: "t", generation: "g", receivedAt: port.now(), freshnessMs: 10000 };
+  mock.chrome.scripting.executeScript = async () => [{ frameId: 0, result: true }];
+  confirmRealm(mock);
+  mock.hold("permissions.getAll");
+  const origin = "https://bank.com";
+  const pending = [];
+  for (let i = 0; i < 7; i += 1) pending.push(pinHello(mock, origin));
+  const handles = [];
+  for (let i = 0; i < 7; i += 1) handles.push(await mock.held("permissions.getAll"));
+  for (const index of order) handles[index].release();
+  const results = await Promise.all(pending);
+  assert.equal(results[6].ok, true, JSON.stringify(results.map((result) => result.error || "ok")));
+  for (let i = 0; i < 6; i += 1) {
+    assert.equal(results[i].error, "challenge_mismatch", JSON.stringify(results[i]));
+  }
+  const read = await pinFrame(mock, origin, {
+    kind: "read",
+    realmToken: "r",
+    documentKey: "0123456789abcdef0123456789abcdef",
+    action: "skim",
+    requestId: 1,
+    captureEpoch: port.captureEpoch,
+    leaseToken: port.lease.token,
+  });
+  assert.equal(read.ok, true, JSON.stringify(read));
+}
+
+test("pin: the last of seven hellos is the one that can read", async () => {
+  await burstHellos([6, 5, 4, 3, 2, 1, 0]);
+  await burstHellos([2, 5, 0, 6, 3, 1, 4]);
+});
+
+test("pin: a stale hello read loses to a newer revocation", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, ["*://*.bank.com/*"]);
+  mock.storageData.cfg = { siteGrant: "live", fence: null };
+  const { bg } = await bootPin(mock);
+  confirmRealm(mock);
+  mock.hold("permissions.getAll");
+  let settled = false;
+  const hello = pinHello(mock, "https://bank.com").then((result) => {
+    settled = true;
+    return result;
+  });
+  const olderRead = await mock.held("permissions.getAll");
+  const newer = bg.beginRead();
+  const newerRead = await mock.held("permissions.getAll");
+  assert.equal(mock.grantedPermissions.has("*://*.bank.com/*"), true);
+  olderRead.release();
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false);
+  mock.grantedPermissions.delete("*://*.bank.com/*");
+  newerRead.release();
+  assert.equal((await hello).error, "origin_not_granted");
+  await newer;
+});
+

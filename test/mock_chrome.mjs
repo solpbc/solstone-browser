@@ -126,6 +126,41 @@ export function createMockChrome(options = {}) {
   const refusedHosts = new Set();
   const sentTabMessages = [];
   const tabsList = [{ id: 101, url: "https://example.com/page" }];
+  const heldChannels = new Map();
+
+  function heldState(channel) {
+    let state = heldChannels.get(channel);
+    if (!state) {
+      state = { armed: false, pending: [], waiters: [] };
+      heldChannels.set(channel, state);
+    }
+    return state;
+  }
+
+  function deliverHeld(state) {
+    while (state.waiters.length > 0) {
+      const item = state.pending.find((entry) => !entry.issued);
+      if (!item) return;
+      item.issued = true;
+      state.waiters.shift()(item.handle);
+    }
+  }
+
+  // A held call reads its result when that call is released.
+  function blockCall(channel, run) {
+    const state = heldState(channel);
+    if (!state.armed) return run();
+    return new Promise((resolve, reject) => {
+      const item = { issued: false, handle: null };
+      item.handle = {
+        release() {
+          Promise.resolve().then(run).then(resolve, reject);
+        },
+      };
+      state.pending.push(item);
+      deliverHeld(state);
+    });
+  }
 
   return {
     listeners,
@@ -135,6 +170,29 @@ export function createMockChrome(options = {}) {
     sentTabMessages,
     tabsList,
     options: opts,
+    hold(channel) {
+      heldState(channel).armed = true;
+      if (channel === "tabs.get" && typeof this.chrome.tabs.get !== "function") {
+        this.chrome.tabs.get = (tabId) => blockCall("tabs.get", async () => {
+          if (!tabsList.some((tab) => tab.id === tabId)) return undefined;
+          return { id: tabId, windowId: 1 };
+        });
+      }
+    },
+    held(channel) {
+      const state = heldState(channel);
+      const item = state.pending.find((entry) => !entry.issued);
+      if (item) {
+        item.issued = true;
+        return Promise.resolve(item.handle);
+      }
+      return new Promise((resolve) => {
+        state.waiters.push(resolve);
+      });
+    },
+    unhold(channel) {
+      heldState(channel).armed = false;
+    },
     chrome: {
       runtime: {
         id: "fgfnkcefedeheoeamppkiiloncfekakf",
@@ -166,9 +224,17 @@ export function createMockChrome(options = {}) {
           if (typeof cb === "function") cb(tabs);
           return Promise.resolve(tabs);
         },
-        sendMessage: (tabId, msg, cb) => {
-          sentTabMessages.push({ tabId, msg });
-          if (cb) cb();
+        sendMessage: (tabId, msg, opts, cb) => {
+          const options = opts && typeof opts === "object" ? opts : null;
+          const callback = typeof opts === "function" ? opts : cb;
+          const run = () => {
+            sentTabMessages.push({ tabId, msg });
+            if (callback) callback();
+          };
+          if (options && Object.hasOwn(options, "frameId") && heldState("tabs.sendMessage").armed) {
+            return blockCall("tabs.sendMessage", run);
+          }
+          run();
         },
         onRemoved: { addListener: (fn) => listeners.onRemovedTab.push(fn) },
         onCreated: { addListener: (fn) => listeners.onCreatedTab.push(fn) },
@@ -201,11 +267,11 @@ export function createMockChrome(options = {}) {
         },
       },
       permissions: {
-        getAll: async () => {
+        getAll: () => blockCall("permissions.getAll", async () => {
           if (opts.getAllThrows) throw new Error("getAll threw");
           if (opts.getAllNonArray) return { origins: "not-an-array" };
           return { origins: Array.from(grantedPermissions) };
-        },
+        }),
         contains: async ({ origins }) => {
           return (origins || []).every((o) => grantedPermissions.has(o) || grantedPermissions.has("*://*/*"));
         },
@@ -265,7 +331,10 @@ export function createMockChrome(options = {}) {
       },
       storage: {
         local: {
-          get: async (key) => ({ [key]: storageData[key] }),
+          get: (key) => {
+            if (key === "inst") return blockCall("storage.local.get", async () => ({ inst: storageData.inst }));
+            return Promise.resolve({ [key]: storageData[key] });
+          },
           set: async (obj) => {
             Object.assign(storageData, obj);
           },

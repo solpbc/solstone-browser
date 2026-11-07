@@ -593,9 +593,17 @@
     const tabId = sender.tab.id;
     const frameId = sender.frameId || 0;
     const browserDocumentId = sender.documentId || null;
-
-    if (msg?.kind === "hello" && typeof deps.beginRead === "function") {
-      await deps.beginRead();
+    const challengeKey = `${tabId}:${frameId}`;
+    let challenge = null;
+    if (msg?.kind === "hello") {
+      challenge = {};
+      frameChallenges.set(challengeKey, challenge);
+      if (typeof deps.beginRead === "function") {
+        await deps.beginRead();
+      }
+      if (frameChallenges.get(challengeKey) !== challenge) {
+        return { ok: false, error: "challenge_mismatch" };
+      }
     }
 
     let senderOrigin = null;
@@ -631,14 +639,11 @@
     const documentIdentity = browserDocumentId || documentKey;
 
     const fKey = frameKeyFor(tabId, frameId, documentIdentity);
-    const challengeKey = `${tabId}:${frameId}`;
     let binding = frameBindings.get(fKey);
     if (msg.kind === "hello") {
       // Ask the live frame which realm is running. A delayed message from a
       // retired document cannot appoint itself the current realm (Firefox 140
       // does not supply documentId).
-      const challenge = {};
-      frameChallenges.set(challengeKey, challenge);
       let confirmed = false;
       try {
         if (deps.confirmRealm) {

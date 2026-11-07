@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+import { armClick, pageGestureRequest } from "./mock_chrome.mjs";
 
 const root = new URL("../", import.meta.url);
 const html = await readFile(new URL("extension/options.html", root), "utf8");
@@ -76,6 +77,7 @@ class FakeNode {
     this.type = "";
     this.href = undefined;
     this.listeners = {};
+    this.dataset = {};
     this.focusCount = 0;
     this.textWrites = 0;
     this._textContent = "";
@@ -92,7 +94,7 @@ class FakeNode {
   }
 
   addEventListener(type, listener) {
-    this.listeners[type] = listener;
+    this.listeners[type] = type === "click" ? armClick(listener) : listener;
   }
 
   append(...children) {
@@ -255,7 +257,11 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
     },
     tabs: { create: (info) => appTabs.push(info) },
     permissions: {
-      request: async (request) => { permissionRequests += 1; lastPermissionRequest = request; return permissionAnswer; },
+      request: pageGestureRequest(async (request) => {
+        permissionRequests += 1;
+        lastPermissionRequest = request;
+        return permissionAnswer;
+      }),
     },
   };
 
@@ -361,6 +367,82 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   await globalThis.SolstoneOptions.refresh();
   assert.equal(nodes.accessPanel.hidden, true);
 
+  // Fenced, nothing beyond the fence: offer share every site. Not the upgrade question.
+  function findClick(node, label) {
+    if (!node) return null;
+    if (node.listeners?.click && node._textContent === label) return node;
+    for (const child of node.children || []) {
+      const found = findClick(child, label);
+      if (found) return found;
+    }
+    return null;
+  }
+  liveState = optionsState({
+    consentVersion: 1,
+    brand: "chrome",
+    fence: { entries: ["https://example.com"], exact: [], siteWide: [], sawMore: false, answered: false },
+    livePatterns: ["*://*.example.com/*"],
+  });
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.accessPanel.hidden, false);
+  assert.equal(nodes.accessAllow.hidden, false);
+  assert.equal(nodes.accessAllow.textContent, "share every site");
+  assert.equal(findClick(nodes.settingsView, "share them too"), null);
+  let requestsBefore = permissionRequests;
+  let fromShare = sentMessages.length;
+  let shareClick = nodes.accessAllow.listeners.click();
+  assert.equal(permissionRequests, requestsBefore + 1);
+  assert.deepEqual(lastPermissionRequest.origins, ["*://*/*"]);
+  assert.equal(sentMessages.slice(fromShare).some((message) => message.cmd === "intendAddOrigin"), false);
+  await shareClick;
+  assert.ok(sentMessages.slice(fromShare).some((message) => message.cmd === "shareEverySite"));
+
+  liveState = optionsState({
+    consentVersion: 1,
+    brand: "safari",
+    fence: { entries: ["https://example.com"], exact: [], siteWide: [], sawMore: false, answered: false },
+    livePatterns: ["*://*.example.com/*"],
+  });
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.accessAllow.hidden, false);
+  assert.equal(nodes.accessAllow.textContent, "share every site");
+  requestsBefore = permissionRequests;
+  fromShare = sentMessages.length;
+  await nodes.accessAllow.listeners.click();
+  assert.equal(permissionRequests, requestsBefore);
+  assert.ok(sentMessages.slice(fromShare).some((message) => message.cmd === "shareEverySite"));
+  assert.equal(sentMessages.slice(fromShare).some((message) => message.cmd === "intendAddOrigin"), false);
+
+  liveState = optionsState({
+    consentVersion: 1,
+    brand: "chrome",
+    fence: { entries: ["https://example.com"], exact: [], exactKnown: true, siteWide: [], declined: [], answered: false, sawMore: true },
+    livePatterns: ["*://*/*"],
+  });
+  await globalThis.SolstoneOptions.refresh();
+  const upgradeShare = findClick(nodes.settingsView, "share every site");
+  assert.ok(upgradeShare);
+  requestsBefore = permissionRequests;
+  shareClick = upgradeShare.listeners.click();
+  assert.equal(permissionRequests, requestsBefore + 1);
+  assert.deepEqual(lastPermissionRequest.origins, ["*://*/*"]);
+  await shareClick;
+
+  liveState = optionsState({
+    consentVersion: 1,
+    brand: "chrome",
+    fence: { entries: ["https://example.com"], exact: [], exactKnown: true, siteWide: [], declined: [], answered: true, sawMore: true },
+    livePatterns: ["*://*.example.com/*"],
+  });
+  await globalThis.SolstoneOptions.refresh();
+  const quietShare = findClick(nodes.settingsView, "share every site");
+  assert.ok(quietShare);
+  requestsBefore = permissionRequests;
+  shareClick = quietShare.listeners.click();
+  assert.equal(permissionRequests, requestsBefore + 1);
+  assert.deepEqual(lastPermissionRequest.origins, ["*://*/*"]);
+  await shareClick;
+
   // Coming back to the page reconnects the status channel before trusting it
   const connectsBefore = statusConnects;
   let from = sentMessages.length;
@@ -398,6 +480,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   nodes.siteDisclosureConfirm.listeners.click();
   // Firefox honours the request only while the confirming click is handled.
   assert.equal(permissionRequests, requestsBeforeConfirm + 1);
+  assert.deepEqual(lastPermissionRequest.origins, ["*://*.mail.google.com/*"]);
   await pending;
   assert.equal(nodes.actionMessage.textContent, "all mail.google.com sites and pages added.");
   // The sheet says the whole site before anything is asked of the browser.

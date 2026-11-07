@@ -310,6 +310,60 @@ test("grantLevel scheme rule: http does not count for https, https does not coun
 });
 
 
+test("siteLevelCovers ignores the four broad patterns", () => {
+  const login = "https://login.bank.com";
+  for (const pattern of ["*://*/*", "<all_urls>", "http://*/*", "https://*/*"]) {
+    assert.equal(H.siteLevelCovers([pattern], login), false, pattern);
+  }
+  assert.equal(H.siteLevelCovers(["*://*.bank.com/*"], login), true);
+  assert.equal(H.siteLevelCovers(["*://*.login.bank.com/*"], "https://mail.bank.com"), false);
+});
+
+test("everySiteLive needs both schemes, or one every-site pattern", () => {
+  assert.equal(H.everySiteLive(["*://*/*"]), true);
+  assert.equal(H.everySiteLive(["<all_urls>"]), true);
+  assert.equal(H.everySiteLive(["http://*/*", "https://*/*"]), true);
+  assert.equal(H.everySiteLive(["http://*/*"]), false);
+  assert.equal(H.everySiteLive(["https://*/*"]), false);
+  assert.equal(H.everySiteLive(["https://*/*", "*://*.bank.com/*"]), false);
+});
+
+test("finishFence turns covered declined hosts into left-out and leaves the input fence", () => {
+  const fence = {
+    entries: ["https://login.bank.com"],
+    exact: [],
+    declined: ["bank.com", "other.test"],
+  };
+  const finished = H.finishFence(fence, ["*://*.bank.com/*"], ["kept.example"]);
+  assert.equal(finished.fence, null);
+  assert.deepEqual(finished.excludedHosts, ["bank.com", "kept.example"]);
+  assert.deepEqual(fence.declined, ["bank.com", "other.test"]);
+});
+
+test("admitFenceOrigin clears a declined parent, keeps an exact mark, and skips a join that stays unread", () => {
+  const fence = {
+    entries: ["https://bank.com"],
+    exact: ["https://bank.com"],
+    exactKnown: true,
+    siteWide: [],
+    declined: ["bank.com"],
+    answered: false,
+    sawMore: false,
+    cleanAt: null,
+  };
+  const admitted = H.admitFenceOrigin(fence, "https://login.bank.com", ["*://*.bank.com/*"]);
+  assert.ok(admitted.entries.includes("https://login.bank.com"));
+  assert.ok(admitted.exact.includes("https://bank.com"));
+  assert.equal(admitted.exact.includes("https://login.bank.com"), false);
+  assert.equal(admitted.declined.includes("bank.com"), false);
+  assert.deepEqual(fence.declined, ["bank.com"]);
+  assert.deepEqual(fence.entries, ["https://bank.com"]);
+
+  const leftOut = H.admitFenceOrigin(fence, "https://login.bank.com", ["*://*.bank.com/*"], ["bank.com"]);
+  assert.equal(leftOut, null);
+  assert.deepEqual(fence.entries, ["https://bank.com"]);
+});
+
 test("grantLevel: a wider site grant covers a chosen name under it", () => {
   // Firefox lists only the wider grant when a request is already covered by it.
   assert.equal(H.grantLevel("login.bank.com", ["*://*.bank.com/*"]), "site");

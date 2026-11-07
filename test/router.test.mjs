@@ -3,6 +3,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { backgroundGestureRequest } from "./mock_chrome.mjs";
 
 import "fake-indexeddb/auto";
 await import(new URL("../extension/native-browser/constants.js", import.meta.url));
@@ -52,12 +53,7 @@ globalThis.chrome = {
       if (mockChromeOptions.getAllNonArray) return { origins: "not-an-array" };
       return { origins: Array.from(grantedOrigins) };
     },
-    request: async ({ origins }) => {
-      if (mockChromeOptions.requestResolvesWithoutGrant) return true;
-      if (mockChromeOptions.safariBroadest || mockChromeOptions.firefoxCoveredRequest) return true;
-      for (const o of origins || []) grantedOrigins.add(o);
-      return true;
-    },
+    request: backgroundGestureRequest,
     remove: async ({ origins }) => {
       if (mockChromeOptions.removeReturnsFalse) return false;
       for (const o of origins || []) grantedOrigins.delete(o);
@@ -197,6 +193,7 @@ test("router: extension page commands execute when sender is extension page", as
   const stateRes = await Router.route({ cmd: "getState" }, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(stateRes.ok, true);
 
+  grantedOrigins.add("*://*.mail.google.com/*");
   const addRes = await Router.route({ cmd: "addGrantedOrigin", origin: "https://mail.google.com" }, sender, {
     runtimeId: EXT_ID,
     port,
@@ -687,6 +684,7 @@ test("router: trusted options tab uses exact extension origin, not absence of a 
 
 test("router: add succeeds under pause or pressure when consent is in force", async () => {
   await resetDB();
+  grantedOrigins.add("*://*.example.test/*");
   const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
   for (const hold of [p=>{p.paused=true;},p=>{p.pressure={active:true};}]) {
     const port=makePort();hold(port);
@@ -942,6 +940,7 @@ test("router: page context on segment_start and delta with tabs/windows and fall
 
 test("router: a rewritten open pause admits a site, and a closed gate does not", async () => {
   await resetDB();
+  grantedOrigins.add("*://*.example.test/*");
   const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
   const depsFor = (port) => ({ runtimeId: EXT_ID, port, setCfg: async () => {}, registerSite: async () => "ready" });
 

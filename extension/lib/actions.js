@@ -4,6 +4,11 @@
 (function () {
   "use strict";
 
+  function shareResult(result) {
+    if (result?.result === "share_held" || result?.result === "question_every_site") return result.result;
+    return result?.error || "storage_error";
+  }
+
   async function run(action, effects) {
     if (!action || !effects) return false;
     const cmd = effects.cmd;
@@ -40,14 +45,17 @@
       return true;
     }
     if (action.id === "share-every-site") {
+      if (effects.brand !== "safari" && typeof effects.requestPermission === "function") {
+        try { await effects.requestPermission({ origins: ["*://*/*"] }); } catch (_e) {}
+      }
       const result = await cmd({ cmd: "shareEverySite" });
-      if (result?.error || result?.ok === false) effects.showError(result?.error || "storage_error");
+      if (result?.error || result?.ok === false) effects.showError(shareResult(result));
       await refresh();
       return true;
     }
     if (action.id === "share-them-too") {
       const result = await cmd({ cmd: "shareThemToo" });
-      if (result?.error || result?.ok === false) effects.showError(result?.error || "storage_error");
+      if (result?.error || result?.ok === false) effects.showError(shareResult(result));
       await refresh();
       return true;
     }

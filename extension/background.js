@@ -65,6 +65,15 @@ const DEFAULT_CFG = {
   fence: null,
 };
 
+function formatAddIntent(intent) {
+  if (!intent || typeof intent !== "object" || typeof intent.origin !== "string") return null;
+  let url;
+  try { url = new URL(intent.origin); } catch (_e) { return null; }
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.origin !== intent.origin) return null;
+  if (!Number.isFinite(intent.at)) return null;
+  return { origin: intent.origin, at: intent.at };
+}
+
 function formatCfg(stored) {
   const res = {
     paused: !!stored.paused,
@@ -105,6 +114,7 @@ function formatCfg(stored) {
   } else {
     res.fence = null;
   }
+  res.addIntent = formatAddIntent(stored.addIntent);
   return res;
 }
 
@@ -614,6 +624,18 @@ async function checkSafariClearedStorage() {
   return { mismatch: true, cleared: true };
 }
 
+// A page click stores an intent, then asks the browser. The next read joins the
+// site only when that intent is still fresh and a site grant, not a broad one, covers it.
+function completeAddIntent(applied) {
+  const intent = port.addIntent;
+  if (!intent || typeof intent !== "object" || typeof intent.origin !== "string") return null;
+  if (!Number.isFinite(intent.at)) return null;
+  const age = port.wallNow() - intent.at;
+  if (age < 0 || age > 600000) return null;
+  if (!H.siteLevelCovers(applied, intent.origin)) return null;
+  return H.admitFenceOrigin(port.fence, intent.origin, applied, port.excludedHosts, port.appLeftOut);
+}
+
 async function applySnapshot(applied, tombstoneFiltered) {
   if (!port) return;
   const prevPatterns = port.livePatterns || [];
@@ -624,8 +646,15 @@ async function applySnapshot(applied, tombstoneFiltered) {
   const prevFenceEntries = prevFence ? (prevFence.entries || []) : [];
   let fenceEnded = false;
   let fenceEntriesChanged = false;
+  let intentTaken = false;
 
-  if (port.fence !== null) {
+  if (port.fence !== null && typeof port.fence === "object") {
+    const admitted = completeAddIntent(applied);
+    if (admitted) {
+      port.fence = admitted;
+      port.addIntent = null;
+      intentTaken = true;
+    }
     const res = H.applySnapshotToFence(port.fence, applied, {
       wallNow: port.wallNow(),
       tombstoneFiltered,
@@ -633,9 +662,11 @@ async function applySnapshot(applied, tombstoneFiltered) {
     });
     const updatedFence = res.fence;
     const fenceChanged = JSON.stringify(port.fence) !== JSON.stringify(updatedFence);
-    if (fenceChanged) {
+    if (fenceChanged || intentTaken) {
       port.fence = updatedFence;
-      await setCfg({ fence: updatedFence });
+      const patch = { fence: updatedFence };
+      if (intentTaken) patch.addIntent = null;
+      await setCfg(patch);
       port.notify();
     }
     if (prevFence !== null && port.fence === null) {
@@ -696,6 +727,7 @@ async function beginRead() {
   const tombstoneFiltered = port.tombstones.size > 0;
   const applied = origins.filter((p) => !port.tombstones.has(p));
   await applySnapshot(applied, tombstoneFiltered);
+  return applied;
 }
 
 async function doInit() {
@@ -868,6 +900,7 @@ async function doInit() {
   port.readSerial = 0;
   port.faults = new Map();
   port.fence = inMemoryFence !== null ? inMemoryFence : (cfg.fence ?? null);
+  port.addIntent = cfg.addIntent || null;
   port.broadGrant = H.broadLive(port.livePatterns);
   port.consentVersion = consentVersion;
   port.lossNotice = lossNotice || null;
@@ -1020,7 +1053,7 @@ chrome.permissions.onRemoved.addListener(async (details) => {
 });
 
 chrome.permissions.onAdded.addListener(() => {
-  // empty no-op
+  beginRead().catch(() => {});
 });
 
 function init() {

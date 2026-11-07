@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+import { armClick, pageGestureRequest } from "./mock_chrome.mjs";
 
 const root = new URL("../", import.meta.url);
 const html = await readFile(new URL("extension/popup.html", root), "utf8");
@@ -103,7 +104,7 @@ class FakeNode {
   }
 
   addEventListener(type, listener) {
-    this.listeners[type] = listener;
+    this.listeners[type] = type === "click" ? armClick(listener) : listener;
   }
 
   append(...children) {
@@ -211,10 +212,10 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
     },
     tabs: { query: (...args) => tabQuery(...args), create: (info) => createdTabs.push(info) },
     permissions: {
-      request: async () => {
+      request: pageGestureRequest(async () => {
         permissionRequests += 1;
         return true;
-      },
+      }),
       contains: async () => true,
     },
   };
@@ -490,7 +491,7 @@ test("an open popup shows the app's answer even when the status channel stays si
       },
     },
     tabs: { query: async () => [{ id: 3, url: `https://${host}/` }], create() {} },
-    permissions: { request: async () => true, contains: async () => true },
+    permissions: { request: pageGestureRequest(async () => true), contains: async () => true },
   };
 
   await import(new URL("../extension/popup.js?silent-channel", import.meta.url));

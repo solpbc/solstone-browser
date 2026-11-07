@@ -337,13 +337,13 @@
       granted = false;
     }
     if (!granted) {
-      try { effects.cmd({ cmd: "clearAddIntent" }); } catch (_e) {}
+      try { effects.cmd({ cmd: "clearAddIntent", origin }); } catch (_e) {}
       return withBlockedBy({ ok: false, denied: true }, host, effects);
     }
 
     const freshState = await effects.cmd({ cmd: "getState" });
     if (!freshState || freshState.consentVersion !== 1) {
-      try { effects.cmd({ cmd: "clearAddIntent" }); } catch (_e) {}
+      try { effects.cmd({ cmd: "clearAddIntent", origin }); } catch (_e) {}
       return { ok: false, denied: true, ineligible: true };
     }
 

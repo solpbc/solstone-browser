@@ -238,6 +238,8 @@
       reload: () => chrome.runtime.reload(),
       grantSite: (origin) => View.grantSite(origin, siteEffects()),
       showError: showActionError,
+      brand: state?.brand,
+      requestPermission: (request) => chrome.permissions.request(request),
       showDenied: (action) => announce("permission declined. this site stays paused.", "bad"),
       lossSeq: () => state?.lossNotice?.seq,
     };
@@ -614,8 +616,11 @@
             b.className = btn.primary ? "primary" : "";
             b.textContent = btn.label;
             b.addEventListener("click", async () => {
-              if (btn.id === "share-every-site") await cmd({ cmd: "shareEverySite" });
-              else if (btn.id === "share-them-too") await cmd({ cmd: "shareThemToo" });
+              if (btn.id === "share-every-site") {
+                const requested = requestShareEverySite();
+                if (requested && typeof requested.then === "function") await requested;
+                await cmd({ cmd: "shareEverySite" });
+              } else if (btn.id === "share-them-too") await cmd({ cmd: "shareThemToo" });
               else if (btn.id === "keep-my-sites") await cmd({ cmd: "keepMySites" });
               await refresh();
             });
@@ -632,6 +637,8 @@
           b.className = "primary";
           b.textContent = sec.action.label;
           b.addEventListener("click", async () => {
+            const requested = requestShareEverySite();
+            if (requested && typeof requested.then === "function") await requested;
             await cmd({ cmd: "shareEverySite" });
             await refresh();
           });
@@ -647,10 +654,26 @@
     }
   }
 
+  // The request starts before this handler awaits, while the click still counts.
+  function requestShareEverySite() {
+    if (state?.brand === "safari") return null;
+    try {
+      return chrome.permissions.request({ origins: ["*://*/*"] });
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function offersShareEverySite() {
+    if (!state?.fence || state.fence.sawMore === true) return false;
+    return Hosts?.everySiteLive?.(state.livePatterns || []) !== true;
+  }
+
   function renderAccess(isBroad) {
     const panel = $("accessPanel");
     if (!panel) return;
-    if (state?.fence) {
+    const offerShare = offersShareEverySite();
+    if (state?.fence && !offerShare) {
       panel.hidden = true;
       return;
     }
@@ -689,7 +712,7 @@
     } else {
       if ($("accessGranted")) $("accessGranted").hidden = true;
       if ($("accessMissing")) $("accessMissing").hidden = false;
-      if (safari) {
+      if (safari && !offerShare) {
         if ($("accessTitle")) $("accessTitle").textContent = words.missingTitle;
         if ($("accessBody")) $("accessBody").textContent = words.missingBody;
         const steps = $("accessSteps");
@@ -998,6 +1021,8 @@
         announce(Copy?.stopResultCopy(state?.brand, result.result), "ok");
       }
     } else {
+      const requested = requestShareEverySite();
+      if (requested && typeof requested.then === "function") await requested;
       await cmd({ cmd: "shareEverySite" });
     }
     await refresh();

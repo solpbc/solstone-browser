@@ -100,6 +100,8 @@
       reload: () => chrome.runtime.reload(),
       grantSite: (origin) => View.grantSite(origin, siteEffects()),
       showError: showActionError,
+      brand: state?.brand,
+      requestPermission: (request) => chrome.permissions.request(request),
       showDenied: (action) => showActionMessage(action?.id === "allow-all-sites"
         ? globalThis.SolstoneCopy.accessCopy(state?.brand).declined
         : "permission declined. this site stays paused."),

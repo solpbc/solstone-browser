@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
+import { createMockChrome } from "./mock_chrome.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const EXT_DIR = join(ROOT, "extension");
@@ -51,138 +52,6 @@ function createSandbox(mockChrome, isWorker = true, clock) {
   }
 
   return sandbox;
-}
-
-function createMockChrome(options = {}) {
-  const opts = Object.assign({
-    requestResolvesWithoutGrant: false,
-    removeReturnsFalse: false,
-    safariBroadest: false,
-    firefoxCoveredRequest: false,
-    executeScriptRejects: false,
-    omitPermissionEvents: false,
-    getAllThrows: false,
-    getAllNonArray: false,
-  }, options);
-
-  const listeners = {
-    onConnect: [],
-    onMessage: [],
-    onRemovedTab: [],
-    onCreatedTab: [],
-    onUpdatedTab: [],
-    onAlarm: [],
-    onRemovedPerm: [],
-    onAddedPerm: [],
-    onInstalled: [],
-    onStartup: [],
-  };
-
-  const storageData = {};
-  const registeredScripts = new Map();
-  const grantedPermissions = new Set(["*://*/*"]);
-  const sentTabMessages = [];
-  const tabsList = [{ id: 101, url: "https://example.com/page" }];
-
-  return {
-    listeners,
-    storageData,
-    registeredScripts,
-    grantedPermissions,
-    sentTabMessages,
-    tabsList,
-    options: opts,
-    chrome: {
-      runtime: {
-        id: "fgfnkcefedeheoeamppkiiloncfekakf",
-        openOptionsPage: () => {},
-        connectNative: () => ({
-          postMessage: () => {},
-          disconnect: () => {},
-          onMessage: { addListener: () => {} },
-          onDisconnect: { addListener: () => {} },
-        }),
-        onConnect: { addListener: (fn) => listeners.onConnect.push(fn) },
-        onMessage: { addListener: (fn) => listeners.onMessage.push(fn) },
-        onInstalled: { addListener: (fn) => listeners.onInstalled.push(fn) },
-        onStartup: { addListener: (fn) => listeners.onStartup.push(fn) },
-      },
-      alarms: {
-        create: async () => {},
-        onAlarm: { addListener: (fn) => listeners.onAlarm.push(fn) },
-      },
-      tabs: {
-        query: (queryInfo, cb) => {
-          if (typeof cb === "function") cb(tabsList);
-          return Promise.resolve(tabsList);
-        },
-        sendMessage: (tabId, msg, cb) => {
-          sentTabMessages.push({ tabId, msg });
-          if (cb) cb();
-        },
-        onRemoved: { addListener: (fn) => listeners.onRemovedTab.push(fn) },
-        onCreated: { addListener: (fn) => listeners.onCreatedTab.push(fn) },
-        onUpdated: { addListener: (fn) => listeners.onUpdatedTab.push(fn) },
-      },
-      action: {
-        setIcon: async () => {},
-        setBadgeText: async () => {},
-        setBadgeBackgroundColor: async () => {},
-        setTitle: async () => {},
-      },
-      scripting: {
-        registerContentScripts: async (scripts) => {
-          for (const s of scripts) registeredScripts.set(s.id, s);
-        },
-        unregisterContentScripts: async ({ ids }) => {
-          for (const id of ids) registeredScripts.delete(id);
-        },
-        getRegisteredContentScripts: async ({ ids } = {}) => {
-          return ids ? ids.map((id) => registeredScripts.get(id)).filter(Boolean) : [...registeredScripts.values()];
-        },
-        executeScript: async () => {
-          if (opts.executeScriptRejects) throw new Error("executeScript rejected");
-        },
-      },
-      permissions: {
-        getAll: async () => {
-          if (opts.getAllThrows) throw new Error("getAll threw");
-          if (opts.getAllNonArray) return { origins: "not-an-array" };
-          return { origins: Array.from(grantedPermissions) };
-        },
-        contains: async ({ origins }) => {
-          return (origins || []).every((o) => grantedPermissions.has(o) || grantedPermissions.has("*://*/*"));
-        },
-        request: async ({ origins }) => {
-          if (opts.requestResolvesWithoutGrant) return true;
-          if (opts.safariBroadest || opts.firefoxCoveredRequest) return true;
-          for (const o of origins || []) grantedPermissions.add(o);
-          if (!opts.omitPermissionEvents) {
-            for (const fn of listeners.onAddedPerm) fn({ origins });
-          }
-          return true;
-        },
-        remove: async ({ origins }) => {
-          if (opts.removeReturnsFalse) return false;
-          for (const o of origins || []) grantedPermissions.delete(o);
-          if (!opts.omitPermissionEvents) {
-            for (const fn of listeners.onRemovedPerm) fn({ origins });
-          }
-          return true;
-        },
-        onRemoved: { addListener: (fn) => listeners.onRemovedPerm.push(fn) },
-        onAdded: { addListener: (fn) => listeners.onAddedPerm.push(fn) },
-      },
-      storage: {
-        local: {
-          get: async (key) => ({ [key]: storageData[key] }),
-          set: async (obj) => {
-            Object.assign(storageData, obj);
-          },
-        },
-      },
-    },
-  };
 }
 
 test("lifecycle (worker): evaluation registers listeners and inits without install/startup events", async () => {
@@ -1578,10 +1447,11 @@ test("request true with no covering grant adds nothing; an already-covering patt
     resolve
   ));
   assert.equal(addRes1.ok, false);
-  assert.equal(addRes1.error, "not_granted");
-  assert.equal(requestCalls1, 1);
+  assert.equal(addRes1.result, "not_added");
+  assert.equal(requestCalls1, 0);
   assert.deepEqual(Array.from(bg1.port.livePatterns), []);
   assert.equal((bg1.port.excludedHosts || []).includes("bank.com"), false);
+  assert.equal(bg1.port.addIntent, null);
 
   // Second worker
   const mock2 = createMockChrome();
@@ -1617,6 +1487,192 @@ test("request true with no covering grant adds nothing; an already-covering patt
   assert.equal(addRes2.ok, true);
   assert.equal(requestCalls2, 0);
   assert.deepEqual(Array.from(bg2.port.livePatterns), ["*://*.bank.com/*"]);
+  assert.equal(sandbox2.SolstoneHosts.originGranted(bg2.port, "https://login.bank.com"), true);
+});
+
+test("a stored add intent joins login.bank.com on a site grant, and share every site then reads mail.bank.com", async () => {
+  const fence = {
+    entries: ["https://example.com"],
+    exact: ["https://example.com"],
+    exactKnown: true,
+    siteWide: [],
+    declined: ["bank.com"],
+    answered: false,
+    sawMore: false,
+    cleanAt: null,
+  };
+  const mock = createMockChrome();
+  mock.storageData.cfg = { siteGrant: "live", fence, startup: "existing" };
+  mock.grantedPermissions.clear();
+  mock.chrome.tabs.sendMessage = (tabId, msg, ...args) => {
+    mock.sentTabMessages.push({ tabId, msg });
+    if (msg?.kind === "confirmRealm") {
+      const cb = typeof args[0] === "function" ? args[0] : (typeof args[1] === "function" ? args[1] : null);
+      if (cb) cb({ realmToken: "r" });
+      return Promise.resolve({ realmToken: "r" });
+    }
+    const cb = typeof args[0] === "function" ? args[0] : (typeof args[1] === "function" ? args[1] : null);
+    if (cb) cb();
+    return Promise.resolve();
+  };
+  const sandbox = createSandbox(mock);
+  vm.runInNewContext(readExtFile("background.js"), sandbox);
+  const bg = sandbox.SolstoneBackground;
+  const H = sandbox.SolstoneHosts;
+  await bg.ensureInit();
+  await new Promise((resolve) => setImmediate(resolve));
+  const port = bg.port;
+  const optionsSender = { id: mock.chrome.runtime.id, url: `chrome-extension://${mock.chrome.runtime.id}/options.html` };
+  const key = "0123456789abcdef0123456789abcdef";
+  const send = (msg, sender = optionsSender) => new Promise((resolve) => mock.listeners.onMessage[0](msg, sender, resolve));
+  const hello = (origin) => send(
+    { kind: "hello", realmToken: "r", documentKey: key },
+    { id: mock.chrome.runtime.id, tab: { id: 101 }, frameId: 0, url: `${origin}/page`, origin },
+  );
+  let requestCalls = 0;
+  const origRequest = mock.chrome.permissions.request;
+  mock.chrome.permissions.request = async (...args) => {
+    requestCalls += 1;
+    return origRequest(...args);
+  };
+  assert.equal((await send({ cmd: "acknowledgeDisclosure", version: 1 })).ok, true);
+
+  await bg.setCfg({ addIntent: { origin: "https://login.bank.com/path", at: 1 } });
+  assert.equal(mock.storageData.cfg.addIntent, null);
+  await bg.setCfg({ addIntent: { origin: "ftp://files.example", at: 1 } });
+  assert.equal(mock.storageData.cfg.addIntent, null);
+  await bg.setCfg({ addIntent: { origin: "https://login.bank.com", at: Number.NaN } });
+  assert.equal(mock.storageData.cfg.addIntent, null);
+  await bg.setCfg({ addIntent: { at: 5 } });
+  assert.equal(mock.storageData.cfg.addIntent, null);
+  await bg.setCfg({ addIntent: { origin: "https://login.bank.com", at: 42 } });
+  assert.equal(mock.storageData.cfg.addIntent.origin, "https://login.bank.com");
+  assert.equal(mock.storageData.cfg.addIntent.at, 42);
+  await bg.doInit();
+  assert.equal(bg.port.addIntent.origin, "https://login.bank.com");
+  assert.equal(bg.port.addIntent.at, 42);
+
+  const fresh = {
+    entries: ["https://example.com"],
+    exact: ["https://example.com"],
+    exactKnown: true,
+    siteWide: [],
+    declined: ["bank.com"],
+    answered: false,
+    sawMore: false,
+    cleanAt: null,
+  };
+  port.fence = null;
+  port.addIntent = null;
+  const plain = await send({ cmd: "intendAddOrigin", origin: "https://login.bank.com", at: 999 });
+  assert.equal(plain.ok, true);
+  assert.equal(plain.stored, false);
+  assert.equal(port.addIntent, null);
+
+  port.fence = { ...fresh, entries: [...fresh.entries], exact: [...fresh.exact], declined: [...fresh.declined] };
+  const content = await send(
+    { cmd: "intendAddOrigin", origin: "https://login.bank.com", at: 999 },
+    { id: mock.chrome.runtime.id, tab: { id: 101 }, frameId: 0, url: "https://login.bank.com/page", origin: "https://login.bank.com" },
+  );
+  assert.notEqual(content.stored, true);
+  assert.equal(port.addIntent, null);
+
+  const clock = 5_000_000;
+  port.wallNow = () => clock;
+  const stored = await send({ cmd: "intendAddOrigin", origin: "https://login.bank.com", at: 999 });
+  assert.equal(stored.ok, true);
+  assert.equal(stored.stored, true);
+  assert.equal(port.addIntent.origin, "https://login.bank.com");
+  assert.equal(port.addIntent.at, clock);
+
+  port.addIntent = { origin: "https://login.bank.com", at: clock - 600001 };
+  mock.grantedPermissions.add("*://*.bank.com/*");
+  await bg.beginRead();
+  assert.equal(port.fence.entries.includes("https://login.bank.com"), false);
+  assert.equal(port.addIntent.origin, "https://login.bank.com");
+  assert.equal(port.addIntent.at, clock - 600001);
+  assert.ok(port.fence.declined.includes("bank.com"));
+
+  mock.grantedPermissions.delete("*://*.bank.com/*");
+  mock.grantedPermissions.add("*://*/*");
+  port.addIntent = { origin: "https://login.bank.com", at: clock };
+  await bg.beginRead();
+  assert.equal(port.fence.entries.includes("https://login.bank.com"), false);
+  assert.equal(port.addIntent.origin, "https://login.bank.com");
+  assert.equal(port.addIntent.at, clock);
+
+  const declinedBefore = Array.from(port.fence.declined);
+  await send({ cmd: "clearAddIntent", origin: "https://other.test" });
+  assert.equal(port.addIntent.origin, "https://login.bank.com");
+  assert.equal(port.addIntent.at, clock);
+  await send({ cmd: "clearAddIntent", origin: "https://login.bank.com" });
+  assert.equal(port.addIntent, null);
+  assert.deepEqual(Array.from(port.fence.declined), declinedBefore);
+
+  mock.grantedPermissions.clear();
+  await bg.beginRead();
+  port.addIntent = { origin: "https://login.bank.com", at: clock };
+  const missed = await send({ cmd: "addGrantedOrigin", origin: "https://login.bank.com" });
+  assert.equal(missed.ok, false);
+  assert.equal(missed.result, "not_added");
+  assert.equal(port.addIntent, null);
+  assert.equal(H.originGranted(port, "https://login.bank.com"), false);
+  assert.ok(port.fence.declined.includes("bank.com"));
+
+  port.fence = {
+    entries: ["https://example.com"],
+    exact: ["https://example.com"],
+    exactKnown: true,
+    siteWide: [],
+    declined: ["bank.com"],
+    answered: false,
+    sawMore: false,
+    cleanAt: null,
+  };
+  port.addIntent = { origin: "https://login.bank.com", at: clock };
+  mock.grantedPermissions.clear();
+  mock.grantedPermissions.add("*://*.login.bank.com/*");
+  await bg.beginRead();
+  assert.ok(port.fence.entries.includes("https://login.bank.com"));
+  assert.equal(port.fence.declined.includes("bank.com"), false);
+  assert.equal((await hello("https://mail.bank.com")).error, "origin_not_granted");
+
+  port.fence = {
+    entries: ["https://example.com"],
+    exact: ["https://example.com"],
+    exactKnown: true,
+    siteWide: [],
+    declined: ["bank.com"],
+    answered: false,
+    sawMore: false,
+    cleanAt: null,
+  };
+  port.addIntent = { origin: "https://login.bank.com", at: clock };
+  mock.grantedPermissions.clear();
+  mock.grantedPermissions.add("*://*.bank.com/*");
+  await bg.beginRead();
+  assert.ok(port.fence.entries.includes("https://login.bank.com"));
+  assert.ok(port.fence.entries.includes("https://example.com"));
+  assert.ok(port.fence.exact.includes("https://example.com"));
+  assert.equal(port.fence.exact.includes("https://login.bank.com"), false);
+  assert.equal(port.addIntent, null);
+  assert.equal(port.fence.declined.includes("bank.com"), false);
+  assert.equal(port.fence.sawMore, true);
+  assert.equal((await hello("https://login.bank.com")).ok, true);
+  assert.equal((await hello("https://bank.com")).error, "origin_not_granted");
+
+  const beforeJoin = requestCalls;
+  const again = await send({ cmd: "addGrantedOrigin", origin: "https://login.bank.com" });
+  assert.equal(again.ok, true);
+  assert.equal(requestCalls, beforeJoin);
+
+  mock.grantedPermissions.add("*://*/*");
+  const share = await send({ cmd: "shareEverySite" });
+  assert.equal(share.ok, true);
+  assert.equal(share.result, "shared");
+  assert.equal(port.fence, null);
+  assert.equal((await hello("https://mail.bank.com")).ok, true);
+  assert.equal(requestCalls, 0);
 });
 
 test("fenced add joins the fence with no prompt and survives setCfg({paused:true})", async () => {

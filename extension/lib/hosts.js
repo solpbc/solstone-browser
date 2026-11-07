@@ -332,6 +332,13 @@
     return (patterns || []).some((p) => isBroadPattern(p));
   }
 
+  // Every-site UI, distinct from a mediated read. One scheme alone is not every site.
+  function everySiteLive(patterns) {
+    const list = patterns || [];
+    if (list.includes("*://*/*") || list.includes("<all_urls>")) return true;
+    return list.includes("http://*/*") && list.includes("https://*/*");
+  }
+
   // Section 7.1 plain grammar check.
   function plainAllow(pattern, url) {
     let u;
@@ -391,6 +398,11 @@
     return pageHost === patternHost;
   }
 
+  // A site grant covers this url. The four broad patterns do not.
+  function siteLevelCovers(patterns, url) {
+    return (patterns || []).some((pattern) => !isBroadPattern(pattern) && plainAllow(pattern, url));
+  }
+
   // Whether a browser grant pattern is accounted for by the fence.
   function patternAccounted(pattern, fence, leftOutHosts) {
     if (!fence) return false;
@@ -438,6 +450,48 @@
       }
     }
     return false;
+  }
+
+  // Push one fence entry for a grant the browser already holds. An existing exact
+  // mark stays. A declined parent that covers the origin is cleared. The entry
+  // is not returned when it would still leave the origin unread.
+  function admitFenceOrigin(fence, origin, patterns, excludedHosts = [], appLeftOut = []) {
+    if (!fence || typeof fence !== "object") return null;
+    let url;
+    try { url = new URL(origin); } catch (_e) { return null; }
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    const entries = Array.from(fence.entries || []);
+    if (!entries.includes(origin)) entries.push(origin);
+    const exact = Array.from(fence.exact || []);
+    const list = patterns || [];
+    const exactPattern = exactPatternFor(url.host);
+    const ownExactPattern = `${url.protocol}//${url.host}/*`;
+    if ((list.includes(exactPattern) || list.includes(ownExactPattern)) && !exact.includes(origin)) {
+      exact.push(origin);
+    }
+    const declined = (fence.declined || []).filter((site) => !hostCovers(site, url.hostname));
+    const next = { ...fence, entries, exact, declined };
+    if (!originGranted({
+      fence: next,
+      livePatterns: list,
+      excludedHosts,
+      appLeftOut,
+    }, origin)) return null;
+    return next;
+  }
+
+  // The only conversion of a fence into a plain owner. Declined hosts the read
+  // still covers become left out. Nothing here writes storage or registrations.
+  function finishFence(fence, patterns, excludedHosts) {
+    const next = new Set(excludedHosts || []);
+    const list = patterns || [];
+    for (const host of (fence && fence.declined) || []) {
+      const covered = list.some((pattern) => plainAllow(pattern, `http://${host}`) || plainAllow(pattern, `https://${host}`));
+      if (!covered) continue;
+      const stored = storedExcludedHostname(host);
+      if (stored) next.add(stored);
+    }
+    return { fence: null, excludedHosts: Array.from(next).sort() };
   }
 
   function fenceAllows(fence, url, livePatterns, excludedHosts = [], appLeftOut = []) {
@@ -686,6 +740,10 @@
     patternAccounted,
     isBroadPattern,
     broadLive,
+    everySiteLive,
+    siteLevelCovers,
+    admitFenceOrigin,
+    finishFence,
     fenceAllows,
     applySnapshotToFence,
     beyondExample,

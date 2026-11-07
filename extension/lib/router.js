@@ -103,102 +103,83 @@
     } catch (_err) { return false; }
   }
 
+  async function clearMatchingIntent(port, origin, deps) {
+    if (!port.addIntent || port.addIntent.origin !== origin) return;
+    port.addIntent = null;
+    if (deps.setCfg) await deps.setCfg({ addIntent: null });
+  }
+
+  // Join a site the browser already covers. A fence entry is kept only when the
+  // origin is granted afterwards. Nothing here asks the browser for a permission.
+  async function joinedOrigin(port, origin, deps) {
+    if (port.fence !== null && typeof port.fence === "object") {
+      const next = H.admitFenceOrigin(
+        port.fence,
+        origin,
+        port.livePatterns || [],
+        port.excludedHosts,
+        port.appLeftOut,
+      );
+      const granted = next && H.originGranted({
+        fence: next,
+        livePatterns: port.livePatterns || [],
+        excludedHosts: port.excludedHosts,
+        appLeftOut: port.appLeftOut,
+      }, origin);
+      if (!granted) return null;
+      port.fence = next;
+      const patch = { fence: port.fence };
+      if (port.addIntent && port.addIntent.origin === origin) {
+        port.addIntent = null;
+        patch.addIntent = null;
+      }
+      if (deps.setCfg) await deps.setCfg(patch);
+      port.notify();
+      deps.refreshOpenTabs?.();
+      if (!H.originGranted(port, origin)) return null;
+      return { ok: true, origin };
+    }
+    let url;
+    try { url = new URL(origin); } catch (_e) { return null; }
+    const covered = (port.livePatterns || []).some((pattern) => H.plainAllow(pattern, url));
+    if (!covered || !H.originGranted(port, origin)) return null;
+    if (port.addIntent && port.addIntent.origin === origin) {
+      port.addIntent = null;
+      if (deps.setCfg) await deps.setCfg({ addIntent: null });
+    }
+    port.notify();
+    deps.refreshOpenTabs?.();
+    return { ok: true, origin };
+  }
+
   function addGrantedOrigin(origin, deps) {
     const port = deps.port;
     return enqueueGrant(async () => {
       if (port.consentVersion !== Gate.CONSENT_VERSION) {
         return { ok: false, error: "missing_consent" };
       }
-      let host = "";
-      let url = null;
       try {
-        url = new URL(origin);
-        host = url.host;
+        const url = new URL(origin);
+        if (url.protocol !== "http:" && url.protocol !== "https:") {
+          return { ok: false, error: "invalid_origin" };
+        }
       } catch (_e) {
         return { ok: false, error: "invalid_origin" };
       }
 
-      const isFenced = port.fence !== null;
-      if (isFenced) {
-        const isGranted = H.grantLevel(url.hostname, port.livePatterns || [], port.fence.siteWide?.includes(origin), url.protocol.replace(/:$/, ""));
-        if (isGranted) {
-          const entries = Array.from(port.fence.entries || []);
-          if (!entries.includes(origin)) {
-            entries.push(origin);
-            port.fence.entries = entries;
-          }
-          const exactPattern = H.exactPatternFor(host);
-          const ownExactPattern = `${url.protocol}//${host}/*`;
-          const isExact = (port.livePatterns || []).includes(exactPattern) || (port.livePatterns || []).includes(ownExactPattern);
-          if (isExact) {
-            const exact = Array.from(port.fence.exact || []);
-            if (!exact.includes(origin)) {
-              exact.push(origin);
-              port.fence.exact = exact;
-            }
-          }
-          if (deps.setCfg) await deps.setCfg({ fence: port.fence });
-          port.notify();
-          deps.refreshOpenTabs?.();
-          return { ok: true, origin };
-        }
-      } else {
-        const isAllowed = (port.livePatterns || []).some((p) => H.plainAllow(p, url));
-        if (isAllowed) {
-          return { ok: true, origin };
-        }
-      }
-
-      const pattern = H.matchPatternFor(host);
-      let requested = false;
-      try {
-        requested = await chrome.permissions.request({ origins: [pattern] });
-      } catch (_e) {
-        requested = false;
-      }
-      if (!requested) {
-        return { ok: false, denied: true };
-      }
+      const already = await joinedOrigin(port, origin, deps);
+      if (already) return already;
 
       if (typeof deps.beginRead === "function") {
-        await deps.beginRead();
+        const read = await deps.beginRead();
+        if (Array.isArray(read)) port.livePatterns = read;
       }
 
-      if (port.fence !== null) {
-        const isGranted = H.grantLevel(url.hostname, port.livePatterns || [], port.fence.siteWide?.includes(origin), url.protocol.replace(/:$/, ""));
-        if (isGranted) {
-          const entries = Array.from(port.fence.entries || []);
-          if (!entries.includes(origin)) {
-            entries.push(origin);
-            port.fence.entries = entries;
-          }
-          const exactPattern = H.exactPatternFor(host);
-          const ownExactPattern = `${url.protocol}//${host}/*`;
-          const isExact = (port.livePatterns || []).includes(exactPattern) || (port.livePatterns || []).includes(ownExactPattern);
-          if (isExact) {
-            const exact = Array.from(port.fence.exact || []);
-            if (!exact.includes(origin)) {
-              exact.push(origin);
-              port.fence.exact = exact;
-            }
-          }
-          if (deps.setCfg) await deps.setCfg({ fence: port.fence });
-          port.notify();
-          deps.refreshOpenTabs?.();
-          return { ok: true, origin };
-        } else {
-          return { ok: false, error: "not_granted" };
-        }
-      } else {
-        const isAllowed = (port.livePatterns || []).some((p) => H.plainAllow(p, url));
-        if (isAllowed) {
-          port.notify();
-          deps.refreshOpenTabs?.();
-          return { ok: true, origin };
-        } else {
-          return { ok: false, error: "not_granted" };
-        }
-      }
+      const after = await joinedOrigin(port, origin, deps);
+      if (after) return after;
+
+      await clearMatchingIntent(port, origin, deps);
+      return { ok: false, result: "not_added" };
     });
   }
 
@@ -288,21 +269,20 @@
     });
   }
 
-  async function endFence(port, deps) {
-    if (!port.fence) return;
-    const declined = port.fence.declined || [];
-    const live = port.livePatterns || [];
-    const newExcludes = new Set(port.excludedHosts || []);
-    for (const d of declined) {
-      const allowsHttp = live.some(p => H.plainAllow(p, `http://${d}`));
-      const allowsHttps = live.some(p => H.plainAllow(p, `https://${d}`));
-      if (allowsHttp || allowsHttps) {
-        const exh = H.storedExcludedHostname(d);
-        if (exh) newExcludes.add(exh);
-      }
+  async function patternsJustRead(port, deps) {
+    if (typeof deps.beginRead === "function") {
+      const read = await deps.beginRead();
+      if (Array.isArray(read)) return read;
     }
-    port.excludedHosts = Array.from(newExcludes).sort();
-    port.fence = null;
+    return port.livePatterns || [];
+  }
+
+  async function endFence(port, deps, patterns) {
+    if (!port.fence) return;
+    const finished = H.finishFence(port.fence, patterns, port.excludedHosts);
+    port.fence = finished.fence;
+    port.excludedHosts = finished.excludedHosts;
+    if (typeof port.excludedGen === "number") port.excludedGen += 1;
     if (deps.setCfg) await deps.setCfg({ fence: null, excludedHosts: port.excludedHosts });
     port.notify();
     await deps.syncSiteRegistrations?.();
@@ -388,34 +368,41 @@
           return { ok: true, result };
         }
 
-        case "shareEverySite": {
-          if (port.brand !== "safari") {
-            let granted = false;
-            try {
-              granted = await chrome.permissions.request({ origins: ["*://*/*"] });
-            } catch (_e) { granted = false; }
-            if (typeof deps.beginRead === "function") await deps.beginRead();
-            if ((port.livePatterns || []).includes("*://*/*")) {
-              await endFence(port, deps);
-              return { ok: true, result: "shared" };
-            }
-            return { ok: false, result: "share_held" };
-          } else {
-            if (typeof deps.beginRead === "function") await deps.beginRead();
-            if ((port.livePatterns || []).includes("*://*/*")) {
-              await endFence(port, deps);
-              return { ok: true, result: "shared" };
-            }
-            return { ok: false, result: "share_held" };
+        case "intendAddOrigin": {
+          const origin = normalizeOrigin(msg.origin);
+          if (!origin) return { ok: false, error: "invalid_origin" };
+          if (!port.fence || typeof port.fence !== "object") {
+            return { ok: true, stored: false };
           }
+          port.addIntent = { origin, at: port.wallNow() };
+          if (deps.setCfg) await deps.setCfg({ addIntent: port.addIntent });
+          return { ok: true, stored: true };
+        }
+
+        case "clearAddIntent": {
+          const origin = normalizeOrigin(msg.origin);
+          if (origin && port.addIntent && port.addIntent.origin === origin) {
+            port.addIntent = null;
+            if (deps.setCfg) await deps.setCfg({ addIntent: null });
+          }
+          return { ok: true };
+        }
+
+        case "shareEverySite": {
+          const read = await patternsJustRead(port, deps);
+          if (H.everySiteLive(read)) {
+            await endFence(port, deps, read);
+            return { ok: true, result: "shared" };
+          }
+          return { ok: false, result: "share_held" };
         }
 
         case "shareThemToo": {
-          if (typeof deps.beginRead === "function") await deps.beginRead();
-          if (H.broadLive(port.livePatterns)) {
+          const read = await patternsJustRead(port, deps);
+          if (H.everySiteLive(read)) {
             return { ok: false, result: "question_every_site" };
           }
-          await endFence(port, deps);
+          await endFence(port, deps, read);
           return { ok: true, result: "shared" };
         }
 

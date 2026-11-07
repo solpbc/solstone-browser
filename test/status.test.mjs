@@ -39,9 +39,10 @@ function mockStatus(overrides = {}) {
     drift: null,
     paused: false,
     consentVersion: 1,
-    chosenOrigins: ["https://example.com"],
-    grantedOrigins: ["https://example.com"],
-    inactiveOrigins: [],
+    livePatterns: ["*://*.example.com/*"],
+    fence: null,
+    excludedHosts: [],
+    appLeftOut: [],
     showPageIndicator: false,
     updateCheck: "no-update",
     capturePermitted: true,
@@ -108,8 +109,8 @@ test("derive ladder covers all layer kinds and marks", () => {
   assert.equal(S.derive(mockStatus({ paused: true })).kind, "paused-here");
   assert.equal(S.derive(mockStatus({ paused: true })).mark, "paused");
 
-  assert.equal(S.derive(mockStatus({ chosenOrigins: [] })).kind, "no-sites");
-  assert.equal(S.derive(mockStatus({ chosenOrigins: [] })).mark, "paused");
+  assert.equal(S.derive(mockStatus({ livePatterns: [] })).kind, "no-sites");
+  assert.equal(S.derive(mockStatus({ livePatterns: [] })).mark, "paused");
 
   // Layer 4
   assert.equal(S.derive(mockStatus({ custody: { full: true } })).kind, "app-store-full");
@@ -137,9 +138,6 @@ test("derive ladder covers all layer kinds and marks", () => {
   assert.equal(S.derive(mockStatus({ custody: { stale: true, full: false } })).mark, "attention");
   assert.equal(S.derive(mockStatus({ custody: { stale: true, full: false } })).badge, "!");
 
-  assert.equal(S.derive(mockStatus({ inactiveOrigins: ["https://example.com"] })).kind, "sites-paused-by-browser");
-  assert.equal(S.derive(mockStatus({ inactiveOrigins: ["https://example.com"] })).mark, "attention");
-  assert.equal(S.derive(mockStatus({ inactiveOrigins: ["https://example.com"] })).badge, "!");
 
   assert.equal(S.derive(mockStatus({ registration: { "https://example.com": "failed" } })).kind, "site-error");
   assert.equal(S.derive(mockStatus({ registration: { "https://example.com": "failed" } })).mark, "attention");
@@ -244,9 +242,9 @@ test("siteRow uses exact origin, authority precedence, and unknown tabs", () => 
   const origin = "https://example.com";
   const open = { known: true, openOrigins: [origin], anyGrantedTabOpen: true };
 
-  const browserPaused = S.siteRow(origin, mockStatus({ inactiveOrigins: [origin] }));
-  assert.equal(browserPaused.kind, "paused-by-browser");
-  assert.equal(browserPaused.action.id, "allow-again");
+  const browserDenied = S.siteRow(origin, mockStatus({ faults: { [origin]: "denied" } }));
+  assert.equal(browserDenied.kind, "denied-by-browser");
+  assert.equal(browserDenied.action, null);
 
   assert.equal(S.siteRow(origin, mockStatus({ paused: true })).kind, "paused");
 
@@ -263,9 +261,9 @@ test("siteRow uses exact origin, authority precedence, and unknown tabs", () => 
   assert.equal(S.siteRow(origin, mockStatus({ openTabs: open })).kind, "on-now");
 
   assert.equal(S.siteRow(origin, mockStatus()).kind, "added");
-  assert.equal(S.siteRow("http://example.com", mockStatus({ openTabs: open })).kind, "not-taken-in");
+  assert.equal(S.siteRow("https://other.example", mockStatus({ openTabs: open })).kind, "not-taken-in");
   assert.equal(S.siteRow(origin, mockStatus({
-    registration: { [origin]: "failed" }, inactiveOrigins: [origin],
+    registration: { [origin]: "failed" },
   })).kind, "error");
 });
 
@@ -276,13 +274,13 @@ test("projectOpenTabs distinguishes unknown, empty, and exact granted origins", 
   assert.deepEqual(S.projectOpenTabs([
     { url: "https://example.com/a" }, { url: "https://example.com/b" },
     { url: "http://example.com/" }, { url: "ftp://example.com/file" },
-  ], { grantedOrigins: ["https://example.com"] }), {
+  ], { livePatterns: ["*://*.example.com/*"] }), {
     known: true,
     openOrigins: ["http://example.com", "https://example.com"],
     anyGrantedTabOpen: true,
   });
   assert.deepEqual(S.projectOpenTabs([{url:"https://unrelated.example/"}], {
-    grantedOrigins:["https://example.com"],
+    livePatterns: ["*://*.example.com/*"],
   }), {
     known:true,
     openOrigins:["https://unrelated.example"],
@@ -291,7 +289,7 @@ test("projectOpenTabs distinguishes unknown, empty, and exact granted origins", 
 });
 
 test("welcomeHold selects only the specified blockers from derive items", () => {
-  assert.equal(S.welcomeHold(mockStatus({ consentVersion: 0, chosenOrigins: [] })).met, true);
+  assert.equal(S.welcomeHold(mockStatus({ consentVersion: 0, livePatterns: [] })).met, true);
   assert.equal(S.welcomeHold(mockStatus({ hostCapture: "not_paired" })).heading, "the solstone app isn't paired yet");
   assert.equal(S.welcomeHold(mockStatus({ hostCapture: "intake_off" })).heading, "browser pages are off in the solstone app");
   assert.equal(S.welcomeHold(mockStatus({ custody: { full: false, stale: true } })).met, true);
@@ -301,10 +299,10 @@ test("welcomeHold selects only the specified blockers from derive items", () => 
 });
 
 test("a private tab on an added site never counts as open", () => {
-  const grantedOrigins = ["https://example.com"];
-  const projected = S.projectOpenTabs([{ url: "https://example.com/a", incognito: true }], { grantedOrigins });
+  const livePatterns = ["*://*.example.com/*"];
+  const projected = S.projectOpenTabs([{ url: "https://example.com/a", incognito: true }], { livePatterns });
   assert.deepEqual(projected, { known: true, openOrigins: [], anyGrantedTabOpen: false });
-  const normal = S.projectOpenTabs([{ url: "https://example.com/a", incognito: false }], { grantedOrigins });
+  const normal = S.projectOpenTabs([{ url: "https://example.com/a", incognito: false }], { livePatterns });
   assert.equal(normal.anyGrantedTabOpen, true);
 });
 
@@ -316,34 +314,31 @@ test("Safari's manual update points to the solstone app, not Firefox", () => {
 });
 
 test("all-sites site rows never offer a per-site grant", () => {
-  const all = (over = {}) => mockStatus(Object.assign({ siteMode: "all", allSitesConsent: 1, broadGranted: true,
-    excludedHosts: ["left.example"], browserDeniedOrigins: ["https://denied.example"],
-    openTabs: { known: true, openOrigins: ["https://news.example"], anyGrantedTabOpen: true } }, over));
+  const all = (over = {}) => mockStatus(Object.assign({
+    broadGrant: true,
+    livePatterns: ["*://*/*"],
+    fence: null,
+    excludedHosts: ["left.example"],
+    faults: { "https://denied.example": "denied" },
+    openTabs: { known: true, openOrigins: ["https://news.example"], anyGrantedTabOpen: true },
+  }, over));
   assert.equal(S.siteRow("https://news.example", all()).kind, "on-now");
   assert.equal(S.siteRow("https://quiet.example", all()).kind, "included");
   assert.equal(S.siteRow("https://left.example", all()).kind, "excluded");
   assert.equal(S.siteRow("https://denied.example", all()).kind, "denied-by-browser");
   assert.equal(S.siteRow("https://news.example", all({ paused: true })).kind, "paused");
-  assert.equal(S.siteRow("https://news.example", all({ broadGranted: false })).kind, "not-taken-in");
+  assert.equal(S.siteRow("https://news.example", all({ capturePermitted: false })).kind, "not-taken-in");
   assert.equal(S.siteRow("https://news.example", all({ sitePolicyPending: true })).kind, "not-taken-in");
   assert.equal(S.siteRow("https://news.example", all({ allSitesRegistration: "failed" })).kind, "not-taken-in");
-  for (const over of [{}, { broadGranted: false }, { paused: true }]) {
+  for (const over of [{}, { capturePermitted: false }, { paused: true }]) {
     for (const origin of ["https://news.example", "https://denied.example", "https://left.example"]) {
       assert.equal(S.siteRow(origin, all(over)).action, null);
     }
   }
 });
 
-test("missing all-sites access asks in the browser that can answer", () => {
-  const missing = (brand) => S.derive(mockStatus({ brand, siteMode: "all", allSitesConsent: 1, broadGranted: false }));
-  assert.equal(missing("chrome").kind, "all-sites-access");
-  assert.equal(missing("chrome").action.id, "allow-all-sites");
-  assert.equal(missing("firefox").action.id, "allow-all-sites");
-  assert.equal(missing("safari").action.id, "open-settings");
-  const stale = S.derive(mockStatus({ siteMode: "all", allSitesConsent: 0, broadGranted: true }));
-  assert.equal(stale.kind, "all-sites-agreement");
-  assert.equal(stale.action.id, "open-settings");
-  const failed = S.derive(mockStatus({ siteMode: "all", allSitesConsent: 1, broadGranted: true, allSitesRegistration: "failed" }));
+test("broad registration failure offers retry", () => {
+  const failed = S.derive(mockStatus({ broadGrant: true, fence: null, livePatterns: ["*://*/*"], allSitesRegistration: "failed" }));
   assert.equal(failed.kind, "all-sites-registration");
   assert.equal(failed.action.id, "retry-all-sites");
 });
@@ -371,19 +366,9 @@ test("on Linux a lost app names its next step", () => {
   assert.equal(derived.reason, globalThis.SolstoneCopy.linuxCantReachAppReason());
 });
 
-test("several sites the browser took back are allowed again with one prompt", () => {
-  const two = S.derive(mockStatus({ consentVersion: 1, chosenOrigins: ["https://a.example", "https://b.example"],
-    grantedOrigins: [], inactiveOrigins: ["https://a.example", "https://b.example"] }));
-  const item = two.items.find((it) => it.kind === "sites-paused-by-browser");
-  assert.deepEqual(item.action, { id: "allow-again-all", label: "allow them again" });
-  const one = S.derive(mockStatus({ consentVersion: 1, chosenOrigins: ["https://a.example"],
-    grantedOrigins: [], inactiveOrigins: ["https://a.example"] }));
-  assert.equal(one.items.find((it) => it.kind === "sites-paused-by-browser").action, null);
-});
-
 test("a site's error row never shows an internal code", () => {
-  const row = S.siteRow("https://a.example", mockStatus({ consentVersion: 1, chosenOrigins: ["https://a.example"],
-    grantedOrigins: ["https://a.example"], registration: { "https://a.example": "failed" } }));
+  const row = S.siteRow("https://a.example", mockStatus({ consentVersion: 1, livePatterns: ["*://*.a.example/*"],
+    registration: { "https://a.example": "failed" } }));
   assert.equal(row.kind, "error");
   assert.equal(row.label, "couldn't start on this site. remove it and add it again.");
 });
@@ -454,10 +439,13 @@ test("a reported app pause still yields each closed cause", () => {
 
 test("siteRow: site-wide entry with open tab is on-now, not not-taken-in", () => {
   const status = mockStatus({
-    siteMode: "selected",
-    chosenOrigins: ["https://measure.test"],
-    grantedOrigins: ["https://measure.test"],
-    siteWideOrigins: ["https://measure.test"],
+    fence: {
+      entries: ["https://measure.test"],
+      siteWide: ["https://measure.test"],
+      exact: [],
+      exactKnown: true,
+    },
+    livePatterns: ["*://*.measure.test/*"],
     openTabs: { known: true, openOrigins: ["http://measure.test:8766"] },
     capturePermitted: true,
     lease: { token: "t", freshnessMs: 10000, receivedAt: 100 },

@@ -99,13 +99,10 @@
       openApp: () => chrome.tabs.create({ url: "https://solstone.app" }),
       reload: () => chrome.runtime.reload(),
       grantSite: (origin) => View.grantSite(origin, siteEffects()),
-      grantChosen: (origins) => View.grantChosenSites(origins, siteEffects()),
-      inactiveOrigins: () => state?.inactiveOrigins || [],
-      allowAllSites: () => View.regrantAllSites(siteEffects()),
       showError: showActionError,
       showDenied: (action) => showActionMessage(action?.id === "allow-all-sites"
         ? globalThis.SolstoneCopy.accessCopy(state?.brand).declined
-        : action?.id === "allow-again-all" ? "permission declined. those sites stay paused." : "permission declined. this site stays paused."),
+        : "permission declined. this site stays paused."),
       lossSeq: () => state?.lossNotice?.seq,
     });
   }

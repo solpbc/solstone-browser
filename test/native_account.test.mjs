@@ -17,7 +17,6 @@ await import(new URL("../extension/lib/hosts.js", import.meta.url));
 await import(new URL("../extension/lib/gate.js", import.meta.url));
 await import(new URL("../extension/lib/native_outbox.js", import.meta.url));
 await import(new URL("../extension/lib/native_port.js", import.meta.url));
-await import(new URL("../extension/lib/owner_sites.js", import.meta.url));
 await import(new URL("../extension/lib/router.js", import.meta.url));
 await import(new URL("../extension/adapters.js", import.meta.url));
 await import(new URL("../extension/skim.js", import.meta.url));
@@ -955,7 +954,8 @@ test("account: outbox-full records a per-site error and a matching successful sk
   port.capturePermitted = true;
   port.destinationGeneration = "gen-1";
   port.connectionToken = "tok-1";
-  port.grantedOrigins.add("https://example.test");
+  port.livePatterns = ["*://example.test/*"];
+  port.fence = null;
   port.lease = { token: "tok-1", generation: "gen-1", freshnessMs: 10000, receivedAt: port.now() };
 
   // Plant huge item in DB to make Outbox full

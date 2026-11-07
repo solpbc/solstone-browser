@@ -20,20 +20,6 @@ await import(new URL("../extension/lib/popup_view.js", import.meta.url));
 const H = globalThis.SolstoneHosts;
 const View = globalThis.SolstonePopupView;
 
-function loadApply() {
-  const context = { globalThis: null, SolstoneHosts: H, URL };
-  context.globalThis = context;
-  vm.runInNewContext(fs.readFileSync(new URL("../extension/lib/owner_sites.js", import.meta.url), "utf8"), context);
-  return context.SolstoneOwnerSites.apply;
-}
-
-function ownerState(overrides = {}) {
-  return Object.assign({
-    grantEpoch: 0, permissionEpoch: 0, chosen: [], granted: [], exactOnly: [], siteWide: [],
-    reservation: null, registration: {}, enqueue: {},
-  }, overrides);
-}
-
 function copyFor(navigator) {
   const context = vm.createContext({ navigator });
   vm.runInContext(fs.readFileSync(new URL("../extension/lib/copy.js", import.meta.url), "utf8"), context);
@@ -93,57 +79,6 @@ test("exactScope: a port doesn't change which site it is", () => {
   const ported = "http://x.p2.test:8766";
   assert.deepEqual(H.exactScope({ chosen: [ported], prior: [ported], priorKnown: true, live: ["*://*.p2.test/*"] }), [ported]);
   assert.deepEqual(H.exactScope({ chosen: [ported], prior: [ported], priorKnown: true, live: ["*://*.x.p2.test/*"] }), []);
-});
-
-// --- owner_sites: the scope rule through the state machine ---
-
-test("publish-grants: a marked sub-site stays granted when only its parent's grant is live", () => {
-  const apply = loadApply();
-  const out = apply(ownerState({ chosen: [X], siteWide: [X] }), {
-    type: "publish-grants", livePatterns: ["*://*.p2.test/*"], epochAtStart: 0,
-  });
-  assert.deepEqual(out.state.granted, [X]);
-  assert.deepEqual(out.state.exactOnly, []);
-});
-
-test("publish-grants: an exact-only site under a covering grant keeps its mark", () => {
-  const apply = loadApply();
-  const out = apply(ownerState({ chosen: [X], exactOnly: [X] }), {
-    type: "publish-grants", livePatterns: ["*://*.p2.test/*"], epochAtStart: 0,
-  });
-  assert.deepEqual(out.state.granted, [X]);
-  assert.deepEqual(out.state.exactOnly, [X]);
-});
-
-test("browser-removed: a lapsed exact-only site keeps its mark while chosen", () => {
-  const apply = loadApply();
-  const out = apply(ownerState({ chosen: [X], granted: [X], exactOnly: [X] }), {
-    type: "browser-removed", patterns: ["*://x.p2.test/*"],
-  });
-  assert.deepEqual(out.state.granted, []);
-  assert.deepEqual(out.state.exactOnly, [X]);
-});
-
-// --- router: the change hook that persists the list ---
-
-test("applyOwnerEvent reports a changed exact-only list, and not an unchanged one or a removal", async () => {
-  await import(new URL("../extension/lib/owner_sites.js", import.meta.url));
-  await import(new URL("../extension/lib/router.js", import.meta.url));
-  const Router = globalThis.SolstoneRouter;
-  const seen = [];
-  const port = {
-    chosenOrigins: new Set([X]), grantedOrigins: new Set(), exactOnlyOrigins: new Set([X]),
-    exactOnlyKnown: true, siteWideOrigins: [], permissionEpoch: 0, ownerSites: {},
-    onExactOnlyChange: (list) => seen.push(list),
-  };
-  Router.applyOwnerEvent(port, { type: "publish-grants", livePatterns: ["*://*.p2.test/*"], epochAtStart: 0 });
-  assert.deepEqual(seen, []);
-  Router.applyOwnerEvent(port, { type: "publish-grants", livePatterns: ["*://*.x.p2.test/*"], epochAtStart: 0 });
-  assert.deepEqual(seen, [[]]);
-  port.exactOnlyOrigins = new Set([X]);
-  Router.applyOwnerEvent(port, { type: "owner-remove", origin: X, coveringHosts: [] });
-  assert.equal(seen.length, 1);
-  assert.equal(port.exactOnlyOrigins.has(X), false);
 });
 
 // --- grantSite: a failed add names the granted site under it ---
@@ -211,17 +146,6 @@ test("grantSite still asks the browser before reading its grants", async () => {
   assert.ok(calls.indexOf("permission") >= 0 && calls.indexOf("permission") < calls.indexOf("getAll"), calls.join(","));
 });
 
-// --- grantChosenSites: widening asks for the whole site ---
-
-test("grantChosenSites with widen asks for the whole site of an exact-only entry", async () => {
-  let requested = [];
-  await View.grantChosenSites(["https://old.example"], {
-    status: { siteMode: "selected", chosenOrigins: ["https://old.example"], exactOnlyOrigins: ["https://old.example"] },
-    cmd: async () => ({ ok: true }),
-    requestPermission: async (req) => { requested = req.origins; return true; },
-  }, { widen: true });
-  assert.deepEqual(requested, ["*://*.old.example/*"]);
-});
 
 // --- copy: which browser gets which words (keys, not words) ---
 
@@ -235,14 +159,4 @@ test("the add-failed line is only for Safari on a Mac", () => {
   assert.equal(pad.addBlockedBelow("safari", "pair.test", "x.pair.test"), "");
   const phone = copyFor({ userAgent: "Mozilla/5.0 (iPhone)", platform: "iPhone" });
   assert.equal(phone.addBlockedBelow("safari", "pair.test", "x.pair.test"), "");
-});
-
-test("Safari's exact-only bar offers no button; other browsers keep it", () => {
-  const C = globalThis.SolstoneCopy;
-  for (const hosts of [["old.example"], ["a.example", "b.example"]]) {
-    const safari = C.exactOnlyCopy("safari", hosts);
-    assert.ok(safari.line.length > 0);
-    assert.equal(safari.label, "");
-    assert.ok(C.exactOnlyCopy("chrome", hosts).label.length > 0);
-  }
 });

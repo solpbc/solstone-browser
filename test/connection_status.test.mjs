@@ -60,8 +60,8 @@ async function background() {
   });
   controller.consentVersion = 1;
   controller.everConnected = true;
-  controller.chosenOrigins = new Set([ORIGIN]);
-  controller.grantedOrigins = new Set([ORIGIN]);
+  controller.livePatterns = ["*://example.com/*"];
+  controller.fence = null;
   const advanceTo = async (at) => {
     for (;;) {
       timers.sort((a, b) => a.at - b.at);
@@ -86,7 +86,7 @@ const shownKind = (memo) => memo.status ? S.derive(memo.status).kind : null;
 
 const up = { connected: true, handshake: "ready", connectionGeneration: 1, everConnected: true, consentVersion: 1,
   hostCapture: "permitted", hostDelivery: "idle", capturePermitted: true, custody: { full: false, stale: false },
-  lease: { token: "t", freshnessMs: 15000, receivedAt: 0 }, chosenOrigins: [ORIGIN], grantedOrigins: [ORIGIN],
+  lease: { token: "t", freshnessMs: 15000, receivedAt: 0 }, livePatterns: ["*://example.com/*"], fence: null, broadGrant: false,
   pressure: { active: false }, brand: "chrome", platform: "mac" };
 const down = S.withdrawn(up, false);
 const connecting = { ...down, connected: true, handshake: "pending" };

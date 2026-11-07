@@ -8,7 +8,7 @@ import {fileURLToPath} from "node:url";
 const root=fileURLToPath(new URL("../extension/",import.meta.url));
 const tick=()=>new Promise(r=>setImmediate(r));
 const origin='https://one.example';
-const base={inst:'fixture',captureEpoch:20,everConnected:true,connected:true,handshake:'ready',brand:'chrome',platform:'mac',hostCapture:'permitted',hostDelivery:'delivered',hostFailure:null,lease:{freshnessMs:10000},custody:{full:false,stale:false},capturePermitted:true,addSiteEligible:true,consentVersion:1,chosenOrigins:[origin],grantedOrigins:[origin],inactiveOrigins:[],openTabs:{known:true,openOrigins:[origin],anyGrantedTabOpen:true}};
+const base={inst:'fixture',captureEpoch:20,everConnected:true,connected:true,handshake:'ready',brand:'chrome',platform:'mac',hostCapture:'permitted',hostDelivery:'delivered',hostFailure:null,lease:{freshnessMs:10000},custody:{full:false,stale:false},capturePermitted:true,addSiteEligible:true,consentVersion:1,livePatterns:['*://*.one.example/*'],fence:null,excludedHosts:[],appLeftOut:[],openTabs:{known:true,openOrigins:[origin],anyGrantedTabOpen:true}};
 class Node {
  constructor(){this.children=[];this.listeners={};this.textContent='';this.hidden=false;this.value='';}
  addEventListener(k,v){this.listeners[k]=v;}

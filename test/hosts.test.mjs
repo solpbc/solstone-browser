@@ -10,41 +10,62 @@ import assert from "node:assert/strict";
 await import(new URL("../extension/lib/hosts.js", import.meta.url));
 const H = globalThis.SolstoneHosts;
 
-test("all-sites requires explicit scope agreement and live broad access; a left-out site covers its subdomains", () => {
-  const state = {siteMode:"all", allSitesConsent:H.ALL_SITES_CONSENT_VERSION, broadGranted:true,
-    excludedHosts:["example.com"], chosenOrigins:[], grantedOrigins:[]};
-  assert.equal(H.originGranted(state, "https://new.example"), true);
-  assert.equal(H.originGranted(state, "https://example.com:8443/path"), false);
-  assert.equal(H.originGranted(state, "http://example.com"), false);
-  assert.equal(H.originGranted(state, "https://mail.example.com"), false);
-  assert.equal(H.originGranted(state, "https://notexample.com"), true);
-  assert.equal(H.originGranted(state, "https://example.com.evil.net"), true);
-  for (const patch of [{allSitesConsent:0},{broadGranted:false},{sitePolicyPending:true}]) {
-    assert.equal(H.originGranted({...state,...patch}, "https://new.example"), false);
-  }
+test("originGranted covers livePatterns, fence, leftOut, and grammar rules", () => {
+  // no grant is off
+  assert.equal(H.originGranted({ livePatterns: [] }, "https://example.com"), false);
+  assert.equal(H.originGranted({ livePatterns: null }, "https://example.com"), false);
+  assert.equal(H.originGranted({}, "https://example.com"), false);
+
+  // a site grant and an every-site grant are on
+  assert.equal(H.originGranted({ livePatterns: ["*://*.example.com/*"] }, "https://example.com"), true);
+  assert.equal(H.originGranted({ livePatterns: ["*://*.example.com/*"] }, "https://login.example.com"), true);
+  assert.equal(H.originGranted({ livePatterns: ["*://*/*"] }, "https://new.example"), true);
+
+  // excludedHosts and appLeftOut each win, including a left-out parent over a sub-site
+  const baseBroad = { livePatterns: ["*://*/*"] };
+  assert.equal(H.originGranted({ ...baseBroad, excludedHosts: ["example.com"] }, "https://example.com"), false);
+  assert.equal(H.originGranted({ ...baseBroad, excludedHosts: ["example.com"] }, "https://mail.example.com"), false);
+  assert.equal(H.originGranted({ ...baseBroad, excludedHosts: ["example.com"] }, "https://example.com:8443/path"), false);
+  assert.equal(H.originGranted({ ...baseBroad, appLeftOut: ["example.com"] }, "https://example.com"), false);
+  assert.equal(H.originGranted({ ...baseBroad, appLeftOut: ["example.com"] }, "https://sub.example.com"), false);
+  assert.equal(H.originGranted({ ...baseBroad, excludedHosts: ["example.com"] }, "https://notexample.com"), true);
+
+  // a pattern outside the grammar allows nothing
+  assert.equal(H.originGranted({ livePatterns: ["ftp://example.com/*"] }, "https://example.com"), false);
+  assert.equal(H.originGranted({ livePatterns: ["not a pattern"] }, "https://example.com"), false);
+
+  // fence null is the plain rule
+  assert.equal(H.originGranted({ fence: null, livePatterns: ["*://*.example.com/*"] }, "https://sub.example.com"), true);
+  assert.equal(H.originGranted({ fence: null, livePatterns: ["*://*/*"] }, "https://any.site"), true);
+
+  // a fence object does not plain-allow a page the fence does not cover
+  const fence = {
+    entries: ["https://bank.com"],
+    exact: ["https://bank.com"],
+    exactKnown: true,
+    siteWide: [],
+    declined: [],
+  };
+  assert.equal(H.originGranted({ fence, livePatterns: ["*://*/*"] }, "https://bank.com"), true);
+  assert.equal(H.originGranted({ fence, livePatterns: ["*://*/*"] }, "https://login.bank.com"), false);
+  assert.equal(H.originGranted({ fence, livePatterns: ["*://*/*"] }, "https://other.com"), false);
+
+  // trailing-dot left-out uses siteHostname on the plain path only
+  assert.equal(H.originGranted({ fence: null, livePatterns: ["*://*/*"], excludedHosts: ["example.com."] }, "https://example.com"), false);
+  assert.equal(H.originGranted({ fence: null, livePatterns: ["*://*/*"], excludedHosts: ["example.com."] }, "https://sub.example.com"), false);
+
+  // sitePolicyPending is false
+  assert.equal(H.originGranted({ livePatterns: ["*://*/*"], sitePolicyPending: true }, "https://example.com"), false);
+
+  // non-http/https origins
   for (const origin of ["file:///tmp/a", "chrome://settings", "about:blank", "not a URL"]) {
-    assert.equal(H.originGranted(state, origin), false);
+    assert.equal(H.originGranted({ livePatterns: ["*://*/*"] }, origin), false);
   }
+
+  // excludedHostname helper checks
   assert.equal(H.excludedHostname("https://EXAMPLE.com:8443/path"), "example.com");
   assert.equal(H.excludedHostname("*.example.com"), "example.com");
   assert.equal(H.excludedHostname("https://person:secret@example.com"), null);
-  const selected = {...state,siteMode:"selected",grantedOrigins:["https://chosen.example"]};
-  assert.equal(H.originGranted(selected, "https://new.example"), false);
-  assert.equal(H.originGranted(selected, "https://chosen.example"), true);
-  // A chosen site covers its subdomains on the same scheme and port, and
-  // nothing that merely ends with its name.
-  assert.equal(H.originGranted(selected, "https://login.chosen.example"), true);
-  assert.equal(H.originGranted(selected, "https://notchosen.example"), false);
-  assert.equal(H.originGranted(selected, "http://login.chosen.example"), false);
-  assert.equal(H.originGranted(selected, "https://login.chosen.example:8443"), false);
-  // An older exact-host grant covers its host alone until it's widened.
-  const older = {...selected, exactOnlyOrigins:["https://chosen.example"]};
-  assert.equal(H.originGranted(older, "https://chosen.example"), true);
-  assert.equal(H.originGranted(older, "https://login.chosen.example"), false);
-  // A local name has nothing under it.
-  const local = {...selected, grantedOrigins:["http://localhost:3000"]};
-  assert.equal(H.originGranted(local, "http://localhost:3000"), true);
-  assert.equal(H.originGranted(local, "http://app.localhost:3000"), false);
 });
 
 test("splitHost separates a trailing numeric port", () => {
@@ -267,11 +288,9 @@ test("siteRuleHostPattern accepts valid grammar and rejects malformed hosts", ()
   }
 });
 
-test("originGranted respects effective left-out in selected and all-sites mode", () => {
+test("originGranted respects effective left-out on site patterns and broad patterns", () => {
   const state = {
-    siteMode: "selected",
-    grantedOrigins: ["https://mail.google.com"],
-    siteWideOrigins: ["https://mail.google.com"],
+    livePatterns: ["*://*.google.com/*"],
     excludedHosts: [],
     appLeftOut: ["google.com"],
   };
@@ -279,9 +298,7 @@ test("originGranted respects effective left-out in selected and all-sites mode",
   state.appLeftOut = [];
   state.excludedHosts = ["google.com"];
   assert.equal(H.originGranted(state, "https://mail.google.com"), false);
-  state.siteMode = "all";
-  state.broadGranted = true;
-  state.allSitesConsent = 1;
+  state.livePatterns = ["*://*/*"];
   assert.equal(H.originGranted(state, "https://mail.google.com"), false);
 });
 

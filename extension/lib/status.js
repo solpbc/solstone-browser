@@ -44,9 +44,6 @@
       const brand = status.brand || "";
       const platform = status.platform || "";
       const bName = C ? C.browserName(brand) : "your browser";
-      const chosenOrigins = Array.isArray(status.chosenOrigins) ? status.chosenOrigins : [];
-      const grantedOrigins = Array.isArray(status.grantedOrigins) ? status.grantedOrigins : [];
-      const inactiveOrigins = Array.isArray(status.inactiveOrigins) ? status.inactiveOrigins : [];
       const siteErrors = status.siteErrors || {};
       const registrations = status.registration || siteErrors.registration || {};
       const enqueueErrors = status.enqueue || siteErrors.enqueue || {};
@@ -65,6 +62,16 @@
       const handshake = status.handshake;
       const everConnected = !!status.everConnected;
       const lossNotice = status.lossNotice;
+
+      const isEverySite = !status.fence && (status.broadGrant === true || (status.livePatterns && globalThis.SolstoneHosts?.broadLive(status.livePatterns)));
+      let siteCount = 0;
+      if (status.fence) {
+        siteCount = (status.fence.entries || []).length;
+      } else if (isEverySite) {
+        siteCount = 1;
+      } else if (Array.isArray(status.livePatterns)) {
+        siteCount = status.livePatterns.filter(p => !globalThis.SolstoneHosts?.isBroadPattern?.(p)).length;
+      }
 
       const anyGrantedTabOpen = typeof extras.anyGrantedTabOpen === "boolean" ? extras.anyGrantedTabOpen :
         (typeof status.openTabs?.anyGrantedTabOpen === "boolean" ? status.openTabs.anyGrantedTabOpen : null);
@@ -242,29 +249,11 @@
       if (status.sitePolicyPending) {
         items.push({ layer: 3, kind: "site-policy-pending", mark: "paused", badge: "", headline: "changing your sites",
           sub: "nothing new is taken in until this is saved", reason: "", action: null, connecting: null });
-      } else if (status.siteMode === "all" && status.allSitesConsent !== globalThis.SolstoneHosts.ALL_SITES_CONSENT_VERSION) {
-        // An agreement from an older all-sites disclosure is agreed again in settings,
-        // never answered by asking the browser for access.
-        items.push({ layer: 3, kind: "all-sites-agreement", mark: "paused", badge: "", headline: "agree to all sites again",
-          sub: "nothing new is taken in from this browser", reason: "", action: { id: "open-settings", label: "open settings" }, connecting: null });
-      } else if (status.siteMode === "all" && status.broadGranted !== true) {
-        // Safari grants all websites only in its own settings, so its action is the
-        // settings page's steps; elsewhere the popup can ask the browser directly.
-        const safari = status.brand === "safari";
-        items.push({ layer: 3, kind: "all-sites-access", mark: "paused", badge: "",
-          headline: safari ? "allow all websites in Safari" : `${bName} isn't allowing all websites`,
-          sub: "nothing new is taken in from this browser",
-          reason: safari
-            ? (mobile() ? "in Settings, open Apps, then Safari, then Extensions, then solstone. set Other Websites to Allow."
-              : "in Safari, choose Safari \u203a Settings, then Websites and solstone. set For other websites to Allow.")
-            : "allow it again, or switch back to sites you add.",
-          action: safari ? { id: "open-settings", label: "show me how" } : { id: "allow-all-sites", label: `allow in ${bName}` },
-          connecting: null });
-      } else if (status.siteMode === "all" && status.allSitesRegistration === "failed") {
+      } else if (isEverySite && status.allSitesRegistration === "failed") {
         items.push({ layer: 3, kind: "all-sites-registration", mark: "attention", badge: "!", headline: "couldn't start on your sites",
           sub: "nothing new is taken in from this browser", reason: `something went wrong turning on all sites in ${bName}.`,
           action: { id: "retry-all-sites", label: "try again" }, connecting: null });
-      } else if (status.siteMode !== "all" && chosenOrigins.length === 0) {
+      } else if (!isEverySite && siteCount === 0) {
         items.push({
           layer: 3,
           kind: "no-sites",
@@ -397,22 +386,7 @@
         });
       }
 
-      if (inactiveOrigins.length > 0) {
-        const n = inactiveOrigins.length;
-        const headline = n === 1 ? `1 site paused by ${bName}` : `${n} sites paused by ${bName}`;
-        items.push({
-          layer: 5,
-          kind: "sites-paused-by-browser",
-          mark: "attention",
-          badge: "!",
-          headline,
-          sub: "",
-          reason: `${bName} took back this extension's access. allow it again to go on.`,
-          // One prompt for all of them; a single site has its own row button.
-          action: n > 1 && C ? { id: "allow-again-all", label: C.regrantCopy(brand, n).label } : null,
-          connecting: null,
-        });
-      }
+
 
       const registrationFailures = Object.entries(registrations).filter(([, value]) => value === "failed");
       const enqueueFailureEntries = Object.entries(enqueueErrors);
@@ -485,7 +459,7 @@
               badge: "",
               headline: "on",
               sub: deliverySub,
-              reason: status.siteMode === "all" ? "none of the websites you share are open right now." : "none of your sites are open right now.",
+              reason: isEverySite ? "none of the websites you share are open right now." : "none of your sites are open right now.",
               action: null,
               connecting: null,
             });
@@ -665,8 +639,6 @@
     status = status || {};
     extras = extras || {};
     const bName = C ? C.browserName(status.brand) : "your browser";
-    const inactiveOrigins = Array.isArray(status.inactiveOrigins) ? status.inactiveOrigins : [];
-    const grantedOrigins = Array.isArray(status.grantedOrigins) ? status.grantedOrigins : [];
     const registrations = status.registration || status.siteErrors?.registration || {};
     const enqueueErrors = status.enqueue || status.siteErrors?.enqueue || {};
     const registration = registrations[entry];
@@ -677,19 +649,22 @@
     const tabsKnown = typeof extras.tabsKnown === "boolean" ? extras.tabsKnown : tabs.known === true;
     let host = "";
     try { host = new URL(entry).hostname; } catch (_e) {}
-    // An open tab anywhere under the site counts (bank.com covers login.bank.com),
-    // except under an older exact-host grant, which covers its host alone.
-    const exactOnly = (status.exactOnlyOrigins || []).includes(entry);
-    const siteWide = (status.siteWideOrigins || []).includes(entry);
+
+    const isEverySite = !status.fence && (status.broadGrant === true || (status.livePatterns && globalThis.SolstoneHosts?.broadLive(status.livePatterns)));
+
+    const exactOnly = status.fence ? (status.fence.exact || []).includes(entry) : false;
+    const siteWide = status.fence ? (status.fence.siteWide || []).includes(entry) : false;
     const isTabOpen = openTabOrigins.some((origin) => origin === entry ||
-      (status.siteMode !== "all" && globalThis.SolstoneHosts?.originCoveredBy?.(entry, origin, exactOnly, siteWide)));
+      (!isEverySite && (status.fence
+        ? globalThis.SolstoneHosts?.originCoveredBy?.(entry, origin, exactOnly, siteWide)
+        : (globalThis.SolstoneHosts?.hostCovers ? globalThis.SolstoneHosts.hostCovers(host, new URL(origin).hostname) : false))));
     const leaseOpen = !!status.lease && Number(status.lease.freshnessMs) > 0;
     const gateOpenFor = (granted) => granted && status.capturePermitted === true && leaseOpen && status.consentVersion === 1 &&
       !status.paused && !status.pressure?.active && status.hostCapture === "permitted" && status.custody?.full !== true;
     const leftOutList = (status.excludedHosts || []).concat(status.appLeftOut || []);
     const coveringSite = host && leftOutList.find((site) => globalThis.SolstoneHosts?.hostCovers ? globalThis.SolstoneHosts.hostCovers(site, host) : false);
     if (coveringSite) {
-      if (status.siteMode === "all") {
+      if (isEverySite) {
         return { kind: "excluded", label: "left out", action: null };
       }
       const appCovers = (status.appLeftOut || []).some((site) => globalThis.SolstoneHosts?.hostCovers ? globalThis.SolstoneHosts.hostCovers(site, host) : false);
@@ -700,34 +675,31 @@
       return { kind: "excluded", label: "left out", action };
     }
 
-    if (status.siteMode === "all") {
-      // In all-sites mode a site isn't added or granted on its own: it is left
-      // out, refused by the browser, or covered by the one broad grant.
-      if ((status.browserDeniedOrigins || []).includes(entry)) {
-        return { kind: "denied-by-browser", label: `${bName} is denying this site`, action: null };
-      }
+    const fault = status.faults instanceof Map ? status.faults.get(entry) : status.faults?.[entry];
+    if (fault === "denied") {
+      return { kind: "denied-by-browser", label: `${bName} is denying this site`, action: null };
+    }
+    if (fault === "unknown") {
+      return { kind: "unknown", label: "this extension can't reach this page", action: null };
+    }
+
+    if (isEverySite) {
       if (status.paused || status.hostCapture === "paused") return { kind: "paused", label: "paused", action: null };
-      if (status.allSitesRegistration === "failed" || !gateOpenFor(globalThis.SolstoneHosts.originGranted(status, entry))) {
+      if (status.allSitesRegistration === "failed" || !gateOpenFor(globalThis.SolstoneHosts?.originGranted ? globalThis.SolstoneHosts.originGranted(status, entry) : true)) {
         return { kind: "not-taken-in", label: "not taken in right now", action: null };
       }
       if (tabsKnown && isTabOpen) return { kind: "on-now", label: "on now", action: null };
       return { kind: "included", label: "included", action: null };
     }
-    const isInactive = inactiveOrigins.includes(entry);
+
     const isPendingRemove = Array.isArray(status.pendingRemoveOrigins) && status.pendingRemoveOrigins.includes(entry);
-    const isGranted = grantedOrigins.includes(entry) && !isPendingRemove;
+    const isGranted = !isPendingRemove && (globalThis.SolstoneHosts?.originGranted
+      ? globalThis.SolstoneHosts.originGranted(status, entry)
+      : false);
 
     if (registration === "failed" || enqueueError) {
       const stored = registration === "failed" ? registration : enqueueError;
       return { kind: "error", label: C ? C.classifyFailure(stored, status.brand) : String(stored), action: null };
-    }
-
-    if (isInactive) {
-      return {
-        kind: "paused-by-browser",
-        label: `paused by ${bName}`,
-        action: { id: "allow-again", label: "allow again" },
-      };
     }
 
     if (status.paused || status.hostCapture === "paused") {

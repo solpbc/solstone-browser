@@ -28,6 +28,7 @@
   let consentVersion = 0;
   let originGranted = false;
   let browserMediated = false;
+  let refusedReadCount = 0;
   let injectedRead = null;
   let browserReadPending = false;
   let readSequence = 0;
@@ -231,7 +232,12 @@
   function handleSolicitedGrant(response, reqTime) {
     if (typeof response.paused === "boolean") paused = response.paused;
     if (typeof response.consentVersion === "number") consentVersion = response.consentVersion;
-    browserMediated = response.siteMode === "all";
+    const oldMediated = browserMediated;
+    const oldEpoch = captureEpoch;
+    browserMediated = response.broadGrant ?? (globalThis.SolstoneHosts?.broadLive ? globalThis.SolstoneHosts.broadLive(response.livePatterns) : false);
+    if (response.captureEpoch !== oldEpoch || (!browserMediated && oldMediated)) {
+      refusedReadCount = 0;
+    }
     originGranted = globalThis.SolstoneHosts.originGranted(response, location.origin);
     if (typeof response.showPageIndicator === "boolean") showIndicator = response.showPageIndicator;
     hostCapture = response.hostCapture || null;
@@ -280,7 +286,12 @@
   function handleLeaseUpdate(msg) {
     if (typeof msg.paused === "boolean") paused = msg.paused;
     if (typeof msg.consentVersion === "number") consentVersion = msg.consentVersion;
-    browserMediated = msg.siteMode === "all";
+    const oldMediated = browserMediated;
+    const oldEpoch = captureEpoch;
+    browserMediated = msg.broadGrant ?? (globalThis.SolstoneHosts?.broadLive ? globalThis.SolstoneHosts.broadLive(msg.livePatterns) : false);
+    if (msg.captureEpoch !== oldEpoch || (!browserMediated && oldMediated)) {
+      refusedReadCount = 0;
+    }
     originGranted = globalThis.SolstoneHosts.originGranted(msg, location.origin);
     if (typeof msg.showIndicator === "boolean") showIndicator = msg.showIndicator;
     hostCapture = msg.hostCapture || null;
@@ -344,6 +355,7 @@
 
   let rootCheck = null;
   function requestBrowserRead(action, reason) {
+    if (refusedReadCount >= 3) return;
     if (browserReadPending || !getDecision().open) return;
     browserReadPending = true;
     const requestId = ++readSequence;
@@ -356,11 +368,18 @@
     try {
       chrome.runtime.sendMessage({ kind: "read", action, reason, requestId,
         realmToken: REALM_TOKEN, documentKey: DOCUMENT_KEY,
-        captureEpoch, leaseToken: lease?.token || null }, () => {
+        captureEpoch, leaseToken: lease?.token || null }, (res) => {
         if (readSequence !== requestId) return;
         browserReadPending = false;
         clearTimeout(readTimer);
         void chrome.runtime.lastError;
+        if (res && res.ok === false && res.error === "browser_access_denied") {
+          refusedReadCount++;
+          if (refusedReadCount >= 3 && rootInterval !== null) {
+            clearInterval(rootInterval);
+            rootInterval = null;
+          }
+        }
       });
     } catch (_e) { browserReadPending = false; }
   }
@@ -372,6 +391,7 @@
     if (!browserMediated || realm !== REALM_TOKEN || documentKey !== DOCUMENT_KEY ||
         !browserReadPending || read.requestId !== readSequence || now() >= readRequestedAt + 5000 ||
         read.captureEpoch !== captureEpoch || read.leaseToken !== lease?.token || !getDecision().open) return false;
+    refusedReadCount = 0;
     injectedRead = read;
     try {
       if (read.action === "root") rootCheck?.();

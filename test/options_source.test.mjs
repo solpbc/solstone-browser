@@ -137,9 +137,10 @@ function optionsState(overrides = {}) {
     lossNotice: null,
     paused: false,
     consentVersion: 0,
-    chosenOrigins: [],
-    grantedOrigins: [],
-    inactiveOrigins: [],
+    livePatterns: [],
+    fence: null,
+    excludedHosts: [],
+    appLeftOut: [],
     showPageIndicator: false,
     updateCheck: "no-update",
     capturePermitted: true,
@@ -340,85 +341,29 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   assert.equal(nodes.siteModeHelp.textContent, C.addHelp(liveState.brand));
   assert.equal(nodes.welcomeView.hidden, true);
   assert.equal(nodes.settingsView.hidden, false);
-  assert.match(nodes.modeSelected.className, /\bcurrent\b/);
-  assert.equal(nodes.modeSelectedBtn.hidden, true);
-  assert.equal(nodes.modeAllBtn.hidden, false);
+  assert.equal(nodes.modeSelected.hidden, true);
+  assert.equal(nodes.modeAll.hidden, true);
   assert.equal(nodes.step2ReReadBody.textContent, C.DISCLOSURE_BODY.replace(/^- /gm, "").replaceAll("\n", ""));
 
-  // 6b. All sites has its own agreement. Opening and cancelling it changes nothing.
   const settle = async () => { for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve)); };
-  const scopeCommands = (from) => sentMessages.slice(from).filter((m) => ["setSiteMode", "intendAllSites"].includes(m.cmd));
   const savedState = liveState;
-  let from = sentMessages.length;
-  const cancelled = nodes.modeAllBtn.listeners.click();
-  await settle();
-  assert.equal(nodes.siteDisclosure.hidden, false);
-  assert.equal(nodes.sitesMain.hidden, true);
-  assert.ok(nodes.siteDisclosureTitle.focusCount > 0, "the agreement is read from its title");
-  assert.deepEqual(scopeCommands(from), []);
-  const returnFocus = nodes.modeAllBtn.focusCount;
-  nodes.siteDisclosureCancel.listeners.click();
-  await cancelled;
-  assert.equal(nodes.siteDisclosure.hidden, true);
-  assert.equal(nodes.sitesMain.hidden, false);
-  assert.equal(nodes.modeAllBtn.focusCount, returnFocus + 1);
-  assert.deepEqual(scopeCommands(from), []);
 
-  // Agreeing asks the browser in the same gesture, then records the agreement.
-  from = sentMessages.length;
-  const agreed = nodes.modeAllBtn.listeners.click();
-  await settle();
-  nodes.siteDisclosureConfirm.listeners.click();
-  await agreed;
-  await settle();
-  const scope = scopeCommands(from);
-  assert.deepEqual(scope.map((m) => m.cmd), ["intendAllSites", "setSiteMode"]);
-  assert.equal(scope[1].mode, "all");
-  assert.equal(scope[1].agreed, true);
-
-  // Safari answers only in its own settings: steps and a re-check, no prompt button.
-  liveState = optionsState({ consentVersion: 1, brand: "safari", siteMode: "all", allSitesConsent: 1, broadGranted: false,
-    chosenOrigins: ["https://mail.google.com"], excludedHosts: ["bank.example"] });
+  // Unfenced and broad: stop-sharing control exists for non-safari
+  liveState = optionsState({ consentVersion: 1, brand: "chrome", broadGrant: true, fence: null, livePatterns: ["*://*/*"], excludedHosts: ["bank.example"] });
   await globalThis.SolstoneOptions.refresh();
   assert.equal(nodes.accessPanel.hidden, false);
-  assert.equal(nodes.accessMissing.hidden, false);
-  assert.equal(nodes.accessAllow.hidden, true);
-  assert.equal(nodes.accessCheck.hidden, false);
-  assert.equal(nodes.accessSteps.children.length, 3);
-  assert.equal(nodes.modeAllBtn.hidden, true);
-  assert.equal(nodes.modeSelectedBtn.hidden, false);
-  assert.equal(nodes.siteList.children.length, 1);
-  assert.equal(nodes.keptNote.hidden, false);
-  // Access granted in Safari's settings is picked up on the re-check and announced.
-  liveState = optionsState(Object.assign({}, liveState, { broadGranted: true, allSitesRegistration: "ready" }));
-  from = sentMessages.length;
-  await nodes.accessCheck.listeners.click();
-  assert.ok(sentMessages.slice(from).some((m) => m.cmd === "refreshSiteAccess"));
-  assert.equal(nodes.accessMissing.hidden, true);
-  assert.equal(nodes.accessGranted.hidden, false);
-  assert.match(nodes.actionMessage.className, /\bok\b/);
-
-  // Chrome without the broad grant offers the browser's prompt directly.
-  liveState = optionsState(Object.assign({}, liveState, { brand: "chrome", broadGranted: false }));
-  await globalThis.SolstoneOptions.refresh();
   assert.equal(nodes.accessAllow.hidden, false);
-  assert.equal(nodes.accessCheck.hidden, true);
+  assert.equal(nodes.accessAllow.textContent, "stop sharing every site");
+  assert.equal(nodes.leftOutDetails.hidden, false);
 
-  // Switching back is immediate and names the browser re-grant it needs.
-  liveState = optionsState({ consentVersion: 1, siteMode: "selected", allSitesConsent: 1,
-    chosenOrigins: ["https://mail.google.com", "https://app.slack.com"], grantedOrigins: [],
-    inactiveOrigins: ["https://mail.google.com", "https://app.slack.com"], excludedHosts: ["bank.example"] });
-  from = sentMessages.length;
-  await nodes.modeSelectedBtn.listeners.click();
-  const back = sentMessages.slice(from).find((m) => m.cmd === "setSiteMode");
-  assert.equal(back.mode, "selected");
-  assert.equal(back.agreed, undefined);
-  assert.equal(nodes.regrant.hidden, false);
-  assert.ok(nodes.sitesHeading.focusCount > 0);
-  // Coming back to the page reconnects the status channel before trusting it,
-  // because Safari can restart the background without closing the old one.
+  // Fenced: every-site access panel is hidden
+  liveState = optionsState({ consentVersion: 1, brand: "chrome", fence: { entries: ["https://example.com"], exact: [], siteWide: [] }, livePatterns: ["*://*/*"] });
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.accessPanel.hidden, true);
+
+  // Coming back to the page reconnects the status channel before trusting it
   const connectsBefore = statusConnects;
-  from = sentMessages.length;
+  let from = sentMessages.length;
   windowListeners.focus();
   await settle();
   assert.equal(statusConnects, connectsBefore + 1);
@@ -519,7 +464,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   assert.equal(nodes.actionMessage.textContent, C.ADD_DENIED);
 
   // Removing a site says what happened to it.
-  liveState = optionsState({ consentVersion: 1, chosenOrigins: ["https://mail.google.com"], grantedOrigins: ["https://mail.google.com"] });
+  liveState = optionsState({ consentVersion: 1, livePatterns: ["*://*.mail.google.com/*"] });
   await globalThis.SolstoneOptions.refresh();
   // A removal that wasn't saved is never announced as done.
   removeResponse = { ok: false, saved: false, origin: "https://mail.google.com" };
@@ -529,43 +474,22 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   await nodes.siteList.children[0].children[1].children.at(-1).listeners.click();
   assert.equal(nodes.actionMessage.textContent, C.removedAnnouncement("mail.google.com"));
 
-  // Leaving out and putting back name the whole site, except a local name.
+  // Putting a left-out site back from the left-out list names the site.
   for (const [excludedHosts, said] of [
     [["bank.com"], "all bank.com sites and pages are no longer left out."],
     [["localhost"], "localhost is no longer left out."],
   ]) {
-    liveState = optionsState({ consentVersion: 1, siteMode: "all", allSitesConsent: 1, broadGranted: true, excludedHosts });
+    liveState = optionsState({ consentVersion: 1, broadGrant: true, fence: null, livePatterns: ["*://*/*"], excludedHosts });
     await globalThis.SolstoneOptions.refresh();
-    await nodes.siteList.children[0].children[1].children.at(-1).listeners.click();
+    assert.equal(nodes.leftOutDetails.hidden, false);
+    await nodes.leftOutList.children[0].children[1].listeners.click();
     assert.equal(nodes.actionMessage.textContent, said);
   }
-  liveState = optionsState({ consentVersion: 1, siteMode: "all", allSitesConsent: 1, broadGranted: true, excludedHosts: [] });
-  await globalThis.SolstoneOptions.refresh();
-  assert.equal(nodes.siteModeHelp.textContent, C.LEAVE_OUT_HELP);
-  nodes.newHost.value = "*.bank.com";
-  await nodes.addForm.listeners.submit({ preventDefault() {} });
-  assert.deepEqual(sentMessages.findLast((message) => message.cmd === "setLeftOut"), { cmd: "setLeftOut", host: "bank.com", out: true });
-  assert.equal(nodes.actionMessage.textContent, "all bank.com sites and pages left out. other sites shown inside them are still shared.");
-
-  // A site added before sites covered their subdomains is offered the rest.
-  liveState = optionsState({ consentVersion: 1, chosenOrigins: ["https://old.example"], grantedOrigins: ["https://old.example"],
-    exactOnlyOrigins: ["https://old.example"] });
-  await globalThis.SolstoneOptions.refresh();
-  assert.equal(nodes.exactOnly.hidden, false);
-  assert.equal(nodes.exactOnlyLine.textContent, "old.example covers only that address. to include all old.example sites and pages, allow them in Chrome.");
-  assert.equal(nodes.exactOnlyBtn.textContent, "allow all old.example sites");
-  before = sentMessages.length;
-  assert.equal(nodes.exactOnlyBtn.hidden, false);
-  await nodes.exactOnlyBtn.listeners.click();
-  assert.ok(sentMessages.slice(before).some((message) => message.cmd === "refreshSiteAccess"));
-  // The bar widens: it asks for the whole site, not the address it already has.
-  assert.deepEqual([...lastPermissionRequest.origins], ["*://*.old.example/*"]);
 
   // When on-now (extras activeSites has origin)
   liveState = optionsState({
     consentVersion: 1,
-    chosenOrigins: ["https://mail.google.com"],
-    grantedOrigins: ["https://mail.google.com"],
+    livePatterns: ["*://*.mail.google.com/*"],
     hostCapture: "permitted",
     capturePermitted: true,
   });
@@ -583,8 +507,8 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   const secondOrigin = "https://same.example:8443";
   liveState = optionsState({
     consentVersion: 1,
-    chosenOrigins: [firstOrigin, secondOrigin],
-    grantedOrigins: [firstOrigin, secondOrigin],
+    fence: { entries: [firstOrigin, secondOrigin], exact: [], siteWide: [] },
+    livePatterns: [firstOrigin + "/*", secondOrigin + "/*"],
     openTabs: {known:true, openOrigins:[firstOrigin], anyGrantedTabOpen:true},
   });
   await globalThis.SolstoneOptions.refresh();
@@ -597,31 +521,12 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
 
   const httpOrigin = "http://same.example";
   liveState = optionsState({
-    consentVersion:1,
-    chosenOrigins:[httpOrigin],
-    grantedOrigins:[],
-    inactiveOrigins:[httpOrigin],
-    truncationByOrigin:{
-      [httpOrigin]:{count:2, newestId:"doc:2", dismissThroughId:"", pending:["doc:1","doc:2"]},
-      "https://removed.example":{count:1, newestId:"old:1", dismissThroughId:"", pending:["old:1"]},
-    },
-  });
-  await globalThis.SolstoneOptions.refresh();
-  // "allow again" gives the browser's access back to an already-chosen site
-  // directly, so it works even while adding new sites can't.
-  assert.equal(nodes.siteList.children[0].children[0].children[0].textContent, "http://same.example");
-  before = sentMessages.length;
-  await nodes.siteList.children[0].children[1].children[0].listeners.click();
-  assert.ok(sentMessages.slice(before).some((message) => message.cmd === "refreshSiteAccess"));
-  assert.equal(sentMessages.slice(before).some((message) => message.cmd === "intendAddOrigin"), false);
-  liveState = optionsState({
-    consentVersion:1,
-    chosenOrigins:[httpOrigin],
-    grantedOrigins:[],
-    inactiveOrigins:[httpOrigin],
-    truncationByOrigin:{
-      [httpOrigin]:{count:2, newestId:"doc:2", dismissThroughId:"", pending:["doc:1","doc:2"]},
-      "https://removed.example":{count:1, newestId:"old:1", dismissThroughId:"", pending:["old:1"]},
+    consentVersion: 1,
+    fence: { entries: [httpOrigin], exact: [], siteWide: [] },
+    livePatterns: [httpOrigin + "/*"],
+    truncationByOrigin: {
+      [httpOrigin]: { count: 2, newestId: "doc:2", dismissThroughId: "", pending: ["doc:1", "doc:2"] },
+      "https://removed.example": { count: 1, newestId: "old:1", dismissThroughId: "", pending: ["old:1"] },
     },
   });
   await globalThis.SolstoneOptions.refresh();
@@ -641,7 +546,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
 
   // Status messages use the posted envelope; same epoch tab updates apply, older capture state does not.
   const openState = optionsState({
-    captureEpoch: 20, consentVersion: 1, chosenOrigins: [firstOrigin], grantedOrigins: [firstOrigin],
+    captureEpoch: 20, consentVersion: 1, livePatterns: [firstOrigin + "/*"],
     openTabs: {known:false, openOrigins:null, anyGrantedTabOpen:null},
   });
   statusListener({type:"status", status:openState});
@@ -655,37 +560,37 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   })});
   assert.equal(nodes.statusReason.textContent, "");
 
-  const paused = optionsState({captureEpoch:21, consentVersion:1, paused:true, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin]});
+  const paused = optionsState({captureEpoch:21, consentVersion:1, paused:true, livePatterns: [firstOrigin + "/*"]});
   statusListener({type:"status", status:paused});
   await new Promise((resolve) => setImmediate(resolve));
-  statusListener({type:"status", status:optionsState({captureEpoch:20, consentVersion:1, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin]})});
+  statusListener({type:"status", status:optionsState({captureEpoch:20, consentVersion:1, livePatterns: [firstOrigin + "/*"]})});
   assert.equal(nodes.statusStateChip.textContent, "paused in this browser");
-  statusListener({type:"status", status:optionsState({captureEpoch:22, consentVersion:1, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin]})});
+  statusListener({type:"status", status:optionsState({captureEpoch:22, consentVersion:1, livePatterns: [firstOrigin + "/*"]})});
   assert.equal(nodes.statusStateChip.textContent, "on");
 
   holdNextState = true;
   const staleRefresh = globalThis.SolstoneOptions.refresh();
-  statusListener({type:"status", status:optionsState({captureEpoch:24, consentVersion:1, paused:true, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin]})});
-  heldStateCallback(optionsState({captureEpoch:22, consentVersion:1, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin]}));
+  statusListener({type:"status", status:optionsState({captureEpoch:24, consentVersion:1, paused:true, livePatterns: [firstOrigin + "/*"]})});
+  heldStateCallback(optionsState({captureEpoch:22, consentVersion:1, livePatterns: [firstOrigin + "/*"]}));
   await staleRefresh;
   assert.equal(nodes.statusStateChip.textContent, "paused in this browser");
 
-  liveState = optionsState({captureEpoch:24, consentVersion:1, paused:true, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin]});
+  liveState = optionsState({captureEpoch:24, consentVersion:1, paused:true, livePatterns: [firstOrigin + "/*"]});
   holdNextState = true;
   const beforeDisconnect = globalThis.SolstoneOptions.refresh();
   disconnectListener();
   reconnects.shift()?.();
   await new Promise((resolve) => setImmediate(resolve));
-  heldStateCallback(optionsState({captureEpoch:22, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin]}));
+  heldStateCallback(optionsState({captureEpoch:22, livePatterns: [firstOrigin + "/*"]}));
   await beforeDisconnect;
   assert.equal(nodes.statusStateChip.textContent, "paused in this browser");
-  liveState = optionsState({captureEpoch:25, consentVersion:1, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin]});
+  liveState = optionsState({captureEpoch:25, consentVersion:1, livePatterns: [firstOrigin + "/*"]});
   await globalThis.SolstoneOptions.refresh();
   assert.equal(nodes.statusStateChip.textContent, "on");
 
   // Settings renders secondary headlines and dispatches the primary action.
   liveState = optionsState({
-    captureEpoch: 26, consentVersion: 1, chosenOrigins:[firstOrigin], grantedOrigins:[firstOrigin],
+    captureEpoch: 26, consentVersion: 1, livePatterns: [firstOrigin + "/*"],
     behind:"extension", updateCheck:"update-available", custody:{full:false, stale:true},
   });
   await globalThis.SolstoneOptions.refresh();
@@ -701,14 +606,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   assert.match(html, /<label class="marker-label"[^>]*>\s*<input type="checkbox" id="welcomeShowPageIndicator"/);
 });
 
-test("options source: renderOffersBlock buttons go through SolstoneActions.run", () => {
-  assert.match(optionsSource, /renderOffersBlock[\s\S]*?SolstoneActions\.run/);
-  assert.doesNotMatch(optionsSource, /renderOffersBlock[\s\S]*?View\.grantSite/);
-});
-
-
 test("settings reads the browser's grants after a failed add, through its own effects", () => {
   const source = readFileSync(new URL("../extension/options.js", import.meta.url), "utf8");
   assert.match(source, /getAllPermissions: \(\) => chrome\.permissions\.getAll\(\)/);
-  assert.match(source, /\$\("exactOnlyBtn"\)\.hidden = !words\.label/);
 });

@@ -36,9 +36,10 @@ function state(overrides = {}) {
     lossNotice: null,
     paused: false,
     consentVersion: 1,
-    chosenOrigins: [],
-    grantedOrigins: [],
-    inactiveOrigins: [],
+    livePatterns: [],
+    fence: null,
+    excludedHosts: [],
+    appLeftOut: [],
     showPageIndicator: false,
     updateCheck: "no-update",
     capturePermitted: true,
@@ -68,9 +69,8 @@ test("arrange returns sections in the fixed render order and omits absent sectio
   assert.deepEqual(beforeAgreement.map((section) => section.id), ["verdict", "page", "footer"]);
 
   const configured = state({
-    chosenOrigins: ["https://mail.google.com", "https://app.slack.com"],
-    grantedOrigins: ["https://mail.google.com"],
-    inactiveOrigins: ["https://app.slack.com"],
+    livePatterns: ["*://*.mail.google.com/*", "*://*.app.slack.com/*"],
+    registration: { "https://app.slack.com": "failed" },
   });
   const sections = View.arrange(derived(), configured, { origin: "https://mail.google.com", host: "mail.google.com", ok: true });
   assert.deepEqual(sections.map((section) => section.id), ["verdict", "siteIssues", "page", "siteCount", "footer"]);
@@ -93,7 +93,7 @@ test("page descriptors cover add, remove, unsupported, and pause actions", () =>
   assert.deepEqual(add.siteAction, { id: "add-site", label: "add this site", disabled: false, primary: true });
   assert.equal(add.state, "not added");
 
-  const configured = state({ chosenOrigins: ["https://example.com"], grantedOrigins: ["https://example.com"], openTabs: { known: true, openOrigins: [], anyGrantedTabOpen: false } });
+  const configured = state({ livePatterns: ["*://*.example.com/*"], openTabs: { known: true, openOrigins: [], anyGrantedTabOpen: false } });
   const remove = View.arrange(derived(), configured, { origin: "https://example.com", host: "example.com", ok: true }).find((s) => s.id === "page");
   assert.equal(remove.siteAction.id, "remove-site");
   assert.ok(remove.state);
@@ -102,7 +102,7 @@ test("page descriptors cover add, remove, unsupported, and pause actions", () =>
   assert.equal(unsupported.state, "this page can't be added");
   assert.equal(unsupported.siteAction.disabled, true);
 
-  const paused = View.arrange(derived(), state({ paused: true, chosenOrigins: ["https://example.com"] }), { origin: "https://example.com", host: "example.com", ok: true }).find((s) => s.id === "page");
+  const paused = View.arrange(derived(), state({ paused: true, livePatterns: ["*://*.example.com/*"] }), { origin: "https://example.com", host: "example.com", ok: true }).find((s) => s.id === "page");
   assert.deepEqual(paused.pauseAction, { id: "set-paused", label: "resume", primary: true });
 });
 
@@ -110,8 +110,7 @@ test("arrange preserves exact origins and exposes truncation as a separate atten
   const first = "https://same.example";
   const second = "https://same.example:8443";
   const s = state({
-    chosenOrigins: [first, second],
-    grantedOrigins: [first, second],
+    livePatterns: [first + "/*", second + "/*"],
     openTabs: { known: true, openOrigins: [first], anyGrantedTabOpen: true },
     truncationByOrigin: {
       [second]: { count: 3, newestId: "doc:id", dismissThroughId: "", pending: ["a", "b", "doc:id"] },
@@ -258,14 +257,14 @@ test("grantSite sends intendAddOrigin before permission and checks eligibility",
 });
 
 test("the page block names pages the extension never reads instead of offering an add", () => {
-  const all = state({ siteMode: "all", allSitesConsent: 1, broadGranted: true, excludedHosts: ["bank.example"] });
+  const all = state({ broadGrant: true, fence: null, livePatterns: ["*://*/*"], excludedHosts: ["bank.example"] });
   const page = (st, p) => View.arrange(derived(), st, p).find((section) => section.id === "page");
 
   for (const mode of [state(), all]) {
     const inPrivate = page(mode, { origin: "", host: "news.example", ok: false, kind: "private" });
     assert.equal(inPrivate.kind, "private");
     assert.equal(inPrivate.siteAction, null);
-    assert.ok(inPrivate.pauseAction || mode.siteMode !== "all");
+    assert.ok(inPrivate.pauseAction || !mode.broadGrant);
     const restricted = page(mode, { origin: "", host: "", ok: false, kind: "restricted" });
     assert.equal(restricted.kind, "restricted");
     assert.equal(restricted.siteAction, null);
@@ -285,59 +284,16 @@ test("the page block names pages the extension never reads instead of offering a
   assert.equal(left.siteAction.id, "include-site");
   // A left-out page names what keeps it out in both modes (section 7).
   assert.equal(left.note, "the solstone extension leaves it out.");
-  const noGrant = page(Object.assign({}, all, { broadGranted: false }), { origin: "https://news.example", host: "news.example", ok: true, kind: "web" });
+  const noGrant = page(Object.assign({}, all, { broadGrant: false, livePatterns: [] }), { origin: "https://news.example", host: "news.example", ok: true, kind: "web" });
   assert.equal(noGrant.note, "");
 
   const sharing = View.arrange(derived(), all, { origin: "", host: "", ok: false, kind: "unknown" }).find((section) => section.id === "siteCount");
   assert.equal(sharing.mode, "all");
 });
 
-test("regrantAllSites asks only under the current all-sites agreement and never changes the mode", async () => {
-  const calls = [];
-  const effects = (status, granted, fresh = status) => ({
-    status,
-    cmd: async (message) => { calls.push(message.cmd); return message.cmd === "getState" ? fresh : { ok: true }; },
-    requestPermission: async (request) => { calls.push(["request", request.origins]); return granted; },
-    removePermission: async (request) => { calls.push(["remove", request.origins]); return true; },
-  });
-  const all = { siteMode: "all", allSitesConsent: 1, consentVersion: 1 };
-  assert.equal((await View.regrantAllSites(effects({ siteMode: "selected", consentVersion: 1 }, true))).error, "wrong_site_mode");
-  assert.equal((await View.regrantAllSites(effects({ siteMode: "all", allSitesConsent: 0, consentVersion: 1 }, true))).error, "wrong_site_mode");
-  assert.deepEqual(calls, []);
-  assert.equal((await View.regrantAllSites(effects(all, false))).denied, true);
-  assert.deepEqual(calls, ["intendAllSites", ["request", ["*://*/*"]], "clearAddIntent"]);
-  calls.length = 0;
-  assert.equal((await View.regrantAllSites(effects(all, true))).ok, true);
-  assert.deepEqual(calls, ["intendAllSites", ["request", ["*://*/*"]], "clearAddIntent", "getState", "refreshSiteAccess"]);
-  // A stale popup snapshot: the owner switched back meanwhile, so the grant is returned.
-  calls.length = 0;
-  assert.equal((await View.regrantAllSites(effects(all, true, { siteMode: "selected", allSitesConsent: 1 }))).error, "wrong_site_mode");
-  assert.deepEqual(calls, ["intendAllSites", ["request", ["*://*/*"]], "clearAddIntent", "getState", ["remove", ["*://*/*"]]]);
-  assert.ok(!calls.includes("setSiteMode"));
-});
-
-test("grantChosenSites asks once for chosen sites only", async () => {
-  const requests = [];
-  const sent = [];
-  const result = await View.grantChosenSites(["https://mail.google.com", "https://app.slack.com", "https://never.example"], {
-    status: { siteMode: "selected", chosenOrigins: ["https://mail.google.com", "https://app.slack.com"] },
-    cmd: async (message) => { sent.push(message.cmd); return { ok: true }; },
-    requestPermission: async (request) => { requests.push(request.origins); return true; },
-  });
-  assert.equal(result.ok, true);
-  assert.equal(requests.length, 1);
-  assert.equal(requests[0].length, 2);
-  assert.ok(!requests[0].some((pattern) => pattern.includes("never.example")));
-  assert.deepEqual(sent, ["refreshSiteAccess"]);
-  const wrongMode = await View.grantChosenSites(["https://mail.google.com"], {
-    status: { siteMode: "all", chosenOrigins: ["https://mail.google.com"] }, cmd: async () => ({}), requestPermission: async () => true,
-  });
-  assert.equal(wrongMode.error, "wrong_site_mode");
-});
-
 test("a page under a chosen site shows that site's state and names it on remove", () => {
   const site = "https://bank.com";
-  const st = state({ consentVersion: 1, chosenOrigins: [site], grantedOrigins: [site], capturePermitted: true,
+  const st = state({ consentVersion: 1, livePatterns: ["*://*.bank.com/*"], capturePermitted: true,
     openTabs: { known: true, openOrigins: ["https://login.bank.com"], anyGrantedTabOpen: true } });
   const page = View.arrange(derived(st), st, { origin: "https://login.bank.com", host: "login.bank.com", ok: true, kind: "web" })
     .find((section) => section.id === "page");
@@ -346,7 +302,7 @@ test("a page under a chosen site shows that site's state and names it on remove"
   assert.equal(page.siteAction.origin, site);
   assert.equal(page.siteAction.label, "remove bank.com");
   // Under an older exact-host grant the subdomain page isn't covered, so it says so.
-  const older = { ...st, exactOnlyOrigins: [site] };
+  const older = { ...st, livePatterns: ["*://bank.com/*"] };
   const olderPage = View.arrange(derived(older), older, { origin: "https://login.bank.com", host: "login.bank.com", ok: true, kind: "web" })
     .find((section) => section.id === "page");
   assert.equal(olderPage.state, "not added");
@@ -356,7 +312,7 @@ test("a page under a chosen site shows that site's state and names it on remove"
 });
 
 test("in all sites a page under a left-out site is left out, and leaving a www page out names the site", () => {
-  const base = { consentVersion: 1, siteMode: "all", allSitesConsent: 1, broadGranted: true, capturePermitted: true };
+  const base = { consentVersion: 1, broadGrant: true, fence: null, livePatterns: ["*://*/*"], capturePermitted: true };
   const left = state({ ...base, excludedHosts: ["bank.com"] });
   const leftPage = View.arrange(derived(left), left, { origin: "https://login.bank.com", host: "login.bank.com", ok: true, kind: "web" })
     .find((section) => section.id === "page");
@@ -374,8 +330,7 @@ test("in all sites a page under a left-out site is left out, and leaving a www p
 
 test("a verdict note stays off the headline when the app reports paused and reading is open", () => {
   const open = state({
-    chosenOrigins: ["https://example.com"],
-    grantedOrigins: ["https://example.com"],
+    livePatterns: ["*://*.example.com/*"],
     consentVersion: 1,
     hostCapture: "permitted",
     capturePermitted: true,
@@ -413,7 +368,7 @@ test("secondary leave-out, include rules, and note keys in popup arrange", () =>
   assert.equal(pUnchosen.siteSecondary?.label, "leave this site out");
 
   // 2. Chosen web page has no secondary leave-out
-  const chosen = state({ siteMode: "selected", chosenOrigins: ["https://example.com"] });
+  const chosen = state({ livePatterns: ["*://*.example.com/*"] });
   const pChosen = page(chosen, { origin: "https://example.com", host: "example.com", ok: true, kind: "web" });
   assert.equal(pChosen.siteSecondary, null);
 
@@ -468,10 +423,13 @@ test("grantSite succeeds post-grant with consentVersion === 1 even if addSiteEli
 test("popup_view: site-wide page shows added site state, not not added", () => {
   const pageSec = (st, p) => View.arrange(derived(), st, p).find((s) => s.id === "page");
   const s = state({
-    siteMode: "selected",
-    chosenOrigins: ["https://measure.test"],
-    grantedOrigins: ["https://measure.test"],
-    siteWideOrigins: ["https://measure.test"],
+    fence: {
+      entries: ["https://measure.test"],
+      siteWide: ["https://measure.test"],
+      exact: [],
+      exactKnown: true,
+    },
+    livePatterns: ["*://*.measure.test/*"],
   });
   const p = pageSec(s, { origin: "http://measure.test:8766", host: "measure.test", ok: true, kind: "web" });
   assert.notEqual(p.state, "not added");
@@ -514,22 +472,6 @@ test("popup_view: note keys partition by kind and assert pageNoteKey only", () =
   assert.equal(pageSec(s8, { origin: "https://x.com", host: "x.com", ok: true, kind: "web" }).pageNoteKey, "extensionLeftOut");
 });
 
-test("popup_view: grantChosenSites requests exactPatternFor for exact-only entries", async () => {
-  let requested = [];
-  const s = state({
-    siteMode: "selected",
-    chosenOrigins: ["https://example.com", "https://sub.bank.com"],
-    exactOnlyOrigins: ["https://example.com"],
-    siteWideOrigins: ["https://sub.bank.com"],
-  });
-  await View.grantChosenSites(["https://example.com", "https://sub.bank.com"], {
-    status: s,
-    cmd: async () => ({ ok: true }),
-    requestPermission: async (req) => { requested = req.origins; return true; },
-  });
-  assert.deepEqual(requested.sort(), ["*://*.sub.bank.com/*", "*://example.com/*"].sort());
-});
-
 test("a page the app's list also covers offers no include while the app can't be told", () => {
   const derived = () => Status.derive(state(), {});
   const st = state({ siteMode: "selected", excludedHosts: ["bank.com"], appLeftOut: ["bank.com"], leftOutCapable: false });
@@ -540,17 +482,6 @@ test("a page the app's list also covers offers no include while the app can't be
   const capable = View.arrange(derived(), Object.assign({}, st, { leftOutCapable: true }), { origin: "https://bank.com", host: "bank.com", ok: true, kind: "web" })
     .find((s) => s.id === "page");
   assert.equal(capable.siteAction.id, "include-site");
-});
-
-test("allow again asks for an exact-only entry's own address, never the whole site", async () => {
-  const requested = [];
-  const effects = {
-    status: { siteMode: "selected", chosenOrigins: ["https://ex.test"], exactOnlyOrigins: ["https://ex.test"] },
-    requestPermission: async ({ origins }) => { requested.push(...origins); return true; },
-    cmd: async () => ({ ok: true }),
-  };
-  await View.grantChosenSites(["https://ex.test"], effects);
-  assert.deepEqual(requested, ["*://ex.test/*"]);
 });
 
 test("a left-out page covered by the app names the app, not the screen, when neither screen nor activity goes in", () => {
@@ -588,6 +519,8 @@ test("on a phone the popup is one site, one action and one row: the rest needs t
   assert.equal(section(phone.arrange(null, { ...state, paused: true }, page), "page").pauseAction.label, "resume");
   const unpaired = section(phone.arrange(null, { ...state, hostCapture: "not_paired", capturePermitted: false, addSiteEligible: false, lease: null }, page), "verdict");
   assert.notEqual(unpaired.quiet, true);
+  const broadPhone = phone.arrange(null, { ...state, broadGrant: true, fence: null, livePatterns: ["*://*/*"] }, page);
+  assert.equal(section(broadPhone, "page").siteAction.id, "exclude-site");
   const mac = load({ userAgent: "Mozilla/5.0 (Macintosh)", platform: "MacIntel", maxTouchPoints: 0 });
   const onMac = mac.arrange(null, state, page);
   assert.equal(section(onMac, "verdict").quiet, false);
@@ -606,4 +539,63 @@ test("a phone's description doesn't mention a choice the phone doesn't offer", (
   vm.runInContext(readFileSync(new URL("../extension/lib/copy.js", import.meta.url), "utf8"), context);
   assert.doesNotMatch(context.SolstoneCopy.DISCLOSURE_BODY, /all sites|leave sites out|sites you leave out/);
   assert.match(context.SolstoneCopy.DISCLOSURE_BODY, /you add sites one at a time\./);
+});
+
+test("popup_view: fenced every-site, upgrade questions, and permissionsUnavailable", () => {
+  const fenced = state({
+    fence: {
+      entries: ["https://fenced.example"],
+      siteWide: [],
+      exact: ["https://fenced.example"],
+      exactKnown: true,
+      sawMore: false,
+      answered: false,
+    },
+    livePatterns: ["*://*/*"],
+  });
+  const pNotAdded = View.arrange(derived(), fenced, { origin: "https://other.example", host: "other.example", ok: true, kind: "web" })
+    .find((s) => s.id === "page");
+  assert.equal(pNotAdded.siteAction?.id, "add-site");
+  const countSec = View.arrange(derived(), fenced, { origin: "https://other.example", host: "other.example", ok: true, kind: "web" })
+    .find((s) => s.id === "siteCount");
+  assert.doesNotMatch(countSec.text, /every site/);
+
+  const sawMore = state({
+    fence: {
+      entries: ["https://fenced.example"],
+      siteWide: [],
+      exact: [],
+      exactKnown: true,
+      sawMore: true,
+      answered: false,
+    },
+    livePatterns: ["*://*/*"],
+  });
+  const qSec = View.arrange(derived(), sawMore, { origin: "https://fenced.example", host: "fenced.example", ok: true, kind: "web" })
+    .find((s) => s.id === "upgradeQuestion");
+  assert.ok(qSec);
+  assert.equal(qSec.kind, "upgrade-question");
+  const btnIds = qSec.buttons.map((b) => b.id);
+  assert.ok(btnIds.includes("share-every-site") || btnIds.includes("share-them-too"));
+  assert.ok(btnIds.includes("keep-my-sites"));
+
+  const answered = state({
+    fence: {
+      entries: ["https://fenced.example"],
+      siteWide: [],
+      exact: [],
+      exactKnown: true,
+      sawMore: true,
+      answered: true,
+    },
+    livePatterns: ["*://*/*"],
+  });
+  const noQSec = View.arrange(derived(), answered, { origin: "https://fenced.example", host: "fenced.example", ok: true, kind: "web" })
+    .find((s) => s.id === "upgradeQuestion");
+  assert.equal(noQSec, undefined);
+
+  const permUnavail = state({ permissionsUnavailable: true });
+  const pNoAdd = View.arrange(derived(), permUnavail, { origin: "https://other.example", host: "other.example", ok: true, kind: "web" })
+    .find((s) => s.id === "page");
+  assert.equal(pNoAdd.siteAction, null);
 });

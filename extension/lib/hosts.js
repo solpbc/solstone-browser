@@ -323,27 +323,222 @@
     return raw.replace(/^\.+/, "").replace(/\.+$/, "") || null;
   }
 
+  function isBroadPattern(pattern) {
+    const raw = String(pattern || "").trim();
+    return raw === "*://*/*" || raw === "<all_urls>" || raw === "http://*/*" || raw === "https://*/*";
+  }
+
+  function broadLive(patterns) {
+    return (patterns || []).some((p) => isBroadPattern(p));
+  }
+
+  // Section 7.1 plain grammar check.
+  function plainAllow(pattern, url) {
+    let u;
+    try {
+      u = (url instanceof URL) ? url : new URL(String(url));
+    } catch (_e) {
+      return false;
+    }
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+
+    const p = String(pattern || "").trim();
+    if (p === "*://*/*" || p === "<all_urls>") return true;
+    if (p === "http://*/*") return u.protocol === "http:";
+    if (p === "https://*/*") return u.protocol === "https:";
+
+    if (!p.endsWith("/*")) return false;
+
+    let scheme = "";
+    let rest = "";
+    if (p.startsWith("*://")) {
+      scheme = "*";
+      rest = p.slice(4, -2);
+    } else if (p.startsWith("https://")) {
+      scheme = "https";
+      rest = p.slice(8, -2);
+    } else if (p.startsWith("http://")) {
+      scheme = "http";
+      rest = p.slice(7, -2);
+    } else {
+      return false;
+    }
+
+    if (scheme === "https" && u.protocol !== "https:") return false;
+    if (scheme === "http" && u.protocol !== "http:") return false;
+
+    let wildcard = false;
+    if (rest.startsWith("*.")) {
+      wildcard = true;
+      rest = rest.slice(2);
+    }
+
+    if (!rest || rest.includes("*") || rest.includes("/")) return false;
+
+    const { hostname: patternHostRaw, port: patternPort } = splitHost(rest);
+    const patternHost = patternHostRaw.toLowerCase();
+    if (!patternHost) return false;
+
+    if (patternPort) {
+      const uPort = u.port || (u.protocol === "https:" ? "443" : "80");
+      if (uPort !== patternPort) return false;
+    }
+
+    const pageHost = u.hostname.toLowerCase();
+    if (wildcard) {
+      return pageHost === patternHost || pageHost.endsWith(`.${patternHost}`);
+    }
+    return pageHost === patternHost;
+  }
+
+  // Whether a browser grant pattern is accounted for by the fence.
+  function patternAccounted(pattern, fence, leftOutHosts) {
+    if (!fence) return false;
+    const p = String(pattern || "").trim();
+
+    let pHost = null;
+    const mHost = /^(?:\*|https?):\/\/(?:\*\.)?([^/:]+)(?::\d+)?\/\*$/.exec(p);
+    if (mHost && mHost[1] !== "*") {
+      pHost = mHost[1].toLowerCase();
+    }
+    if (pHost && Array.isArray(leftOutHosts) && leftOutHosts.length > 0) {
+      const normalizedPHost = siteHostname(pHost);
+      const isLeftOut = leftOutHosts.some((excluded) => {
+        const exh = siteHostname(excluded);
+        return normalizedPHost === exh || normalizedPHost.endsWith(`.${exh}`);
+      });
+      if (isLeftOut) return true;
+    }
+
+    let h = null;
+    const mWild = /^\*:\/\/\*\.([^/:]+)\/\*$/.exec(p);
+    if (mWild) {
+      h = mWild[1].toLowerCase();
+    } else {
+      const mExact = /^(?:\*|https):\/\/([^/*:]+)\/\*$/.exec(p);
+      if (mExact) {
+        h = mExact[1].toLowerCase();
+      }
+    }
+    if (!h || h === "*") return false;
+
+    const exactSet = new Set(fence.exact || []);
+    const entries = Array.from(fence.entries || []);
+    for (const entry of entries) {
+      let eu;
+      try {
+        eu = new URL(entry);
+      } catch (_e) {
+        continue;
+      }
+      if (eu.protocol === "https:" && !eu.port && eu.hostname.toLowerCase() === h) {
+        if (!exactSet.has(entry)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function fenceAllows(fence, url, livePatterns, excludedHosts = [], appLeftOut = []) {
+    if (!fence) return false;
+    let u;
+    try {
+      u = (url instanceof URL) ? url : new URL(String(url));
+    } catch (_e) {
+      return false;
+    }
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+
+    const rawHost = u.hostname.toLowerCase();
+    const effectiveLeftOut = [...(excludedHosts || []), ...(appLeftOut || [])];
+    if (effectiveLeftOut.some((site) => hostCovers(site, rawHost))) return false;
+
+    const declined = fence.declined || [];
+    if (declined.some((site) => hostCovers(site, rawHost))) return false;
+
+    const exactSet = (fence.exactKnown === false)
+      ? new Set(fence.entries || [])
+      : new Set(fence.exact || []);
+    const siteWideSet = new Set(fence.siteWide || []);
+
+    const entries = Array.from(fence.entries || []);
+    for (const entry of entries) {
+      let entryHost = "";
+      let entryScheme = "";
+      try {
+        const eu = new URL(entry);
+        entryHost = eu.host;
+        entryScheme = eu.protocol;
+      } catch (_e) {
+        continue;
+      }
+      const lvl = grantLevel(entryHost, livePatterns, siteWideSet.has(entry), entryScheme);
+      if (!lvl) continue;
+      if (originCoveredBy(entry, u.origin, exactSet.has(entry), siteWideSet.has(entry))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function beyondExample(fence, patterns, leftOutHosts) {
+    const unaccounted = (patterns || []).filter((p) => !patternAccounted(p, fence, leftOutHosts));
+    if (unaccounted.length === 0) return null;
+    if (unaccounted.some((p) => isBroadPattern(p))) {
+      return { kind: "every" };
+    }
+
+    const fenceHostnames = new Set();
+    for (const entry of (fence?.entries || [])) {
+      try {
+        const u = new URL(entry);
+        if (u.hostname) fenceHostnames.add(u.hostname.toLowerCase());
+      } catch (_e) {}
+    }
+
+    function getPatternHost(p) {
+      const raw = String(p || "").trim();
+      const m = /^(?:\*|https?):\/\/(?:\*\.)?([^/:]+)(?::\d+)?\/\*$/.exec(raw);
+      if (m && m[1] !== "*") return m[1].toLowerCase();
+      return raw;
+    }
+
+    for (const p of unaccounted) {
+      const host = getPatternHost(p);
+      if (host && fenceHostnames.has(host)) {
+        return { kind: "wider", host };
+      }
+    }
+
+    const firstHost = getPatternHost(unaccounted[0]);
+    return { kind: "other", host: firstHost };
+  }
+
   // Owner scope and the browser's broad grant are separate facts. Effective
   // document access is additionally enforced by each browser-mediated read.
   function originGranted(state, origin) {
-    if (state.sitePolicyPending) return false;
+    if (!state || state.sitePolicyPending) return false;
     let url;
-    try { url = new URL(origin); } catch (_e) { return false; }
+    try { url = (origin instanceof URL) ? origin : new URL(origin); } catch (_e) { return false; }
     if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-    const hostname = url.hostname.toLowerCase();
-    const effectiveLeftOut = [...(state.excludedHosts || []), ...(state.appLeftOut || [])];
-    if (effectiveLeftOut.some((site) => hostCovers(site, hostname))) return false;
 
-    if (state.siteMode === "all") {
-      return state.allSitesConsent === ALL_SITES_CONSENT_VERSION && state.broadGranted === true;
+    if (state.fence !== null && state.fence !== undefined) {
+      return fenceAllows(state.fence, url, state.livePatterns, state.excludedHosts, state.appLeftOut);
     }
-    const exactOnly = new Set(state.exactOnlyOrigins || []);
-    const siteWide = new Set(state.siteWideOrigins || []);
-    const pendingRemove = new Set(state.pendingRemoveOrigins || []);
-    return Array.from(state.grantedOrigins || []).some((entry) => {
-      if (pendingRemove.has(entry)) return false;
-      return originCoveredBy(entry, url.origin, exactOnly.has(entry), siteWide.has(entry));
+
+    const siteHost = siteHostname(url.hostname);
+    const leftOutHosts = [...(state.excludedHosts || []), ...(state.appLeftOut || [])];
+    const isLeftOut = leftOutHosts.some((site) => {
+      const exh = siteHostname(site);
+      return siteHost === exh || siteHost.endsWith(`.${exh}`);
     });
+    if (isLeftOut) return false;
+
+    if (Array.isArray(state.livePatterns)) {
+      return state.livePatterns.some((pattern) => plainAllow(pattern, url));
+    }
+    return false;
   }
 
   function isValidHostInput(input) {
@@ -374,6 +569,91 @@
     } catch (_e) { return null; }
   }
 
+  // Snapshot applier bookkeeping for fence exact marks, sawMore, and auto-end.
+  function applySnapshotToFence(fence, appliedPatterns, options = {}) {
+    if (!fence) return { fence: null, ended: false };
+    const { wallNow = Date.now(), tombstoneFiltered = false, leftOutHosts = [] } = options;
+    const applied = appliedPatterns || [];
+    const liveSet = new Set(applied);
+
+    let exact = [...(fence.exact || [])];
+    let exactKnown = fence.exactKnown;
+    if (!exactKnown) {
+      exact = exactScope({
+        chosen: fence.entries || [],
+        live: applied,
+        prior: exact,
+        priorKnown: false,
+      });
+      exactKnown = true;
+    } else {
+      const exactSet = new Set(exact);
+      for (const entry of fence.entries || []) {
+        try {
+          const u = new URL(entry);
+          const h = matchHostFor(u.host);
+          const s = u.protocol.replace(/:$/, "").toLowerCase();
+          const ownExact = liveSet.has(`*://${h}/*`) ||
+            (s === "https" && liveSet.has(`https://${h}/*`)) ||
+            (s === "http" && liveSet.has(`http://${h}/*`));
+          if (ownExact && !exactSet.has(entry)) {
+            exactSet.add(entry);
+            exact.push(entry);
+          }
+        } catch (_e) {}
+      }
+      exact.sort();
+    }
+
+    let sawMore = fence.sawMore || false;
+    let cleanAt = fence.cleanAt ?? null;
+
+    let isClean = true;
+    if (tombstoneFiltered) {
+      isClean = false;
+    }
+
+    for (const pattern of applied) {
+      if (!patternAccounted(pattern, { ...fence, exact, exactKnown }, leftOutHosts)) {
+        sawMore = true;
+        cleanAt = null;
+        isClean = false;
+        break;
+      }
+    }
+
+    if ((fence.entries || []).length > 0 && applied.length === 0) {
+      isClean = false;
+    }
+
+    if (sawMore) {
+      isClean = false;
+    }
+
+    let ended = false;
+    let updatedFence = {
+      ...fence,
+      exact,
+      exactKnown,
+      sawMore,
+      cleanAt,
+    };
+
+    if (isClean) {
+      if (cleanAt === null) {
+        cleanAt = wallNow;
+        updatedFence.cleanAt = cleanAt;
+      } else if (wallNow >= cleanAt) {
+        if (wallNow - cleanAt >= 60000) {
+          ended = true;
+          updatedFence = null;
+        }
+      }
+    }
+
+    return { fence: updatedFence, ended };
+  }
+
   globalThis.SolstoneHosts = {
     splitHost,
     matchHostFor,
@@ -402,5 +682,12 @@
     patternSiteHost,
     classifySiteGrant,
     siteRuleHostPattern,
+    plainAllow,
+    patternAccounted,
+    isBroadPattern,
+    broadLive,
+    fenceAllows,
+    applySnapshotToFence,
+    beyondExample,
   };
 })();

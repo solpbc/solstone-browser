@@ -92,12 +92,13 @@ function setup() {
     },
   });
   c.consentVersion = 1;
-  c.grantedOrigins.add("https://example.com");
+  c.livePatterns = ["*://example.com/*"];
+  c.fence = null;
   c.connect();
   return { c, ports, timers, clock, p: ports[0] };
 }
-async function run(name, fn) {
-  await test(name, async () => {
+function run(name, fn) {
+  test(name, async () => {
     await reset();
     await fn();
   });

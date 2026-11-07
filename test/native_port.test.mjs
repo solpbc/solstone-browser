@@ -18,7 +18,6 @@ await import(new URL("../extension/lib/gate.js", import.meta.url));
 await import(new URL("../extension/lib/left_out.js", import.meta.url));
 await import(new URL("../extension/lib/native_outbox.js", import.meta.url));
 await import(new URL("../extension/lib/native_port.js", import.meta.url));
-await import(new URL("../extension/lib/owner_sites.js", import.meta.url));
 await import(new URL("../extension/lib/router.js", import.meta.url));
 
 const Constants = globalThis.SolstoneNativeBrowserConstants;
@@ -529,7 +528,8 @@ test("port: paused drain delivers the promoted snapshot", async () => {
   });
   c2.paused = true;
   c2.consentVersion = 1;
-  c2.grantedOrigins.add("https://mail.google.com");
+  c2.livePatterns = ["*://mail.google.com/*"];
+  c2.fence = null;
 
   c2.connect();
   await mockPort2.receive({
@@ -1126,6 +1126,8 @@ test("router: caller mutation after route does not affect stored records", async
     runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf",
     connectNative: () => mockPort,
   });
+  port.livePatterns = ["*://mail.google.com/*"];
+  port.fence = null;
 
   port.connect();
   await mockPort.receive({
@@ -1604,16 +1606,10 @@ test("port: getStatus().addSiteEligible evaluates eligibility independently of g
   controller.hostCapture = "permitted";
   controller.capturePermitted = true;
   controller.lease = { token: "tok-1", generation: "gen-1", freshnessMs: 10000, receivedAt: controller.now() };
-  controller.grantedOrigins.clear();
-  controller.ownerSites.reservation = {
-    origin: "https://pending.example",
-    pattern: "*://pending.example/*",
-    expiresAt: controller.now() + 10000,
-  };
 
-  // 1. True with zero grantedOrigins when conditions are met
+  // 1. True with zero livePatterns when conditions are met
   let status = controller.getStatus();
-  assert.equal(status.grantedOrigins.length, 0);
+  assert.equal(status.livePatterns.length, 0);
   assert.equal(status.addSiteEligible, true);
   assert.equal(status.gate.open, false);
   assert.equal(Object.hasOwn(status, "reservation"), false);
@@ -1930,8 +1926,8 @@ test("port: pause-with-app setting on vs off behavior, period_id requirement, an
   const mockPort = new MockPort();
   const controller = new PortController({ inst, runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", connectNative: () => mockPort });
   controller.consentVersion = 1;
-  controller.chosenOrigins.add("https://example.test");
-  controller.grantedOrigins.add("https://example.test");
+  controller.livePatterns = ["*://example.test/*"];
+  controller.fence = null;
   controller.connect();
 
   await mockPort.receive({
@@ -2068,8 +2064,8 @@ test("port: with the setting off, a locked or asleep computer still closes readi
   const mockPort = new MockPort();
   const controller = new PortController({ inst, runtimeId: "fgfnkcefedeheoeamppkiiloncfekakf", connectNative: () => mockPort });
   controller.consentVersion = 1;
-  controller.chosenOrigins.add("https://example.test");
-  controller.grantedOrigins.add("https://example.test");
+  controller.livePatterns = ["*://example.test/*"];
+  controller.fence = null;
   controller.pauseWithApp = false;
   controller.connect();
 
@@ -2186,9 +2182,8 @@ test("port: state frame normalizes left_out list and makes originGranted false f
   const { controller, mockPort, state } = renewalController([]);
   await mockPort.receive(state("hello_ack"));
   controller.consentVersion = 1;
-  controller.siteMode = "selected";
-  controller.chosenOrigins = ["https://example.com", "https://bank.com"];
-  controller.grantedOrigins = new Set(["https://example.com", "https://bank.com"]);
+  controller.livePatterns = ["*://example.com/*", "*://bank.com/*"];
+  controller.fence = null;
   await mockPort.receive({
     ...state("state"),
     left_out: ["www.example.com", "Bank.com", "bank.com.", "*.bank.com"],
@@ -2204,9 +2199,8 @@ test("port: epoch reset migrates raw entries into localExcluded, keeping originG
   const { controller, mockPort, state } = renewalController([]);
   await mockPort.receive(state("hello_ack"));
   controller.consentVersion = 1;
-  controller.siteMode = "selected";
-  controller.chosenOrigins = ["https://example.com", "https://bank.com"];
-  controller.grantedOrigins = new Set(["https://example.com", "https://bank.com"]);
+  controller.livePatterns = ["*://example.com/*", "*://bank.com/*"];
+  controller.fence = null;
   await mockPort.receive({
     ...state("state"),
     left_out: ["*.bank.com", "www.example.com"],
@@ -2260,9 +2254,8 @@ test("port: regression guard - frame [] at rev 6 does not delete local example.c
   const { controller, mockPort, state } = renewalController([]);
   await mockPort.receive(state("hello_ack"));
   controller.consentVersion = 1;
-  controller.siteMode = "selected";
-  controller.chosenOrigins = ["https://example.com"];
-  controller.grantedOrigins = new Set(["https://example.com"]);
+  controller.livePatterns = ["*://example.com/*"];
+  controller.fence = null;
   controller.excludedHosts = ["example.com"];
   await mockPort.receive({
     ...state("state"),
@@ -2285,9 +2278,8 @@ test("port: include(x.com) awaiting save when new-epoch frame drops bank.com ser
   const { controller, mockPort, state } = renewalController([]);
   await mockPort.receive(state("hello_ack"));
   controller.consentVersion = 1;
-  controller.siteMode = "selected";
-  controller.chosenOrigins = ["https://bank.com", "https://x.com"];
-  controller.grantedOrigins = new Set(["https://bank.com", "https://x.com"]);
+  controller.livePatterns = ["*://bank.com/*", "*://x.com/*"];
+  controller.fence = null;
   controller.excludedHosts = ["x.com"];
   let cfg = null;
   controller.persistCfg = async (p) => {

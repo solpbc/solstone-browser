@@ -3,14 +3,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import "fake-indexeddb/auto";
-for (const name of ["native-browser/constants.js", "native-browser/schemas.js", "native-browser/schema-validator.js", "native-browser/codec.js", "lib/uuid.js", "lib/db.js", "lib/blocks.js", "lib/hosts.js", "lib/segment.js", "lib/gate.js", "lib/native_outbox.js", "lib/native_port.js", "lib/owner_sites.js", "lib/router.js", "skim.js"]) await import(new URL("../extension/" + name, import.meta.url));
+for (const name of ["native-browser/constants.js", "native-browser/schemas.js", "native-browser/schema-validator.js", "native-browser/codec.js", "lib/uuid.js", "lib/db.js", "lib/blocks.js", "lib/hosts.js", "lib/segment.js", "lib/gate.js", "lib/native_outbox.js", "lib/native_port.js", "lib/router.js", "skim.js"]) await import(new URL("../extension/" + name, import.meta.url));
 const D=SolstoneDB,R=SolstoneRouter,O=SolstoneNativeOutbox,origin="https://example.test";
 const el=(text,children=[])=>({nodeType:1,tagName:"DIV",checkVisibility:()=>true,matches:()=>false,getAttribute:()=>null,childNodes:text?[{nodeType:3,nodeValue:text}]:[],children});
 async function fixture() {
  for(const store of ["meta","producer","outbox"]) await D.clear(store);
  R.frameBindings.clear(); R.frameChallenges.clear();
  const p=new SolstoneNativePort({inst:"00000000-0000-0000-0000-000000000001",runtimeId:"ext",now:()=>9000});
- p.grantedOrigins.add(origin);p.chosenOrigins.add(origin);p.hostCapture="permitted";p.capturePermitted=true;p.consentVersion=1;p.lease={token:"tok",generation:"gen",freshnessMs:10000,receivedAt:0};p.connectionGeneration=1;p.destinationGeneration="gen";
+ p.livePatterns=["*://example.test/*"];p.fence=null;p.broadGrant=false;p.hostCapture="permitted";p.capturePermitted=true;p.consentVersion=1;p.lease={token:"tok",generation:"gen",freshnessMs:10000,receivedAt:0};p.connectionGeneration=1;p.destinationGeneration="gen";
  async function send(doc,root,expected=true) {
   const sender={id:"ext",tab:{id:doc},frameId:0,documentId:"doc-"+doc,url:origin+"/page",origin};
   const deps={runtimeId:"ext",port:p,confirmRealm:async()=>true};

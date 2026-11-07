@@ -52,14 +52,5 @@ test("contentScriptRegistrationSatisfied absorbs only an existing requested id",
 
 test("an offer that can't be added says why in owner words", () => {
   assert.equal(F.classify("site_excluded", { brand: "safari" }), "this site is left out. stop leaving it out first.");
-  assert.equal(F.classify("declined", { brand: "safari" }), "you chose not to add this site. to add it, allow it in Safari again.");
   assert.equal(F.classify("permissions_unavailable", { brand: "chrome" }), "couldn't check what Chrome allows. try again.");
-});
-
-test("an adopted site is announced by site, with whole-site wording for a whole-site grant", () => {
-  const C = globalThis.SolstoneCopy;
-  assert.equal(C.adoptedAnnouncement("safari", [{ host: "measure.test", siteWide: true }]),
-    "all measure.test sites and pages added. you allowed them in Safari. what you share there goes into your journal.");
-  assert.equal(C.adoptedAnnouncement("safari", [{ host: "localhost", siteWide: true }]),
-    "localhost added. you allowed it in Safari. what you share there goes into your journal.");
 });

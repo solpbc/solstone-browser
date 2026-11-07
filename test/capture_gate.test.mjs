@@ -264,6 +264,8 @@ test("gate: deferred callbacks stay closed", async () => {
             paused: false,
             consentVersion: 1,
             grantedOrigins: ["https://mail.google.com"],
+        livePatterns: ["*://mail.google.com/*"],
+            livePatterns: ["*://mail.google.com/*"],
             showPageIndicator: false,
             hostCapture: "permitted",
             capturePermitted: true,
@@ -331,6 +333,7 @@ test("gate: deferred callbacks stay closed", async () => {
         paused: false,
         consentVersion: 1,
         grantedOrigins: [],
+        livePatterns: [],
         showIndicator: false,
         hostCapture: "permitted",
       },
@@ -356,6 +359,7 @@ test("gate: deferred callbacks stay closed", async () => {
         paused: false,
         consentVersion: 1,
         grantedOrigins: ["https://mail.google.com"],
+        livePatterns: ["*://mail.google.com/*"],
         showIndicator: false,
         hostCapture: "permitted",
       },
@@ -517,6 +521,8 @@ test("gate: solicited response after grantRequestMono + freshnessMs does not cal
             paused: false,
             consentVersion: 1,
             grantedOrigins: ["https://mail.google.com"],
+        livePatterns: ["*://mail.google.com/*"],
+            livePatterns: ["*://mail.google.com/*"],
             showPageIndicator: false,
             hostCapture: "permitted",
             capturePermitted: true,
@@ -632,6 +638,7 @@ test("gate: resnapshot message makes 0 discover/skim calls when closed, 1 when o
       paused: false,
       consentVersion: 1,
       grantedOrigins: ["https://mail.google.com"],
+      livePatterns: ["*://mail.google.com/*"],
       showIndicator: false,
       hostCapture: "permitted",
       capturePermitted: true,
@@ -647,6 +654,7 @@ test("gate: resnapshot message makes 0 discover/skim calls when closed, 1 when o
     paused: false,
     consentVersion: 1,
     grantedOrigins: ["https://mail.google.com"],
+    livePatterns: ["*://mail.google.com/*"],
     showPageIndicator: false,
     hostCapture: "permitted",
     capturePermitted: true,
@@ -669,6 +677,7 @@ test("gate: resnapshot message makes 0 discover/skim calls when closed, 1 when o
       paused: false,
       consentVersion: 1,
       grantedOrigins: ["https://mail.google.com"],
+      livePatterns: ["*://mail.google.com/*"],
       showIndicator: false,
       hostCapture: "paused",
       capturePermitted: false,
@@ -690,7 +699,7 @@ test("the page marker says on only while the page is read", async () => {
   let marker = "none";
   const granted = ["https://mail.google.com"];
   const openState = { lease: { token: "t1", generation: "gen-1", freshnessMs: 10000 }, paused: false, consentVersion: 1,
-    grantedOrigins: granted, showPageIndicator: true, hostCapture: "permitted", capturePermitted: true };
+    grantedOrigins: granted, livePatterns: ["*://mail.google.com/*"], showPageIndicator: true, hostCapture: "permitted", capturePermitted: true };
   const sandbox = {
     globalThis: null, console, crypto,
     performance: { now: () => 1000 },
@@ -724,7 +733,7 @@ test("the page marker says on only while the page is read", async () => {
   update({ lease: null, hostCapture: null, capturePermitted: false });
   assert.equal(marker, "none");
   // The owner leaves the site out (all sites, this host excluded).
-  update({ lease: openState.lease, siteMode: "all", allSitesConsent: 1, broadGranted: true, excludedHosts: ["mail.google.com"] });
+  update({ lease: openState.lease, broadGrant: true, livePatterns: ["*://*/*"], excludedHosts: ["mail.google.com"] });
   assert.equal(marker, "none");
   // Pausing and resuming never paints a left-out page.
   send({ kind: "setPaused", paused: true });
@@ -732,6 +741,6 @@ test("the page marker says on only while the page is read", async () => {
   send({ kind: "setPaused", paused: false });
   assert.equal(marker, "none");
   // On a shared page, a pause shows paused.
-  update({ lease: null, siteMode: "selected", paused: true });
+  update({ lease: null, broadGrant: false, livePatterns: ["*://mail.google.com/*"], paused: true, excludedHosts: [] });
   assert.equal(marker, "paused");
 });

@@ -33,50 +33,39 @@
       else await refresh();
       return true;
     }
-    if (action.id === "allow-again" || action.id === "allow-again-all") {
-      // Giving the browser's access back to a site the owner already chose
-      // needs no app or pause check, so it asks the browser straight away.
-      const origins = action.id === "allow-again-all" ? (effects.inactiveOrigins?.() || []) : [action.origin];
-      const result = effects.grantChosen ? await effects.grantChosen(origins) : await effects.grantSite(action.origin);
-      if (result?.denied) effects.showDenied(action);
-      else if (result?.error) effects.showError(result.error);
+    if (action.id === "retry-all-sites") {
+      const result = await cmd({ cmd: "retryAllSites" });
+      if (result?.error || result?.ok === false) effects.showError(result?.error || "storage_error");
+      await refresh();
+      return true;
+    }
+    if (action.id === "share-every-site") {
+      const result = await cmd({ cmd: "shareEverySite" });
+      if (result?.error || result?.ok === false) effects.showError(result?.error || "storage_error");
+      await refresh();
+      return true;
+    }
+    if (action.id === "share-them-too") {
+      const result = await cmd({ cmd: "shareThemToo" });
+      if (result?.error || result?.ok === false) effects.showError(result?.error || "storage_error");
+      await refresh();
+      return true;
+    }
+    if (action.id === "keep-my-sites") {
+      const result = await cmd({ cmd: "keepMySites" });
+      if (result?.error || result?.ok === false) effects.showError(result?.error || "storage_error");
       await refresh();
       return true;
     }
     if (action.id === "remove-site") {
       const result = await cmd({ cmd: "removeGrantedOrigin", origin: action.origin });
-      if (result?.error || result?.ok === false) effects.showError(result.error || "storage_error");
-      await refresh();
-      return true;
-    }
-    if (action.id === "allow-all-sites") {
-      const result = await effects.allowAllSites();
-      if (result?.denied) effects.showDenied(action);
-      else if (result?.error) effects.showError(result.error);
-      await refresh();
-      return true;
-    }
-    if (action.id === "retry-all-sites") {
-      const result = await cmd({ cmd: "refreshSiteAccess" });
-      if (result?.error) effects.showError(result.error);
+      if (result?.error || result?.saved === false || result?.ok === false) effects.showError(result?.error || "storage_error");
       await refresh();
       return true;
     }
     if (action.id === "exclude-site" || action.id === "include-site" || action.id === "leave-out") {
       const result = await cmd({ cmd: "setLeftOut", host: action.host || action.origin, out: action.id !== "include-site" });
       if (result?.error || result?.ok === false) effects.showError(result.error || "storage_error");
-      await refresh();
-      return true;
-    }
-    if (action.id === "offer-add") {
-      const result = await cmd({ cmd: "adoptOffer", origin: action.origin });
-      if (result?.error || result?.ok === false) effects.showError(result?.error || "storage_error");
-      await refresh();
-      return true;
-    }
-    if (action.id === "offer-decline") {
-      const result = await cmd({ cmd: "declineOffer", origin: action.origin });
-      if (result?.error || result?.ok === false) effects.showError(result?.error || "storage_error");
       await refresh();
       return true;
     }

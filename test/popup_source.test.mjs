@@ -138,9 +138,10 @@ function popupState(overrides = {}) {
     lossNotice: null,
     paused: false,
     consentVersion: 1,
-    chosenOrigins: ["https://mail.google.com"],
-    grantedOrigins: ["https://mail.google.com"],
-    inactiveOrigins: [],
+    livePatterns: ["*://*.mail.google.com/*"],
+    fence: null,
+    excludedHosts: [],
+    appLeftOut: [],
     showPageIndicator: false,
     updateCheck: "no-update",
     capturePermitted: true,
@@ -301,7 +302,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   assert.equal(nodes.siteCount.hidden, true);
 
   tabQuery = async () => [{ id: 7, url: "https://mail.google.com/inbox" }];
-  liveState = popupState({ chosenOrigins: [], grantedOrigins: [] });
+  liveState = popupState({ livePatterns: [] });
   await globalThis.SolstonePopup.refresh();
 
   let before = sent.length;
@@ -327,8 +328,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   handleCommand = (message) => {
     if (message.cmd === "addGrantedOrigin") {
       liveState = popupState({
-        chosenOrigins: ["https://mail.google.com"],
-        grantedOrigins: ["https://mail.google.com"],
+        livePatterns: ["*://*.mail.google.com/*"],
         registration: { "https://mail.google.com": "reload" },
       });
       return { ok: false, error: rawRegistrationError };
@@ -361,8 +361,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
   const origin = "https://mail.google.com";
   const status = (captureEpoch, overrides = {}) => popupState({
     captureEpoch,
-    chosenOrigins: [origin],
-    grantedOrigins: [origin],
+    livePatterns: ["*://*.mail.google.com/*"],
     ...overrides,
   });
   statusListener({type:"status", status:status(10)});
@@ -418,7 +417,7 @@ test("the popup binder keeps refresh and add-action failure paths honest", async
 
   // Popup get-app uses the exact app URL with no search string.
   statusListener({type:"status", status:popupState({
-    captureEpoch:17, connected:false, everConnected:false, chosenOrigins:[], grantedOrigins:[],
+    captureEpoch:17, connected:false, everConnected:false, livePatterns:[],
   })});
   await new Promise((resolve) => setImmediate(resolve));
   await nodes.verdictActions.children[0].listeners.click();
@@ -477,7 +476,7 @@ test("an open popup shows the app's answer even when the status channel stays si
   };
   const host = "example.com";
   const desktop = { screen: true, activity: true, sites: "on" };
-  let liveState = popupState({ brand: "safari", captureEpoch: 5, chosenOrigins: [], grantedOrigins: [], excludedHosts: [host], appLeftOut: [], desktop });
+  let liveState = popupState({ brand: "safari", captureEpoch: 5, livePatterns: [], fence: null, excludedHosts: [host], appLeftOut: [], desktop });
   let connects = 0;
   globalThis.chrome = {
     runtime: {
@@ -505,7 +504,7 @@ test("an open popup shows the app's answer even when the status channel stays si
   // nothing arrives on the channel.
   liveState = { ...liveState, appLeftOut: [host] };
   await timers.shift()();
-  assert.equal(nodes.pageNote.textContent, Copy.appLeftOutSitesOn("safari"));
+  assert.equal(nodes.pageNote.textContent, Copy.appLeftOutSitesOn);
   assert.equal(timers.length, 1, "the read is scheduled again");
 
   // An unchanged state is not repainted, so focus and controls stay put.

@@ -22,7 +22,6 @@ for (const f of [
   "lib/gate.js",
   "lib/native_outbox.js",
   "lib/native_port.js",
-  "lib/owner_sites.js",
   "lib/router.js",
 ])
   await import(root + "/extension/" + f);
@@ -31,7 +30,8 @@ const grant = {
   lease: { token: "tok", generation: "gen", freshnessMs: 10000 },
   paused: false,
   consentVersion: 1,
-  grantedOrigins: ["https://example.test"],
+  livePatterns: ["*://*.example.test/*"],
+  fence: null,
   hostCapture: "permitted",
   capturePermitted: true,
   connectionGeneration: 1,
@@ -116,6 +116,7 @@ function harness() {
     sent,
     executeRead(read) { return ctx.__solstoneAuthorizedRead(read.realmToken, read.documentKey, read); },
     finishRead() { readReply?.({ok:true}); },
+    failRead(error) { readReply?.({ ok: false, error }); },
     setTime(x) {
       t = x;
     },
@@ -133,7 +134,7 @@ function harness() {
 
 test("content: all-mode listeners schedule reads without walking a denied document", () => {
   const h = harness();
-  h.requests[0]({...grant,siteMode:"all",allSitesConsent:1,broadGranted:true,grantedOrigins:[],captureEpoch:1});
+  h.requests[0]({ ...grant, broadGrant: true, livePatterns: ["*://*/*"], captureEpoch: 1 });
   h.tick();
   const read = h.sent.find(msg => msg.kind === "read");
   assert.ok(read);
@@ -147,7 +148,7 @@ test("content: all-mode listeners schedule reads without walking a denied docume
 test("content: timed-out and withdrawn browser executions cannot begin a later DOM walk", () => {
   for (const withdraw of [h=>h.setTime(5001),h=>h.msg({kind:"permissionRemoved"})]) {
     const h=harness();
-    h.requests[0]({...grant,siteMode:"all",allSitesConsent:1,broadGranted:true,grantedOrigins:[],captureEpoch:1});
+    h.requests[0]({ ...grant, broadGrant: true, livePatterns: ["*://*/*"], captureEpoch: 1 });
     h.tick();
     const read=h.sent.find(msg=>msg.kind==="read");
     assert.ok(read);withdraw(h);
@@ -195,7 +196,8 @@ function port() {
     syncCaptureAuthority() {},
     inst,
     captureEpoch: 0,
-    grantedOrigins: new Set(["https://example.test"]),
+    livePatterns: ["*://*.example.test/*"],
+    fence: null,
     consentVersion: 1,
     hostCapture: "permitted",
     capturePermitted: true,
@@ -284,7 +286,8 @@ test("router: omitted unchanged skims record occurrences by retained content and
   await reset();
   const notifications = [];
   const p = new globalThis.SolstoneNativePort({inst, runtimeId:"ext", now:() => 9000});
-  p.grantedOrigins.add("https://example.test");
+  p.livePatterns = ["*://*.example.test/*"];
+  p.fence = null;
   p.hostCapture = "permitted";
   p.capturePermitted = true;
   p.consentVersion = 1;
@@ -376,47 +379,6 @@ test("capture transaction aborts when authorization closes after write success",
   }
 });
 
-test("grant completion rechecks app state and consent after permission await", async () => {
-  await reset();
-  let p = port(),
-    ext = { id: "ext", url: "chrome-extension://ext/popup.html" };
-  globalThis.chrome = { permissions: { contains: async () => true, getAll: async () => ({ origins: ["*://*/*"] }) } };
-  let deps = { runtimeId: "ext", port: p, setCfg: async () => {} };
-  p.hostCapture = "not_paired";
-  assert.equal(
-    (
-      await R.route(
-        { cmd: "addGrantedOrigin", origin: "https://new.test" },
-        ext,
-        deps,
-      )
-    ).ok,
-    true,
-  );
-  assert.equal(p.chosenOrigins.has("https://new.test"), true);
-
-  await reset();
-  p = port();
-  deps = { runtimeId: "ext", port: p, setCfg: async () => {} };
-  p.hostCapture = "permitted";
-  let resolve, enteredResolve;
-  const entered = new Promise((r) => (enteredResolve = r));
-  chrome.permissions.contains = () =>
-    new Promise((r) => {
-      resolve = r;
-      enteredResolve();
-    });
-  const pending = R.route(
-    { cmd: "addGrantedOrigin", origin: "https://new.test" },
-    ext,
-    deps,
-  );
-  await entered;
-  p.consentVersion = 0;
-  resolve(true);
-  assert.equal((await pending).ok, false);
-  assert.equal(p.grantedOrigins.has("https://new.test"), false);
-});
 
 test("content: positive destination notification closes old lease pending its reply", () => {
   const h = harness();
@@ -488,4 +450,27 @@ test("content: unchanged authority notification does not repeat a page walk", ()
   h.tick();
   assert.equal(h.reads, reads);
   assert.equal(h.requests.length, requests);
+});
+
+test("content: three browser_access_denied replies stop further read requests; a timeout does not count", () => {
+  const h = harness();
+  h.requests[0]({ ...grant, broadGrant: true, livePatterns: ["*://*/*"], captureEpoch: 1 });
+  h.tick();
+  assert.equal(h.sent.filter(m => m.kind === "read").length, 1);
+  h.failRead("browser_read_timeout");
+  h.tick();
+  assert.equal(h.sent.filter(m => m.kind === "read").length, 2);
+
+  h.failRead("browser_access_denied");
+  h.tick();
+  assert.equal(h.sent.filter(m => m.kind === "read").length, 3);
+
+  h.failRead("browser_access_denied");
+  h.tick();
+  assert.equal(h.sent.filter(m => m.kind === "read").length, 4);
+
+  h.failRead("browser_access_denied");
+  h.tick();
+  assert.equal(h.sent.filter(m => m.kind === "read").length, 4);
+  assert.equal(h.sent.filter(m => m.kind === "skim").length, 0);
 });

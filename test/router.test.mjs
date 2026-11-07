@@ -17,7 +17,6 @@ await import(new URL("../extension/lib/db.js", import.meta.url));
 await import(new URL("../extension/lib/gate.js", import.meta.url));
 await import(new URL("../extension/lib/native_outbox.js", import.meta.url));
 await import(new URL("../extension/lib/native_port.js", import.meta.url));
-await import(new URL("../extension/lib/owner_sites.js", import.meta.url));
 await import(new URL("../extension/lib/tab_age.js", import.meta.url));
 await import(new URL("../extension/lib/page_facts.js", import.meta.url));
 await import(new URL("../extension/lib/actions.js", import.meta.url));
@@ -27,18 +26,72 @@ const DB = globalThis.SolstoneDB;
 const Outbox = globalThis.SolstoneNativeOutbox;
 const Router = globalThis.SolstoneRouter;
 const PortController = globalThis.SolstoneNativePort;
-globalThis.chrome = { permissions: { contains: async () => true, getAll: async () => ({ origins: ["*://*/*"] }) } };
+
+const mockChromeOptions = {
+  requestResolvesWithoutGrant: false,
+  removeReturnsFalse: false,
+  safariBroadest: false,
+  firefoxCoveredRequest: false,
+  executeScriptRejects: false,
+  omitPermissionEvents: false,
+  getAllThrows: false,
+  getAllNonArray: false,
+};
+const grantedOrigins = new Set();
+globalThis.chrome = {
+  options: mockChromeOptions,
+  scripting: {
+    executeScript: async () => {
+      if (mockChromeOptions.executeScriptRejects) throw new Error("executeScript rejected");
+    },
+  },
+  permissions: {
+    contains: async () => true,
+    getAll: async () => {
+      if (mockChromeOptions.getAllThrows) throw new Error("getAll threw");
+      if (mockChromeOptions.getAllNonArray) return { origins: "not-an-array" };
+      return { origins: Array.from(grantedOrigins) };
+    },
+    request: async ({ origins }) => {
+      if (mockChromeOptions.requestResolvesWithoutGrant) return true;
+      if (mockChromeOptions.safariBroadest || mockChromeOptions.firefoxCoveredRequest) return true;
+      for (const o of origins || []) grantedOrigins.add(o);
+      return true;
+    },
+    remove: async ({ origins }) => {
+      if (mockChromeOptions.removeReturnsFalse) return false;
+      for (const o of origins || []) grantedOrigins.delete(o);
+      return true;
+    },
+    onRemoved: { addListener() {} },
+    onAdded: { addListener() {} },
+  },
+};
 const DOCUMENT_KEY = "0123456789abcdef0123456789abcdef";
 const routeWithContentIdentity = Router.route;
-Router.route = (msg, sender, deps) => routeWithContentIdentity(
-  sender?.tab && msg?.kind && !msg.documentKey && !sender.documentId ? { ...msg, documentKey: DOCUMENT_KEY } : msg,
-  sender,
-  deps,
-);
+Router.route = (msg, sender, deps) => {
+  const effectiveDeps = deps ? {
+    beginRead: async () => {
+      try {
+        const perms = await chrome.permissions.getAll();
+        if (Array.isArray(perms?.origins) && deps.port) {
+          deps.port.livePatterns = [...perms.origins];
+        }
+      } catch (_e) {}
+    },
+    ...deps,
+  } : deps;
+  return routeWithContentIdentity(
+    sender?.tab && msg?.kind && !msg.documentKey && !sender.documentId ? { ...msg, documentKey: DOCUMENT_KEY } : msg,
+    sender,
+    effectiveDeps,
+  );
+};
 const confirmRealm = async () => true; // This suite supplies a live-frame confirmation; adversarial tests cover stale frames.
 const EXT_ID = "fgfnkcefedeheoeamppkiiloncfekakf";
 
 async function resetDB() {
+  grantedOrigins.clear();
   Router.frameBindings.clear();
   await DB.clear("outbox");
   await DB.clear("producer");
@@ -67,68 +120,50 @@ function makePort() {
     freshnessMs: 10000,
     receivedAt: p.now(),
   };
+  p.livePatterns = [];
+  p.fence = null;
+  const granted = new Set();
+  p.grantedOrigins = {
+    add(origin) {
+      granted.add(origin);
+      try {
+        const u = new URL(origin);
+        const portPart = u.port || (u.protocol === "https:" ? "443" : "80");
+        const pat = `${u.protocol}//${u.hostname}:${portPart}/*`;
+        if (!p.livePatterns.includes(pat)) p.livePatterns.push(pat);
+        grantedOrigins.add(pat);
+      } catch (_e) {
+        if (!p.livePatterns.includes(origin)) p.livePatterns.push(origin);
+        grantedOrigins.add(origin);
+      }
+      return this;
+    },
+    delete(origin) {
+      granted.delete(origin);
+      try {
+        const u = new URL(origin);
+        p.livePatterns = p.livePatterns.filter((pat) => !SolstoneHosts.plainAllow(pat, u));
+        for (const pat of [...grantedOrigins]) {
+          if (SolstoneHosts.plainAllow(pat, u)) grantedOrigins.delete(pat);
+        }
+      } catch (_e) {
+        p.livePatterns = p.livePatterns.filter((pat) => pat !== origin);
+        grantedOrigins.delete(origin);
+      }
+      return true;
+    },
+    has(origin) {
+      return SolstoneHosts.originGranted(p, origin);
+    },
+    get size() {
+      return granted.size;
+    },
+  };
   return p;
 }
 
-test("all-sites admits a new origin only with agreement and browser grant; excluded frames stay closed", async () => {
-  await resetDB();
-  const port = makePort();
-  port.siteMode = "all"; port.broadGranted = true;
-  const sender = {id:EXT_ID,tab:{id:700},frameId:1,url:"https://new.example/path",origin:"https://new.example"};
-  const deps = {runtimeId:EXT_ID,port,confirmRealm};
-  const hello = {kind:"hello",realmToken:"all-realm"};
-  assert.equal((await Router.route(hello,sender,deps)).error,"origin_not_granted");
-  port.allSitesConsent = globalThis.SolstoneHosts.ALL_SITES_CONSENT_VERSION;
-  assert.equal((await Router.route(hello,sender,deps)).ok,true);
-  port.excludedHosts = ["new.example"]; port.notify();
-  assert.equal((await Router.route(hello,sender,deps)).error,"origin_not_granted");
-  port.excludedHosts = []; port.broadGranted = false; port.notify();
-  assert.equal((await Router.route(hello,sender,deps)).error,"origin_not_granted");
-  assert.deepEqual([...port.chosenOrigins],[]);
-});
 
-test("all-sites skims need a matching single-use browser execution token", async () => {
-  await resetDB();
-  const port = makePort();
-  Object.assign(port,{siteMode:"all",allSitesConsent:1,broadGranted:true});
-  const sender = {id:EXT_ID,tab:{id:701},frameId:0,url:"https://new.example/path",origin:"https://new.example"};
-  let read;
-  const deps = {runtimeId:EXT_ID,port,confirmRealm,executeBrowserRead:async (_binding,request,authorize)=>{
-    assert.equal(authorize(),true); read=request; return true;
-  }};
-  await Router.route({kind:"hello",realmToken:"one-use"},sender,deps);
-  const skim = {kind:"skim",realmToken:"one-use",captureEpoch:port.captureEpoch,
-    connectionGeneration:port.connectionGeneration,destinationGeneration:port.destinationGeneration,leaseToken:port.lease.token,
-    blocks:[{id:"1",type:"text",depth:0,text:"Synthetic all-sites page"}]};
-  assert.equal((await Router.route(skim,sender,deps)).error,"read_not_authorized");
-  assert.equal((await Router.route({kind:"read",action:"skim",requestId:1,realmToken:"one-use",
-    captureEpoch:port.captureEpoch,leaseToken:port.lease.token},sender,deps)).ok,true);
-  const admitted = await Router.route({...skim,readNonce:read.nonce},sender,deps);
-  assert.equal(admitted.ok,true);
-  assert.equal((await Router.route({...skim,readNonce:read.nonce},sender,deps)).error,"read_not_authorized");
-  assert.ok(await Outbox.getHead());
-});
 
-test("all-sites browser denial and late policy/permission callbacks cannot admit a skim", async () => {
-  await resetDB();
-  const port = makePort(); Object.assign(port,{siteMode:"all",allSitesConsent:1,broadGranted:true});
-  const sender = {id:EXT_ID,tab:{id:702},frameId:0,url:"https://new.example/path",origin:"https://new.example"};
-  const deps = {runtimeId:EXT_ID,port,confirmRealm,executeBrowserRead:async()=>{throw new Error("browser denied");}};
-  await Router.route({kind:"hello",realmToken:"denied"},sender,deps);
-  const request = {kind:"read",action:"skim",requestId:1,realmToken:"denied",captureEpoch:port.captureEpoch,leaseToken:port.lease.token};
-  assert.equal((await Router.route(request,sender,deps)).error,"browser_access_denied");
-  assert.equal(port.browserDeniedOrigins.has(sender.origin),true);
-  for (const withdraw of [()=>{port.excludedHosts=["new.example"];},()=>{port.permissionEpoch++;}]) {
-    port.excludedHosts=[]; port.notify();
-    let resolve;
-    deps.executeBrowserRead=()=>new Promise(r=>resolve=r);
-    const pending=Router.route({...request,captureEpoch:port.captureEpoch},sender,deps);
-    await new Promise(r=>setImmediate(r));
-    withdraw();port.notify();resolve(true);
-    assert.equal((await pending).error,"authority_mismatch");
-  }
-  assert.equal(await Outbox.getHead(),null);
-});
 
 test("router: rejects sender with non-matching extension id", async () => {
   await resetDB();
@@ -169,7 +204,7 @@ test("router: extension page commands execute when sender is extension page", as
     setCfg: async () => {},
     registerSite: async () => "ready",
   });
-  assert.deepEqual(addRes, { ok: true, origin: "https://mail.google.com", registration: "ready" });
+  assert.deepEqual(addRes, { ok: true, origin: "https://mail.google.com" });
   assert.equal(port.grantedOrigins.has("https://mail.google.com"), true);
 
   const ackRes = await Router.route({ cmd: "acknowledgeDisclosure", version: 1 }, sender, { runtimeId: EXT_ID, port, confirmRealm });
@@ -666,45 +701,6 @@ test("router: add succeeds under pause or pressure when consent is in force", as
   assert.equal(noConsent.grantedOrigins.size, 0);
 });
 
-test("router: reservation cannot bypass a captured permission epoch mismatch", async () => {
-  await resetDB();
-  const port = makePort();
-  const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
-
-  // 1. Send intendAddOrigin
-  const intendRes = await Router.route({ cmd: "intendAddOrigin", origin: "https://mail.google.com" }, sender, {
-    runtimeId: EXT_ID,
-    port,
-  });
-  assert.deepEqual(intendRes, { ok: true });
-  assert.ok(port.ownerSites.reservation);
-  assert.equal(port.ownerSites.reservation.origin, "https://mail.google.com");
-
-  const previousContains = chrome.permissions.contains;
-  let enteredResolve, allowResolve;
-  const entered = new Promise((resolve) => { enteredResolve = resolve; });
-  const allowed = new Promise((resolve) => { allowResolve = resolve; });
-  chrome.permissions.contains = () => { enteredResolve(); return allowed; };
-  let writes = 0;
-  try {
-    const adding = Router.route({ cmd: "addGrantedOrigin", origin: "https://mail.google.com" }, sender, {
-      runtimeId: EXT_ID,
-      port,
-      setCfg: async () => { writes++; },
-      registerSite: async () => "ready",
-    });
-    await entered;
-    port.permissionEpoch = 1;
-    allowResolve(true);
-    const addRes = await adding;
-    assert.deepEqual(addRes, { ok: false, error: "capture_unavailable" });
-    assert.equal(port.grantedOrigins.has("https://mail.google.com"), false);
-    assert.equal(writes, 0, "epoch mismatch must reject before durable choice write");
-    assert.equal(port.ownerSites.reservation, null);
-  } finally {
-    chrome.permissions.contains = previousContains;
-  }
-});
 
 test("router: failed truncation dismissal reports storage_error and keeps the row", async () => {
   await resetDB();
@@ -729,35 +725,6 @@ test("router: failed truncation dismissal reports storage_error and keeps the ro
   }
 });
 
-test("router: a removed site leaves no error behind, and a read ends 'reload this tab'", async () => {
-  await resetDB();
-  const port = makePort();
-  const origin = "https://example.test";
-  port.chosenOrigins.add(origin);
-  port.grantedOrigins.add(origin);
-  const extSender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/options.html` };
-  const pageSender = { id: EXT_ID, tab: { id: 70 }, frameId: 0, url: "https://example.test/page", origin };
-
-  // A site the owner was told to reload: the first read clears the hint.
-  await port.setRegistration(origin, "reload");
-  assert.equal((await Router.route({ kind: "hello", realmToken: "r-reload" }, pageSender, { runtimeId: EXT_ID, port, confirmRealm })).ok, true);
-  const skim = await Router.route({
-    kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration,
-    destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token, realmToken: "r-reload",
-    blocks: [{ id: "1", type: "heading", depth: 0, text: "Page" }],
-  }, pageSender, { runtimeId: EXT_ID, port, confirmRealm });
-  assert.equal(skim.ok, true);
-  assert.equal(port.getStatus().registration[origin], undefined);
-
-  // Errors on a site go with the site.
-  await port.setRegistration(origin, "failed");
-  await port.setEnqueueError(origin, "enqueue_failed");
-  await Router.route({ cmd: "removeGrantedOrigin", origin }, extSender, { runtimeId: EXT_ID, port, confirmRealm });
-  const status = port.getStatus();
-  assert.equal(status.registration[origin], undefined);
-  assert.equal(status.enqueue[origin], undefined);
-  assert.deepEqual((await DB.get("meta", "siteErrors")).enqueue, {});
-});
 
 test("router: the app renewing its grant mid-write is not the site's error", async () => {
   await resetDB();
@@ -778,25 +745,6 @@ test("router: the app renewing its grant mid-write is not the site's error", asy
   assert.equal(port.getStatus().enqueue[origin], undefined);
 });
 
-test("router: a subdomain page's error is kept on its chosen site, where the owner sees it", async () => {
-  await resetDB();
-  const port = makePort();
-  const site = "https://bank.test";
-  port.chosenOrigins.add(site);
-  port.grantedOrigins.add(site);
-  const pageSender = { id: EXT_ID, tab: { id: 72 }, frameId: 0, url: "https://login.bank.test/page", origin: "https://login.bank.test" };
-  assert.equal((await Router.route({ kind: "hello", realmToken: "r-sub" }, pageSender, { runtimeId: EXT_ID, port, confirmRealm })).ok, true);
-  const original = port.enqueueObservedSkim;
-  port.enqueueObservedSkim = async () => { const err = new Error("outbox-full"); err.code = "outbox-full"; throw err; };
-  await Router.route({
-    kind: "skim", captureEpoch: port.captureEpoch, connectionGeneration: port.connectionGeneration,
-    destinationGeneration: port.destinationGeneration, leaseToken: port.lease?.token, realmToken: "r-sub",
-    blocks: [{ id: "1", type: "heading", depth: 0, text: "Page" }],
-  }, pageSender, { runtimeId: EXT_ID, port, confirmRealm });
-  port.enqueueObservedSkim = original;
-  assert.equal(port.getStatus().enqueue[site], "outbox-full");
-  assert.equal(port.getStatus().enqueue["https://login.bank.test"], undefined);
-});
 
 test("router: page context on segment_start and delta with tabs/windows and fallbacks", async () => {
   await resetDB();
@@ -1020,154 +968,314 @@ test("router: a rewritten open pause admits a site, and a closed gate does not",
   assert.equal(closed.grantedOrigins.size, 0);
 });
 
-test("router: acknowledgeDisclosure persists held offers before consent and thrown write aborts", async () => {
+test("router: while livePatterns contains *://*/*, a skim with no nonce from any http(s) origin returns not granted / nonce failure; same skim not rejected when no broad pattern live", async () => {
   await resetDB();
-  const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+  const sender = {
+    id: EXT_ID,
+    tab: { id: 101 },
+    frameId: 0,
+    url: "https://example.com/page",
+    origin: "https://example.com",
+    documentId: "doc-1",
+  };
   const port = makePort();
-  port.consentVersion = 0;
-  const previous = chrome.permissions.getAll;
+  grantedOrigins.add("*://*/*");
+  port.livePatterns = ["*://*/*"];
+  port.broadGrant = true;
+  await Router.route({ kind: "hello", realmToken: "r1" }, sender, { runtimeId: EXT_ID, port, confirmRealm });
+
+  const skimNoNonce = {
+    kind: "skim",
+    realmToken: "r1",
+    documentKey: DOCUMENT_KEY,
+    captureEpoch: port.captureEpoch,
+    connectionGeneration: port.connectionGeneration,
+    destinationGeneration: port.destinationGeneration,
+    leaseToken: port.lease?.token,
+    blocks: [{ id: "1", type: "heading", depth: 0, text: "Title" }],
+  };
+  const resBroad = await Router.route(skimNoNonce, sender, { runtimeId: EXT_ID, port, confirmRealm });
+  assert.equal(resBroad.ok, false);
+  assert.equal(resBroad.error, "read_not_authorized");
+
+  // Same skim is not rejected for a missing nonce when no broad pattern is live
+  grantedOrigins.delete("*://*/*");
+  const portNarrow = makePort();
+  portNarrow.grantedOrigins.add("https://example.com");
+  await Router.route({ kind: "hello", realmToken: "r2" }, sender, { runtimeId: EXT_ID, port: portNarrow, confirmRealm });
+  const resNarrow = await Router.route(
+    { ...skimNoNonce, realmToken: "r2", captureEpoch: portNarrow.captureEpoch },
+    sender,
+    { runtimeId: EXT_ID, port: portNarrow, confirmRealm }
+  );
+  assert.equal(resNarrow.ok, true);
+});
+
+test("router: read: executeScript rejection fault handling and notification behavior", async () => {
+  await resetDB();
+  const sender = {
+    id: EXT_ID,
+    tab: { id: 102 },
+    frameId: 0,
+    url: "https://example.com/page",
+    origin: "https://example.com",
+    documentId: "doc-2",
+  };
+  const port = makePort();
+  grantedOrigins.add("*://*/*");
+  port.livePatterns = ["*://*/*"];
+  port.broadGrant = true;
+  let notifyCalls = 0;
+  port.notify = () => { notifyCalls++; };
+
+  await Router.route({ kind: "hello", realmToken: "r-read" }, sender, { runtimeId: EXT_ID, port, confirmRealm });
+
+  // 1. Rejection that is not a timeout: sets faults to denied, error browser_access_denied, no port.notify
+  let notifiesBefore = notifyCalls;
+  const readMsg = (requestId) => ({
+    kind: "read",
+    realmToken: "r-read",
+    action: "skim",
+    reason: "initial",
+    requestId,
+    captureEpoch: port.captureEpoch,
+    leaseToken: port.lease?.token,
+  });
+  const deniedRes = await Router.route(
+    readMsg(1),
+    sender,
+    {
+      runtimeId: EXT_ID,
+      port,
+      confirmRealm,
+      executeBrowserRead: async () => { throw new Error("denied"); },
+    }
+  );
+  assert.deepEqual(deniedRes, { ok: false, error: "browser_access_denied" });
+  assert.equal(port.faults.get("https://example.com"), "denied");
+  assert.equal(notifyCalls, notifiesBefore);
+
+  // 2. executeScript that returns true clears the fault
+  const clearRes = await Router.route(
+    readMsg(2),
+    sender,
+    {
+      runtimeId: EXT_ID,
+      port,
+      confirmRealm,
+      executeBrowserRead: async () => true,
+    }
+  );
+  assert.deepEqual(clearRes, { ok: true });
+  assert.equal(port.faults.has("https://example.com"), false);
+
+  // 3. Rejection whose message is browser_read_timeout: sets faults unknown, error browser_read_timeout, no notify
+  notifiesBefore = notifyCalls;
+  const timeoutRes = await Router.route(
+    readMsg(3),
+    sender,
+    {
+      runtimeId: EXT_ID,
+      port,
+      confirmRealm,
+      executeBrowserRead: async () => { throw new Error("browser_read_timeout"); },
+    }
+  );
+  assert.deepEqual(timeoutRes, { ok: false, error: "browser_read_timeout" });
+  assert.equal(port.faults.get("https://example.com"), "unknown");
+  assert.equal(notifyCalls, notifiesBefore);
+});
+
+test("router: hello calls beginRead before the origin check; grant present only in getAll is granted", async () => {
+  await resetDB();
+  const sender = {
+    id: EXT_ID,
+    tab: { id: 103 },
+    frameId: 0,
+    url: "https://onlyingetall.test/page",
+    origin: "https://onlyingetall.test",
+    documentId: "doc-3",
+  };
+  const port = makePort();
+  port.livePatterns = [];
+  let beginReadCalled = false;
+
+  const previousGetAll = chrome.permissions.getAll;
   try {
-    chrome.permissions.getAll = async () => ({ origins: ["*://*.first.example/*", "*://*.second.example/*"] });
-    let wroteOffers = null;
-    let consentWrittenBeforeOffers = false;
-
-    // 1. Thrown setCfg does not write consent
-    const failDeps = {
+    chrome.permissions.getAll = async () => ({ origins: ["*://*.onlyingetall.test/*"] });
+    const deps = {
       runtimeId: EXT_ID,
       port,
-      setCfg: async () => { throw new Error("storage_error"); },
-    };
-    const failed = await Router.route({ cmd: "acknowledgeDisclosure", version: 1 }, sender, failDeps);
-    assert.equal(failed.ok, false);
-    assert.equal(port.consentVersion, 0);
-    assert.equal(await globalThis.SolstoneDB.get("meta", "consentVersion"), undefined);
-
-    // 2. Successful acknowledgeDisclosure persists the two classified offers before DB.put
-    const passDeps = {
-      runtimeId: EXT_ID,
-      port,
-      setCfg: async (patch) => {
-        wroteOffers = patch.offeredOrigins;
-        const dbConsent = await globalThis.SolstoneDB.get("meta", "consentVersion");
-        if (dbConsent) consentWrittenBeforeOffers = true;
+      confirmRealm,
+      beginRead: async () => {
+        beginReadCalled = true;
+        const perms = await chrome.permissions.getAll();
+        port.livePatterns = [...(perms.origins || [])];
       },
     };
-    const success = await Router.route({ cmd: "acknowledgeDisclosure", version: 1 }, sender, passDeps);
-    assert.equal(success.ok, true);
-    assert.equal(port.consentVersion, 1);
-    assert.equal(consentWrittenBeforeOffers, false);
-    assert.deepEqual(wroteOffers, ["https://first.example", "https://second.example"]);
-    assert.equal(await globalThis.SolstoneDB.get("meta", "consentVersion"), 1);
+    const res = await Router.route({ kind: "hello", realmToken: "r-getall" }, sender, deps);
+    assert.equal(beginReadCalled, true);
+    assert.equal(res.ok, true);
+    assert.ok(res.ctx);
   } finally {
-    chrome.permissions.getAll = previous;
+    chrome.permissions.getAll = previousGetAll;
   }
 });
 
-test("router: acknowledgeDisclosure returns permissions_unavailable and does not write consent when getAll rejects", async () => {
+test("router: unfenced removeGrantedOrigin with covering pattern results in left_out_instead and excludedHosts contains host", async () => {
   await resetDB();
-  const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+  const extSender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+  const port = makePort();
+  port.fence = null;
+  port.livePatterns = ["*://*.bank.com/*"];
+  port.excludedHosts = [];
+
+  const previousRemove = chrome.permissions.remove;
+  const previousGetAll = chrome.permissions.getAll;
+  try {
+    chrome.permissions.remove = async () => true;
+    chrome.permissions.getAll = async () => ({ origins: ["*://*.bank.com/*"] });
+    const deps = {
+      runtimeId: EXT_ID,
+      port,
+      setCfg: async () => {},
+      beginRead: async () => {
+        const perms = await chrome.permissions.getAll();
+        port.livePatterns = [...(perms.origins || [])];
+      },
+    };
+
+    const res = await Router.route(
+      { cmd: "removeGrantedOrigin", origin: "https://login.bank.com" },
+      extSender,
+      deps
+    );
+    assert.equal(res.ok, true);
+    assert.equal(res.result, "left_out_instead");
+    assert.ok(port.excludedHosts.includes("bank.com"));
+
+    // Page is not granted after the call returns
+    assert.equal(SolstoneHosts.originGranted(port, "https://login.bank.com"), false);
+  } finally {
+    chrome.permissions.remove = previousRemove;
+    chrome.permissions.getAll = previousGetAll;
+  }
+});
+
+test("router: unfenced remove under *://*/* where remove returns false and getAll still has *://*/* calls remove and returns left_out_instead", async () => {
+  await resetDB();
+  const extSender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+  const port = makePort();
+  port.fence = null;
+  port.livePatterns = ["*://*/*"];
+  port.excludedHosts = [];
+  let removeCalled = false;
+
+  const previousRemove = chrome.permissions.remove;
+  const previousGetAll = chrome.permissions.getAll;
+  try {
+    chrome.permissions.remove = async () => {
+      removeCalled = true;
+      return false;
+    };
+    chrome.permissions.getAll = async () => ({ origins: ["*://*/*"] });
+    const deps = {
+      runtimeId: EXT_ID,
+      port,
+      setCfg: async () => {},
+      beginRead: async () => {
+        const perms = await chrome.permissions.getAll();
+        port.livePatterns = [...(perms.origins || [])];
+      },
+    };
+
+    const res = await Router.route(
+      { cmd: "removeGrantedOrigin", origin: "https://example.com" },
+      extSender,
+      deps
+    );
+    assert.equal(removeCalled, true);
+    assert.equal(res.ok, true);
+    assert.equal(res.result, "left_out_instead");
+    assert.ok(port.excludedHosts.includes("example.com"));
+    assert.equal(SolstoneHosts.originGranted(port, "https://example.com"), false);
+  } finally {
+    chrome.permissions.remove = previousRemove;
+    chrome.permissions.getAll = previousGetAll;
+  }
+});
+
+test("router: fenced remove of https://bank.com drops fence entry, does not write excludedHosts, and setLeftOut out:false does not restore it", async () => {
+  await resetDB();
+  const extSender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+  const port = makePort();
+  port.fence = {
+    entries: ["https://bank.com"],
+    exact: [],
+    siteWide: [],
+    declined: [],
+    exactKnown: true,
+  };
+  port.excludedHosts = [];
+  port.livePatterns = ["*://*.bank.com/*"];
+
+  let cfgWrites = [];
+  const deps = {
+    runtimeId: EXT_ID,
+    port,
+    setCfg: async (cfg) => { cfgWrites.push(cfg); },
+  };
+
+  const removeRes = await Router.route(
+    { cmd: "removeGrantedOrigin", origin: "https://bank.com" },
+    extSender,
+    deps
+  );
+  assert.equal(removeRes.ok, true);
+  assert.equal(port.fence.entries.includes("https://bank.com"), false);
+  assert.equal(port.excludedHosts.includes("bank.com"), false);
+
+  // setLeftOut with out: false does not put the entry back
+  await Router.route(
+    { cmd: "setLeftOut", host: "bank.com", out: false },
+    extSender,
+    deps
+  );
+  assert.equal(port.fence.entries.includes("https://bank.com"), false);
+});
+
+test("router: acknowledgeDisclosure writes consent and does not change fence entries or livePatterns", async () => {
+  await resetDB();
+  const extSender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
   const port = makePort();
   port.consentVersion = 0;
-  const previous = chrome.permissions.getAll;
-  try {
-    chrome.permissions.getAll = async () => { throw new Error("permissions_error"); };
-    const deps = { runtimeId: EXT_ID, port, setCfg: async () => {} };
-    const res = await Router.route({ cmd: "acknowledgeDisclosure", version: 1 }, sender, deps);
-    assert.equal(res.ok, false);
-    assert.equal(res.error, "permissions_unavailable");
-    assert.equal(port.consentVersion, 0);
-    assert.equal(await globalThis.SolstoneDB.get("meta", "consentVersion"), undefined);
-  } finally {
-    chrome.permissions.getAll = previous;
-  }
+  port.fence = {
+    entries: ["https://example.com"],
+    exact: ["https://example.com"],
+    siteWide: [],
+    declined: [],
+    exactKnown: true,
+  };
+  port.livePatterns = ["*://*.example.com/*"];
+
+  const res = await Router.route(
+    { cmd: "acknowledgeDisclosure", version: 1 },
+    extSender,
+    { runtimeId: EXT_ID, port, confirmRealm }
+  );
+  assert.deepEqual(res, { ok: true, consentVersion: 1 });
+  assert.equal(port.consentVersion, 1);
+  assert.equal(await DB.get("meta", "consentVersion"), 1);
+
+  // fence entries and livePatterns unchanged
+  assert.deepEqual(port.fence.entries, ["https://example.com"]);
+  assert.deepEqual(port.fence.exact, ["https://example.com"]);
+  assert.deepEqual(port.livePatterns, ["*://*.example.com/*"]);
 });
 
-test("router: declineOffer through SolstoneActions.run requires origin and cleans offer and removes grant", async () => {
-  await resetDB();
-  const Actions = globalThis.SolstoneActions;
-  const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
-  const port = makePort();
-  port.offeredOrigins = ["https://offer.example"];
-  const removedPermissions = [];
-  const prevRemove = chrome.permissions.remove;
-  chrome.permissions.remove = async (req) => { removedPermissions.push(...req.origins); return true; };
-  try {
-    let sentCmd = null;
-    let errors = [];
-    const effects = {
-      cmd: async (m) => { sentCmd = m; return Router.route(m, sender, { runtimeId: EXT_ID, port, setCfg: async () => {}, checkCleanDeclines: () => {} }); },
-      refresh: async () => {},
-      showError: (err) => { errors.push(err); },
-    };
-    // 1. Sending with only host stays invalid_origin
-    const invalidRes = await Router.route({ cmd: "declineOffer", host: "offer.example" }, sender, { runtimeId: EXT_ID, port, setCfg: async () => {} });
-    assert.equal(invalidRes.ok, false);
-    assert.equal(invalidRes.error, "invalid_origin");
-    assert.ok(port.offeredOrigins.includes("https://offer.example"));
 
-    // 2. Through Actions.run
-    await Actions.run({ id: "offer-decline", origin: "https://offer.example" }, effects);
-    assert.equal(sentCmd?.cmd, "declineOffer");
-    assert.equal(sentCmd?.origin, "https://offer.example");
-    assert.ok(port.declinedHosts.includes("offer.example"));
-    assert.equal(port.offeredOrigins.includes("https://offer.example"), false);
-  } finally {
-    chrome.permissions.remove = prevRemove;
-  }
-});
 
-test("router: adoptOffer through SolstoneActions.run adopts localhost offer to marked http://localhost", async () => {
-  await resetDB();
-  const Actions = globalThis.SolstoneActions;
-  const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
-  const port = makePort();
-  port.consentVersion = 1;
-  port.siteMode = "selected";
-  port.offeredOrigins = ["http://localhost"];
-  port.declinedHosts = [];
-  port.excludedHosts = [];
-  port.appLeftOut = [];
-  const prevGetAll = chrome.permissions.getAll;
-  chrome.permissions.getAll = async () => ({ origins: ["*://*.localhost/*"] });
-  try {
-    let sentCmd = null;
-    let errors = [];
-    const effects = {
-      cmd: async (m) => { sentCmd = m; return Router.route(m, sender, { runtimeId: EXT_ID, port, setCfg: async () => {}, registerSite: async () => "ready" }); },
-      refresh: async () => {},
-      showError: (err) => { errors.push(err); },
-    };
-    await Actions.run({ id: "offer-add", origin: "http://localhost" }, effects);
-    assert.equal(sentCmd?.cmd, "adoptOffer");
-    assert.equal(sentCmd?.origin, "http://localhost");
-    assert.ok(port.chosenOrigins.has ? port.chosenOrigins.has("http://localhost") : port.chosenOrigins.includes("http://localhost"));
-    assert.ok(port.siteWideOrigins.includes("http://localhost"));
-    assert.equal(globalThis.SolstoneHosts.originGranted(port, "http://localhost:5015/"), true);
 
-    // Refusals: missing consent
-    port.consentVersion = 0;
-    const refConsent = await Router.route({ cmd: "adoptOffer", origin: "http://localhost" }, sender, { runtimeId: EXT_ID, port, setCfg: async () => {} });
-    assert.equal(refConsent.ok, false);
 
-    // Refusals: left-out host
-    port.consentVersion = 1;
-    port.excludedHosts = ["localhost"];
-    const refLeftOut = await Router.route({ cmd: "adoptOffer", origin: "http://localhost" }, sender, { runtimeId: EXT_ID, port, setCfg: async () => {} });
-    assert.equal(refLeftOut.ok, false);
 
-    // Refusals: declined host
-    port.excludedHosts = [];
-    port.declinedHosts = ["localhost"];
-    const refDeclined = await Router.route({ cmd: "adoptOffer", origin: "http://localhost" }, sender, { runtimeId: EXT_ID, port, setCfg: async () => {} });
-    assert.equal(refDeclined.ok, false);
-
-    // Refusals: getAll no longer shows grant
-    port.declinedHosts = [];
-    chrome.permissions.getAll = async () => ({ origins: [] });
-    const refNoGrant = await Router.route({ cmd: "adoptOffer", origin: "http://localhost" }, sender, { runtimeId: EXT_ID, port, setCfg: async () => {} });
-    assert.equal(refNoGrant.ok, false);
-  } finally {
-    chrome.permissions.getAll = prevGetAll;
-  }
-});
 

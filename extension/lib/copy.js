@@ -100,6 +100,10 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       body = `${browser} allows all of ${host}, but the solstone extension takes in only the address you added. sharing it can include messages on mail and chat sites, and words you've typed but haven't sent, and all of it goes into your journal.`;
       shareId = "share-them-too";
       shareLabel = "share them too";
+    } else if (kind === "more") {
+      body = `${browser} allows more of some sites you added, like ${host}, but the solstone extension takes in only the addresses you added. sharing all of them can include messages on mail and chat sites, and words you've typed but haven't sent, and all of it goes into your journal.`;
+      shareId = "share-them-too";
+      shareLabel = "share them too";
     } else {
       body = `${browser} allows the solstone extension on sites you didn't add, like ${host}, but only the sites you added are taken in. sharing them can include messages on mail and chat sites, and words you've typed but haven't sent, and all of it goes into your journal.`;
       shareId = "share-them-too";

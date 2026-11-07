@@ -513,6 +513,7 @@
           sections.push({
             id: "upgradeQuestion",
             kind: "upgrade-question",
+            shown: beyond.shown,
             body: q.body,
             buttons: [
               {
@@ -616,8 +617,17 @@
                 await runShareEverySite();
                 return;
               }
-              if (btn.id === "share-them-too") await cmd({ cmd: "shareThemToo" });
-              else if (btn.id === "keep-my-sites") await cmd({ cmd: "keepMySites" });
+              if (btn.id === "share-them-too") {
+                const shown = sec.shown;
+                const result = await cmd({ cmd: "shareThemToo", shown });
+                const held = result?.result === "share_held" || result?.result === "question_every_site" || result?.result === "question_changed";
+                if (!held && (result?.error || result?.ok === false)) {
+                  showActionError(result?.error || "storage_error");
+                }
+                await refresh();
+                return;
+              }
+              if (btn.id === "keep-my-sites") await cmd({ cmd: "keepMySites" });
               await refresh();
             });
             actions.append(b);

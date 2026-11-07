@@ -3275,6 +3275,7 @@ test("pin: excludedGen keeps a leave-out and an include", async () => {
   }
   const leftSaved = Array.from(leave.storageData.cfg.excludedHosts || []);
   const leftRestart = await bootRestart(leftSaved);
+  assert.equal(leftRestart.sandbox.SolstoneHosts.originGranted(leftRestart.bg.port, "https://bank.com"), false);
   assert.equal((await pinHello(leftRestart.mock, "https://bank.com")).error, "origin_not_granted");
 
   const include = createMockChrome();
@@ -3296,6 +3297,7 @@ test("pin: excludedGen keeps a leave-out and an include", async () => {
   }
   const includeSaved = Array.from(include.storageData.cfg.excludedHosts || []);
   const includeRestart = await bootRestart(includeSaved);
+  assert.equal(includeRestart.sandbox.SolstoneHosts.originGranted(includeRestart.bg.port, "https://bank.com"), false);
   assert.equal((await pinHello(includeRestart.mock, "https://bank.com")).error, "origin_not_granted");
   confirmRealm(includeRestart.mock);
   assert.equal((await pinHello(includeRestart.mock, "https://shop.com")).ok, true);
@@ -3321,6 +3323,7 @@ test("pin: excludedGen keeps the removal fallback", async () => {
   }
   const saved = Array.from(mock.storageData.cfg.excludedHosts || []);
   const restarted = await bootRestart(saved);
+  assert.equal(restarted.sandbox.SolstoneHosts.originGranted(restarted.bg.port, "https://bank.com"), false);
   assert.equal((await pinHello(restarted.mock, "https://bank.com")).error, "origin_not_granted");
 });
 
@@ -3360,6 +3363,7 @@ test("pin: excludedGen keeps an automatic fence end", async () => {
   }
   const saved = Array.from(mock.storageData.cfg.excludedHosts || []);
   const restarted = await bootRestart(saved);
+  assert.equal(restarted.sandbox.SolstoneHosts.originGranted(restarted.bg.port, "https://bank.com"), false);
   assert.equal((await pinHello(restarted.mock, "https://bank.com")).error, "origin_not_granted");
 });
 
@@ -3386,7 +3390,7 @@ test("pin: excludedGen keeps a share fence end", async () => {
   try {
     const pending = bg.port.commitLeftOut({ excludedHosts: [] });
     await stall.hit;
-    const shared = await pinSend(mock, { cmd: "shareThemToo" });
+    const shared = await pinSend(mock, { cmd: "shareThemToo", shown: [] });
     assert.equal(shared.ok, true);
     assert.equal(shared.result, "shared");
     stall.release();
@@ -3398,6 +3402,7 @@ test("pin: excludedGen keeps a share fence end", async () => {
   }
   const saved = Array.from(mock.storageData.cfg.excludedHosts || []);
   const restarted = await bootRestart(saved);
+  assert.equal(restarted.sandbox.SolstoneHosts.originGranted(restarted.bg.port, "https://bank.com"), false);
   assert.equal((await pinHello(restarted.mock, "https://bank.com")).error, "origin_not_granted");
 });
 
@@ -3855,5 +3860,342 @@ test("pin: a Safari mismatch at 9.9 seconds still clears", async () => {
   await pending;
   assert.equal(seen && seen.paused, true);
   assert.equal(seen && seen.notice, true);
+});
+
+function fenceCfg(entries, fencePatch = {}, cfgPatch = {}) {
+  return {
+    siteGrant: "live",
+    excludedHosts: [],
+    appLeftOut: [],
+    ...cfgPatch,
+    fence: {
+      entries,
+      exact: [],
+      exactKnown: true,
+      siteWide: [],
+      declined: [],
+      answered: false,
+      sawMore: false,
+      cleanAt: null,
+      ...fencePatch,
+    },
+  };
+}
+
+async function bootFence(entries, grants, fencePatch, cfgPatch) {
+  const mock = createMockChrome();
+  setGrants(mock, grants);
+  mock.storageData.cfg = fenceCfg(entries, fencePatch, cfgPatch);
+  return bootPin(mock);
+}
+
+function uiDocument() {
+  const cache = new Map();
+  function node(id = "") {
+    const el = {
+      id,
+      children: [],
+      className: "",
+      hidden: false,
+      textContent: "",
+      dataset: {},
+      listeners: {},
+      parentNode: null,
+      classList: { add() {}, remove() {} },
+      append(...kids) {
+        for (const kid of kids) {
+          el.children.push(kid);
+          if (kid) kid.parentNode = el;
+        }
+      },
+      appendChild(child) { el.append(child); return child; },
+      replaceChildren(...kids) { el.children = []; el.append(...kids); },
+      addEventListener(type, fn) { el.listeners[type] = fn; },
+      removeEventListener() {},
+      setAttribute() {},
+      removeAttribute() {},
+      focus() {},
+      scrollIntoView() {},
+      remove() {},
+      insertBefore(child, before) {
+        const at = before ? el.children.indexOf(before) : -1;
+        if (at >= 0) el.children.splice(at, 0, child);
+        else el.children.unshift(child);
+        if (child) child.parentNode = el;
+      },
+    };
+    return el;
+  }
+  const document = {
+    documentElement: node("html"),
+    getElementById(id) {
+      if (!cache.has(id)) cache.set(id, node(id));
+      return cache.get(id);
+    },
+    createElement() { return node(); },
+    addEventListener() {},
+    querySelector() { return node(); },
+  };
+  return { document, cache };
+}
+
+function findClick(cache, label) {
+  const walk = (el) => {
+    if (!el) return null;
+    if (el.listeners?.click && el.textContent === label) return el;
+    for (const child of el.children || []) {
+      const found = walk(child);
+      if (found) return found;
+    }
+    return null;
+  };
+  for (const root of cache.values()) {
+    const found = walk(root);
+    if (found) return found;
+  }
+  return null;
+}
+
+async function drainUi() {
+  for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setImmediate(resolve));
+}
+
+function openShareUi(booted, files, forward) {
+  const sent = [];
+  const replies = [];
+  const { document, cache } = uiDocument();
+  const sandbox = {
+    console,
+    document,
+    window: { addEventListener() {} },
+    navigator: {},
+    setTimeout() { return 0; },
+    clearTimeout() {},
+    Date,
+  };
+  sandbox.globalThis = sandbox;
+  sandbox.chrome = {
+    runtime: {
+      id: booted.mock.chrome.runtime.id,
+      getManifest: () => ({ version: "0.5.9" }),
+      sendMessage(message, callback) {
+        const copy = JSON.parse(JSON.stringify(message));
+        sent.push(copy);
+        if (!forward(message)) {
+          callback?.({ ok: true });
+          return;
+        }
+        booted.mock.listeners.onMessage[0](message, pinExt(booted.mock), (response) => {
+          replies.push({ cmd: copy.cmd, response });
+          callback?.(response);
+        });
+      },
+      connect() {
+        return { onMessage: { addListener() {} }, onDisconnect: { addListener() {} }, disconnect() {} };
+      },
+      openOptionsPage() {},
+      reload() {},
+      lastError: null,
+    },
+    tabs: { query: async () => [{ id: 7, url: "https://example.com/" }], create() {} },
+    permissions: { request: async () => true },
+  };
+  for (const file of files) vm.runInNewContext(readExtFile(file), sandbox, { filename: file });
+  return { sandbox, sent, replies, document, cache };
+}
+
+const POPUP_UI = [
+  "lib/copy.js", "lib/about.js", "lib/hosts.js", "lib/status.js", "lib/failures.js",
+  "lib/disclosure.js", "lib/popup_view.js", "lib/actions.js", "popup.js",
+];
+const OPTIONS_UI = [
+  "lib/copy.js", "lib/hosts.js", "lib/status.js", "lib/failures.js",
+  "lib/disclosure.js", "lib/popup_view.js", "lib/actions.js", "options.js",
+];
+
+async function bootWidenedBank() {
+  const booted = await bootFence(
+    ["http://bank.com"],
+    ["*://*.bank.com/*", "*://*.left.example/*", "*://*.gone.example/*"],
+    {},
+    { appLeftOut: ["left.example"] },
+  );
+  booted.bg.port.tombstones.add("*://*.gone.example/*");
+  await booted.bg.beginRead();
+  return booted;
+}
+
+test("upgrade: popup and settings share the sites the question showed", async () => {
+  const expected = ["*://*.bank.com/*"];
+  for (const files of [POPUP_UI, OPTIONS_UI]) {
+    const booted = await bootWidenedBank();
+    const { bg, mock } = booted;
+    assert.equal(mock.grantedPermissions.has("*://*.gone.example/*"), true);
+    assert.equal(Array.from(bg.port.livePatterns).includes("*://*.gone.example/*"), false);
+    assert.equal(Array.from(bg.port.livePatterns).includes("*://*.left.example/*"), true);
+    bg.port.connectionGeneration = 1;
+    bg.port.handshake = "closed";
+    bg.port.consentVersion = 1;
+    const ui = openShareUi(booted, files, (message) => message.cmd === "getState");
+    await drainUi();
+    const button = findClick(ui.cache, "share them too");
+    assert.ok(button);
+    button.listeners.click();
+    await drainUi();
+    const captured = ui.sent.find((message) => message.cmd === "shareThemToo");
+    assert.deepEqual(captured.shown, expected);
+    const shared = await pinSend(mock, captured);
+    assert.equal(shared.result, "shared");
+    assert.equal(shared.ok, true);
+    assert.equal(bg.port.fence, null);
+    confirmRealm(mock);
+    const hello = await pinHello(mock, "https://mail.bank.com");
+    assert.equal(hello.ok, true);
+  }
+});
+
+test("upgrade: a broad grant at the click is question_every_site", async () => {
+  const booted = await bootFence(["http://bank.com"], ["*://*.bank.com/*"]);
+  const shown = ["*://*.bank.com/*"];
+  setGrants(booted.mock, ["https://*/*"]);
+  const result = await pinSend(booted.mock, { cmd: "shareThemToo", shown });
+  assert.equal(result.ok, false);
+  assert.equal(result.result, "question_every_site");
+  assert.notEqual(booted.bg.port.fence, null);
+  assert.deepEqual(Array.from(booted.bg.port.fence.entries), ["http://bank.com"]);
+});
+
+test("upgrade: a grown set is question_changed", async () => {
+  const booted = await bootFence(["http://bank.com"], ["*://*.bank.com/*"]);
+  const shown = ["*://*.bank.com/*"];
+  setGrants(booted.mock, ["*://*.bank.com/*", "*://*.other.com/*"]);
+  const result = await pinSend(booted.mock, { cmd: "shareThemToo", shown });
+  assert.equal(result.result, "question_changed");
+  assert.equal(result.ok, false);
+  assert.notEqual(booted.bg.port.fence, null);
+  const hello = await pinHello(booted.mock, "https://other.com");
+  assert.equal(hello.error, "origin_not_granted");
+});
+
+test("upgrade: the question kind follows every unaccounted host", async () => {
+  const portEntries = ["http://bank.com:18431", "http://shop.com:8080"];
+  const bothPorts = await bootFence(portEntries, ["*://*.bank.com/*", "*://*.shop.com/*"]);
+  const portQuestion = bothPorts.sandbox.SolstoneHosts.beyondExample(
+    bothPorts.bg.port.fence,
+    Array.from(bothPorts.bg.port.livePatterns),
+    [],
+  );
+  assert.equal(portQuestion.kind, "more");
+  assert.equal(portQuestion.host, "bank.com");
+  assert.equal(
+    bothPorts.sandbox.SolstoneCopy.fenceQuestion("chrome", "more", "bank.com").body,
+    "Chrome allows more of some sites you added, like bank.com, but the solstone extension takes in only the addresses you added. sharing all of them can include messages on mail and chat sites, and words you've typed but haven't sent, and all of it goes into your journal.",
+  );
+
+  const exactEntries = ["https://bank.com", "https://shop.com"];
+  const exactOwn = await bootFence(
+    exactEntries,
+    ["*://bank.com/*", "*://shop.com/*"],
+    { exact: exactEntries },
+  );
+  const exactQuestion = exactOwn.sandbox.SolstoneHosts.beyondExample(
+    exactOwn.bg.port.fence,
+    Array.from(exactOwn.bg.port.livePatterns),
+    [],
+  );
+  assert.equal(exactQuestion.kind, "more");
+  const exactShared = await pinSend(exactOwn.mock, { cmd: "shareThemToo", shown: Array.from(exactQuestion.shown) });
+  assert.equal(exactShared.result, "shared");
+  assert.equal(exactOwn.bg.port.fence, null);
+
+  const widenedPort = "http://bank.com:18431";
+  const siteWideEntry = "https://shop.com";
+  const accounted = await bootFence(
+    [widenedPort, siteWideEntry],
+    ["*://*.bank.com/*", "*://*.shop.com/*"],
+  );
+  const widerQuestion = accounted.sandbox.SolstoneHosts.beyondExample(
+    accounted.bg.port.fence,
+    Array.from(accounted.bg.port.livePatterns),
+    [],
+  );
+  assert.equal(widerQuestion.kind, "wider");
+  assert.equal(widerQuestion.host, "bank.com");
+
+  const widenedHost = "https://bank.com";
+  const outside = await bootFence(
+    [widenedHost],
+    ["*://*.bank.com/*", "*://*.other.com/*"],
+    { exact: [widenedHost] },
+  );
+  const otherQuestion = outside.sandbox.SolstoneHosts.beyondExample(
+    outside.bg.port.fence,
+    Array.from(outside.bg.port.livePatterns),
+    [],
+  );
+  assert.equal(otherQuestion.kind, "other");
+  assert.equal(otherQuestion.host, "other.com");
+});
+
+test("upgrade: question_changed repaints the popup without a failure sentence", async () => {
+  const booted = await bootFence(["http://bank.com"], ["*://*.bank.com/*"]);
+  booted.bg.port.connectionGeneration = 1;
+  booted.bg.port.handshake = "closed";
+  booted.bg.port.consentVersion = 1;
+  const ui = openShareUi(booted, POPUP_UI, () => true);
+  await drainUi();
+  setGrants(booted.mock, ["*://*.bank.com/*", "*://*.other.com/*"]);
+  findClick(ui.cache, "share them too").listeners.click();
+  await drainUi();
+  const first = ui.replies.find((entry) => entry.cmd === "shareThemToo");
+  assert.equal(first.response.result, "question_changed");
+  assert.equal(ui.document.getElementById("actionMessage").textContent, "");
+  const before = ui.sent.length;
+  findClick(ui.cache, "share them too").listeners.click();
+  await drainUi();
+  const resent = ui.sent.slice(before).find((message) => message.cmd === "shareThemToo");
+  assert.deepEqual(resent.shown, ["*://*.bank.com/*", "*://*.other.com/*"]);
+});
+
+test("upgrade: settings shows permissions_unavailable from the copy", async () => {
+  const booted = await bootFence(["http://bank.com"], ["*://*.bank.com/*"]);
+  booted.bg.port.connectionGeneration = 1;
+  booted.bg.port.handshake = "closed";
+  booted.bg.port.consentVersion = 1;
+  const ui = openShareUi(booted, OPTIONS_UI, () => true);
+  await drainUi();
+  booted.mock.options.getAllThrows = true;
+  const button = findClick(ui.cache, "share them too");
+  assert.ok(button);
+  await button.listeners.click();
+  await drainUi();
+  const sentence = ui.document.getElementById("actionMessage").textContent;
+  assert.equal(sentence, ui.sandbox.SolstoneCopy.actionFailure("permissions_unavailable", booted.bg.port.brand));
+  assert.equal(sentence.includes("removed"), false);
+});
+
+test("upgrade: shareThemToo without shown is question_changed", async () => {
+  const booted = await bootFence(["http://bank.com"], ["*://*.bank.com/*"]);
+  const result = await pinSend(booted.mock, { cmd: "shareThemToo" });
+  assert.equal(result.ok, false);
+  assert.equal(result.result, "question_changed");
+  assert.notEqual(booted.bg.port.fence, null);
+});
+
+test("upgrade: a thrown grant read does not end the fence", async () => {
+  const booted = await bootFence(
+    ["https://bank.com"],
+    ["*://*/*"],
+    { sawMore: true },
+  );
+  assert.equal(Array.from(booted.bg.port.livePatterns).includes("*://*/*"), true);
+  booted.mock.grantedPermissions.delete("*://*/*");
+  booted.mock.options.getAllThrows = true;
+  const every = await pinSend(booted.mock, { cmd: "shareEverySite" });
+  assert.equal(booted.bg.port.fence === null, false);
+  assert.equal(every.error, "permissions_unavailable");
+  const them = await pinSend(booted.mock, { cmd: "shareThemToo", shown: ["*://*/*"] });
+  assert.equal(booted.bg.port.fence === null, false);
+  assert.equal(them.error, "permissions_unavailable");
 });
 

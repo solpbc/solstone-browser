@@ -412,7 +412,7 @@
         button.type = "button";
         button.textContent = spec.label;
         button.className = spec.primary ? "primary" : "";
-        button.addEventListener("click", () => runAction({ id: spec.id, label: spec.label, primary: spec.primary }));
+        button.addEventListener("click", () => runAction({ id: spec.id, label: spec.label, primary: spec.primary, shown: question.shown }));
         actions.append(button);
       }
       block.append(body, actions);

@@ -5,7 +5,7 @@
   "use strict";
 
   function heldShare(result) {
-    return result?.result === "share_held" || result?.result === "question_every_site";
+    return result?.result === "share_held" || result?.result === "question_every_site" || result?.result === "question_changed";
   }
 
   function shareFailure(result) {
@@ -83,7 +83,7 @@
       return true;
     }
     if (action.id === "share-them-too") {
-      const result = await cmd({ cmd: "shareThemToo" });
+      const result = await cmd({ cmd: "shareThemToo", shown: action.shown });
       const failure = shareFailure(result);
       if (failure) effects.showError(failure);
       await refresh();

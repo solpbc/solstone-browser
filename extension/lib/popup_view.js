@@ -219,6 +219,7 @@
           sections.push({
             id: "upgradeQuestion",
             kind: "upgrade-question",
+            shown: beyond.shown,
             body: q.body,
             buttons: [
               {

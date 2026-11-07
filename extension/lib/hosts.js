@@ -545,37 +545,45 @@
     return false;
   }
 
+  // Host of a grant pattern: scheme * / http / https, optional "*." , host, optional port, path "/*".
+  function grantPatternHost(pattern) {
+    const raw = String(pattern || "").trim();
+    const match = /^(?:\*|https?):\/\/(?:\*\.)?([^/:]+)(?::\d+)?\/\*$/.exec(raw);
+    if (!match || match[1] === "*") return null;
+    return match[1].toLowerCase();
+  }
+
   function beyondExample(fence, patterns, leftOutHosts) {
     const unaccounted = (patterns || []).filter((p) => !patternAccounted(p, fence, leftOutHosts));
     if (unaccounted.length === 0) return null;
+    const shown = unaccounted.slice().sort();
     if (unaccounted.some((p) => isBroadPattern(p))) {
-      return { kind: "every" };
+      return { kind: "every", shown };
     }
 
     const fenceHostnames = new Set();
     for (const entry of (fence?.entries || [])) {
       try {
-        const u = new URL(entry);
-        if (u.hostname) fenceHostnames.add(u.hostname.toLowerCase());
+        const hostname = new URL(entry).hostname.toLowerCase();
+        if (hostname) fenceHostnames.add(hostname);
       } catch (_e) {}
     }
 
-    function getPatternHost(p) {
-      const raw = String(p || "").trim();
-      const m = /^(?:\*|https?):\/\/(?:\*\.)?([^/:]+)(?::\d+)?\/\*$/.exec(raw);
-      if (m && m[1] !== "*") return m[1].toLowerCase();
-      return raw;
+    const hosts = unaccounted.map(grantPatternHost);
+    const distinct = [];
+    for (const host of hosts) {
+      if (host && !distinct.includes(host)) distinct.push(host);
     }
-
-    for (const p of unaccounted) {
-      const host = getPatternHost(p);
-      if (host && fenceHostnames.has(host)) {
-        return { kind: "wider", host };
-      }
+    const allFence = hosts.every((host) => host && fenceHostnames.has(host));
+    if (allFence && distinct.length === 1) {
+      return { kind: "wider", host: distinct[0], shown };
     }
-
-    const firstHost = getPatternHost(unaccounted[0]);
-    return { kind: "other", host: firstHost };
+    if (allFence && distinct.length > 1) {
+      distinct.sort();
+      return { kind: "more", host: distinct[0], shown };
+    }
+    const outside = hosts.filter((host) => host && !fenceHostnames.has(host)).sort();
+    return { kind: "other", host: outside[0], shown };
   }
 
   // Owner scope and the browser's broad grant are separate facts. Effective

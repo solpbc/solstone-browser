@@ -282,11 +282,12 @@
   }
 
   async function patternsJustRead(port, deps) {
+    let read = null;
     if (typeof deps.beginRead === "function") {
-      const read = await deps.beginRead();
-      if (Array.isArray(read)) return read;
+      read = await deps.beginRead();
     }
-    return port.livePatterns || [];
+    if (Array.isArray(read)) return read;
+    return { unavailable: true };
   }
 
   async function endFence(port, deps, patterns) {
@@ -402,6 +403,9 @@
 
         case "shareEverySite": {
           const read = await patternsJustRead(port, deps);
+          if (!Array.isArray(read)) {
+            return { ok: false, error: "permissions_unavailable" };
+          }
           if (H.everySiteLive(read)) {
             await endFence(port, deps, read);
             return { ok: true, result: "shared" };
@@ -411,8 +415,21 @@
 
         case "shareThemToo": {
           const read = await patternsJustRead(port, deps);
-          if (H.everySiteLive(read)) {
+          if (!Array.isArray(read)) {
+            return { ok: false, error: "permissions_unavailable" };
+          }
+          if (H.broadLive(read)) {
             return { ok: false, result: "question_every_site" };
+          }
+          const leftOut = [...(port.excludedHosts || []), ...(port.appLeftOut || [])];
+          const beyond = H.beyondExample(port.fence, port.livePatterns, leftOut);
+          const unaccounted = beyond?.shown || [];
+          const shown = msg.shown;
+          const covered = Array.isArray(shown)
+            && shown.every((item) => typeof item === "string")
+            && unaccounted.every((pattern) => shown.includes(pattern));
+          if (!covered) {
+            return { ok: false, result: "question_changed" };
           }
           await endFence(port, deps, read);
           return { ok: true, result: "shared" };

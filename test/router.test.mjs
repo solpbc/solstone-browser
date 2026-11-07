@@ -996,7 +996,6 @@ test("router: while livePatterns contains *://*/*, a skim with no nonce from any
   const resBroad = await Router.route(skimNoNonce, sender, { runtimeId: EXT_ID, port, confirmRealm });
   assert.equal(resBroad.ok, false);
   assert.equal(resBroad.error, "read_not_authorized");
-  assert.equal(port.permissionEpoch, 0);
 
   const read = await Router.route({
     kind: "read",

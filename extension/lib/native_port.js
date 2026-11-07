@@ -151,7 +151,6 @@
       this.appLeftOutEpoch = null;
       this.appLeftOutRev = 0;
       this.sitePolicyPending = false;
-      this.permissionEpoch = 0;
       this.registration = {};
       this.enqueue = {};
       this.truncationByOrigin = {};
@@ -211,7 +210,6 @@
         this.hostCapture,
         this.lease,
         this.sitePolicyPending,
-        this.permissionEpoch,
         this.livePatterns ? [...this.livePatterns].sort() : [],
         this.fence ? {
           entries: [...(this.fence.entries || [])].sort(),

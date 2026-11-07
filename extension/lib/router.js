@@ -762,18 +762,16 @@
         if (binding.readPending) return { ok: false, error: "read_pending" };
         const nonce = mintCtx();
         const admittedEpoch = port.captureEpoch;
-        const admittedPermissionEpoch = port.permissionEpoch;
         const authorize = () => {
           port.syncCaptureAuthority?.();
           return frameBindings.get(fKey) === binding && port.captureEpoch === admittedEpoch &&
-            port.permissionEpoch === admittedPermissionEpoch && originGranted(port, senderOrigin) &&
+            originGranted(port, senderOrigin) &&
             Gate.computeDecision({lease:port.lease, paused:port.paused, consentVersion:port.consentVersion,
               originGranted:true, pressure:port.pressure, hostCapture:port.hostCapture,
               capturePermitted:port.capturePermitted === true, now:port.now()}).open;
         };
         binding.readPending = true;
         binding.readNonce = nonce;
-        binding.readPermissionEpoch = admittedPermissionEpoch;
         try {
           const result = await deps.executeBrowserRead(binding, { nonce, action: msg.action,
             reason: msg.reason, requestId: msg.requestId, captureEpoch: admittedEpoch, leaseToken: port.lease.token }, authorize);
@@ -801,7 +799,7 @@
           return { ok: false, error: "challenge_mismatch" };
         }
         if (H.broadLive(port.livePatterns)) {
-          if (!msg.readNonce || binding.readNonce !== msg.readNonce || binding.readPermissionEpoch !== port.permissionEpoch) {
+          if (!msg.readNonce || binding.readNonce !== msg.readNonce) {
             return { ok: false, error: "read_not_authorized" };
           }
           binding.readNonce = null;

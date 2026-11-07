@@ -153,7 +153,6 @@ let latestRead = Promise.resolve();
 // Last successful permission read and the manifest version already injected.
 // Kept out of cfg so a stored list cannot become the live grant by itself.
 let grantWatch = { patterns: [], injectedVersion: null };
-let permissionEpoch = 0;
 let badgeEpoch = 0;
 let openTabsGeneration = 0;
 let badgeChain = Promise.resolve();

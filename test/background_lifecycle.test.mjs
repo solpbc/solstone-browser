@@ -4449,3 +4449,65 @@ test("content-script matches compare as a set", async () => {
   assert.equal(registers, 0);
 });
 
+test("a skim withdrawn while the tab lookup is held leaves no outbox row", async () => {
+  const origin = "https://bank.com";
+  const documentKey = "0123456789abcdef0123456789abcdef";
+
+  async function withdrawWhileHeld(withdraw) {
+    const mock = createMockChrome();
+    setGrants(mock, ["*://*/*"]);
+    mock.storageData.cfg = { siteGrant: "live", fence: null };
+    const booted = await bootPin(mock);
+    const port = booted.bg.port;
+    port.hostCapture = "permitted";
+    port.capturePermitted = true;
+    port.consentVersion = 1;
+    port.paused = false;
+    port.lease = { token: "t", generation: "g", receivedAt: port.now(), freshnessMs: 10000 };
+    confirmRealm(mock);
+    mock.chrome.scripting.executeScript = async () => [{ frameId: 0, result: true }];
+    assert.equal((await pinHello(mock, origin)).ok, true);
+    const read = await pinFrame(mock, origin, {
+      kind: "read",
+      realmToken: "r",
+      documentKey,
+      action: "skim",
+      requestId: 1,
+      captureEpoch: port.captureEpoch,
+      leaseToken: port.lease.token,
+    });
+    assert.equal(read.ok, true, JSON.stringify(read));
+    const binding = booted.sandbox.SolstoneRouter.frameBindings.get(`7:0:${documentKey}`);
+    assert.equal(typeof binding.readNonce, "string");
+    mock.hold("tabs.get");
+    const skim = pinFrame(mock, origin, {
+      kind: "skim",
+      realmToken: "r",
+      documentKey,
+      readNonce: binding.readNonce,
+      captureEpoch: port.captureEpoch,
+      connectionGeneration: port.connectionGeneration,
+      destinationGeneration: port.destinationGeneration,
+      leaseToken: port.lease.token,
+      blocks: [{ id: "1", type: "text", depth: 0, text: "held" }],
+    });
+    const held = await Promise.race([
+      mock.held("tabs.get"),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("tab lookup did not start")), 500)),
+    ]);
+    await withdraw(booted);
+    held.release();
+    await skim;
+    assert.equal((await booted.sandbox.SolstoneDB.getAll("outbox")).length, 0);
+  }
+
+  await withdrawWhileHeld(async (booted) => {
+    booted.mock.grantedPermissions.delete("*://*/*");
+    await booted.mock.listeners.onRemovedPerm[0]({ origins: ["*://*/*"] });
+  });
+  await withdrawWhileHeld(async (booted) => {
+    const left = await pinSend(booted.mock, { cmd: "setLeftOut", host: "bank.com", out: true });
+    assert.equal(left.ok, true, JSON.stringify(left));
+  });
+});
+

@@ -10,8 +10,11 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ### Changed
 
-- Chrome and Edge ask you to agree in the extension before a page is read. Firefox and Safari do not ask again if you already use the extension.
-- the first time you open settings on a computer, one question asks which sites you want in your journal. if you already use the extension, you are not sent back through that screen.
+- the sites your browser allows are the sites the solstone extension takes in, and all of it goes into your journal. if your browser allows every website, every site goes in, except the sites you leave out.
+- if you added sites one at a time before this update, only those sites go into your journal until you choose otherwise. if your browser already allows more than that, the extension asks you before taking those sites in.
+- if you haven't agreed yet, Chrome and Edge ask you to agree in the extension before it takes anything in. Firefox and Safari don't ask for a separate agreement.
+- on a new install on a computer, settings first asks which sites you want in your journal: every site, or sites one at a time.
+- `add this site` goes straight to your browser's own prompt.
 
 ## [0.5.9] (2026-11-05)
 

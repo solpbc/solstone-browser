@@ -640,7 +640,7 @@ test("router: setPaused with failing setCfg handles unpause and pause properly",
     port,
     setCfg: rejectingSetCfg,
   });
-  assert.deepEqual(res1, { ok: false, saved: false, paused: false });
+  assert.deepEqual(res1, { ok: false, saved: false, paused: false, error: "storage_error" });
   assert.equal(port.paused, false);
 
   // 2. paused starts false, command setPaused(true) -> ok: false, saved: false, port.paused is true
@@ -650,7 +650,7 @@ test("router: setPaused with failing setCfg handles unpause and pause properly",
     port,
     setCfg: rejectingSetCfg,
   });
-  assert.deepEqual(res2, { ok: false, saved: false, paused: true });
+  assert.deepEqual(res2, { ok: false, saved: false, paused: true, error: "storage_error" });
   assert.equal(port.paused, true);
 
   // 3. paused starts true, command setPaused(false) -> ok: false, saved: false, port.paused stays true
@@ -660,7 +660,7 @@ test("router: setPaused with failing setCfg handles unpause and pause properly",
     port,
     setCfg: rejectingSetCfg,
   });
-  assert.deepEqual(res3, { ok: false, saved: false, paused: true });
+  assert.deepEqual(res3, { ok: false, saved: false, paused: true, error: "storage_error" });
   assert.equal(port.paused, true);
 });
 

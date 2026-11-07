@@ -4242,6 +4242,23 @@ function countRemoves(mock) {
   return () => removes;
 }
 
+test("resume: a failed settings resume keeps the cleared notice", async () => {
+  const booted = await bootPlainBank();
+  booted.bg.port.paused = true;
+  booted.bg.port.clearedNotice = true;
+  booted.mock.chrome.storage.local.set = async () => { throw new Error("storage set error"); };
+  const ui = openShareUi(booted, OPTIONS_UI, () => true);
+  await drainUi();
+  const button = findClick(ui.cache, "resume");
+  assert.ok(button);
+  await button.listeners.click();
+  await drainUi();
+  const sentence = ui.document.getElementById("actionMessage").textContent;
+  assert.equal(sentence, ui.sandbox.SolstoneCopy.actionFailure("storage_error"));
+  assert.equal(booted.bg.port.clearedNotice, true);
+  assert.equal(booted.bg.port.paused, true);
+});
+
 test("removal: a thrown grant list does not remove, and the pages say they could not check", async () => {
   const booted = await bootPlainBank();
   const removes = countRemoves(booted.mock);

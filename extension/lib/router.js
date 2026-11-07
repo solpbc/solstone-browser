@@ -520,10 +520,7 @@
           const epoch = ++pauseEpoch;
           if (desired) { port.paused = true; port.notify(); }
           const patch = { paused: desired };
-          if (!desired && port.clearedNotice) {
-            port.clearedNotice = false;
-            patch.clearedNotice = false;
-          }
+          if (!desired && port.clearedNotice) patch.clearedNotice = false;
           let saveOk = false;
           if (deps.setCfg) {
             try {
@@ -541,7 +538,7 @@
               port.paused = true;
             }
             port.notify();
-            return { ok: false, saved: false, paused: port.paused };
+            return { ok: false, saved: false, paused: port.paused, error: "storage_error" };
           }
 
           if (epoch !== pauseEpoch) return { ok: false, error: "superseded" };

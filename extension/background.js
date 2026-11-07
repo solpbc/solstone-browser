@@ -772,13 +772,12 @@ async function applySnapshot(applied, tombstoneFiltered, options = {}) {
   let fenceEnded = false;
   let fenceEntriesChanged = false;
   let intentTaken = false;
-  let intentExpired = false;
+  let intentExpired = addIntentExpired();
   let nextFence = port.fence;
   let nextExcluded = port.excludedHosts;
   let fenceWrite = null;
 
   if (port.fence !== null && typeof port.fence === "object") {
-    intentExpired = addIntentExpired();
     const admitted = completeAddIntent(applied);
     let working = port.fence;
     if (admitted) {
@@ -812,6 +811,8 @@ async function applySnapshot(applied, tombstoneFiltered, options = {}) {
         }
       }
     }
+  } else if (intentExpired) {
+    fenceWrite = { addIntent: null };
   }
 
   if (fenceWrite) {

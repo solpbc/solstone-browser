@@ -2062,6 +2062,25 @@ test("a stored add intent joins login.bank.com on a site grant, and share every 
   assert.equal(mock.storageData.cfg.addIntent, null);
   assert.ok(port.fence.declined.includes("bank.com"));
 
+  const fenceBeforeNull = structuredClone(port.fence);
+  port.fence = null;
+  port.addIntent = { origin: "https://login.bank.com", at: clock - 600001 };
+  await bg.setCfg({ fence: null, addIntent: port.addIntent });
+  await bg.beginRead();
+  assert.equal(mock.storageData.cfg.addIntent, null);
+  assert.equal(port.addIntent, null);
+  assert.equal(port.fence, null);
+
+  port.addIntent = { origin: "https://login.bank.com", at: clock + 1 };
+  await bg.setCfg({ addIntent: port.addIntent });
+  await bg.beginRead();
+  assert.equal(port.addIntent && port.addIntent.at, clock + 1);
+  assert.equal(mock.storageData.cfg.addIntent && mock.storageData.cfg.addIntent.at, clock + 1);
+  assert.equal(port.fence, null);
+
+  port.fence = fenceBeforeNull;
+  await bg.setCfg({ fence: fenceBeforeNull });
+
   port.addIntent = { origin: "https://login.bank.com", at: clock + 1 };
   await bg.setCfg({ addIntent: port.addIntent });
   await bg.beginRead();

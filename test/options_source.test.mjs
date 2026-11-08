@@ -474,14 +474,11 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
     livePatterns: ["*://*.example.com/*"],
   });
   await globalThis.SolstoneOptions.refresh();
-  assert.equal(nodes.accessAllow.hidden, false);
-  assert.equal(nodes.accessAllow.textContent, "share every site");
-  requestsBefore = permissionRequests;
-  fromShare = sentMessages.length;
-  await nodes.accessAllow.listeners.click();
-  assert.equal(permissionRequests, requestsBefore);
-  assert.ok(sentMessages.slice(fromShare).some((message) => message.cmd === "shareEverySite"));
-  assert.equal(sentMessages.slice(fromShare).some((message) => message.cmd === "intendAddOrigin"), false);
+  // Safari can't be asked, so a held Safari owner gets Safari's own steps, not a button that does nothing.
+  assert.equal(nodes.accessAllow.hidden, true);
+  assert.equal(nodes.accessBody.textContent, "only the sites Safari already allows are on. to share every site:");
+  assert.equal(nodes.accessSteps.hidden, false);
+  assert.equal(nodes.accessCheck.hidden, false);
 
   liveState = optionsState({
     consentVersion: 1,
@@ -512,6 +509,25 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   assert.equal(permissionRequests, requestsBefore + 1);
   assert.deepEqual(lastPermissionRequest.origins, ["*://*/*"]);
   await shareClick;
+  // The quiet offer isn't filled: taking in more is never the visually preselected answer.
+  const quietButtons = [];
+  (function collect(node) {
+    if (!node) return;
+    if (node.id === "share-every-site") quietButtons.push(node);
+    for (const child of node.children || []) collect(child);
+  })(nodes.settingsView);
+  assert.ok(quietButtons.length > 0);
+  assert.equal(quietButtons.at(-1).className, "");
+
+  // Safari can't be asked, so its quiet offer shows only while Safari allows every site.
+  const keptFence = { entries: ["https://example.com"], exact: [], exactKnown: true, siteWide: [], declined: [], answered: true, sawMore: true };
+  liveState = optionsState({ consentVersion: 1, brand: "safari", fence: keptFence, livePatterns: ["*://*.example.com/*"] });
+  const quietOf = (st) => globalThis.SolstoneOptions.optionsModel(st).find((sec) => sec.kind === "upgrade-quiet");
+  assert.equal(quietOf(liveState).action, null);
+  liveState = optionsState({ consentVersion: 1, brand: "safari", fence: keptFence, livePatterns: ["*://*/*"] });
+  assert.equal(quietOf(liveState).action.label, "share every site");
+  liveState = optionsState({ consentVersion: 1, brand: "chrome", fence: keptFence, livePatterns: ["*://*.example.com/*"] });
+  assert.equal(quietOf(liveState).action.label, "share every site");
 
   // Safari's own steps carry no title: an owner who chose one at a time reads them too.
   liveState = optionsState({

@@ -15,6 +15,7 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 - if you haven't agreed yet, Chrome and Edge ask you to agree in the extension before it takes anything in. Firefox and Safari don't ask for a separate agreement.
 - on a new install on a computer, settings first asks which sites you want in your journal: every site, or sites one at a time.
 - `add this site` goes straight to your browser's own prompt.
+- on iphone and ipad, a small solstone icon now shows on pages going into your journal. you can turn it off in settings.
 
 ## [0.5.9] (2026-11-05)
 

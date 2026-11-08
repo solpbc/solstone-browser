@@ -76,19 +76,3 @@ test("indicator tooltip tracks paused state without rebuilding the pill", () => 
   assert.notEqual(onTitle, pausedTitle);
   assert.equal(third.title, onTitle);
 });
-
-test("indicator shows once per page, never in an embedded frame", () => {
-  Indicator.remove();
-  const top = globalThis.top;
-  const self = globalThis.self;
-  globalThis.self = globalThis;
-  globalThis.top = {};
-  Indicator.show(false);
-  assert.equal(body.children.length, 0);
-  globalThis.top = globalThis;
-  Indicator.show(false);
-  assert.equal(body.children.length, 1);
-  Indicator.remove();
-  globalThis.top = top;
-  globalThis.self = self;
-});

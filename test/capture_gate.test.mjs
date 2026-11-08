@@ -692,20 +692,21 @@ test("gate: resnapshot message makes 0 discover/skim calls when closed, 1 when o
   assert.equal(skimCount, 0);
 });
 
-test("the page marker says on only while the page is read", async () => {
+test("the content script reads the page and puts nothing into it", async () => {
   const messageListeners = [];
   const windowListeners = {};
   const docListeners = {};
-  let marker = "none";
+  const created = [];
+  let skims = 0;
   const granted = ["https://mail.google.com"];
   const openState = { lease: { token: "t1", generation: "gen-1", freshnessMs: 10000 }, paused: false, consentVersion: 1,
-    grantedOrigins: granted, livePatterns: ["*://mail.google.com/*"], showPageIndicator: true, hostCapture: "permitted", capturePermitted: true };
+    grantedOrigins: granted, livePatterns: ["*://mail.google.com/*"], hostCapture: "permitted", capturePermitted: true };
   const sandbox = {
     globalThis: null, console, crypto,
     performance: { now: () => 1000 },
     location: { origin: "https://mail.google.com", host: "mail.google.com" },
     document: { readyState: "loading", title: "Inbox", visibilityState: "visible",
-      addEventListener: (type, fn) => { docListeners[type] = fn; }, getElementById: () => null },
+      addEventListener: (type, fn) => { docListeners[type] = fn; }, getElementById: () => null, createElement: (tag) => { created.push(tag); return {}; }, body: { appendChild: (node) => { created.push(node); } } },
     window: { addEventListener: (type, fn) => { windowListeners[type] = fn; } },
     chrome: { runtime: { id: "fake-runtime-id",
       sendMessage: (msg, cb) => { if (msg.kind === "hello" && typeof cb === "function") cb({ ok: true, ...openState }); },
@@ -714,8 +715,7 @@ test("the page marker says on only while the page is read", async () => {
     setTimeout: () => 1, clearTimeout: () => {}, setInterval: (fn) => { fn(); return 1; }, clearInterval: () => {},
     MutationObserver: class { observe() {} disconnect() {} },
     SolstoneAdapters: { adapterForHost: () => ({ name: "gmail" }), pickRoot: () => ({ tagName: "DIV", children: [] }) },
-    SolstoneSkim: { skim: () => [{ id: "1", type: "message", depth: 0, text: "msg" }] },
-    SolstoneIndicator: { show: (paused) => { marker = paused ? "paused" : "on"; }, remove: () => { marker = "none"; } },
+    SolstoneSkim: { skim: () => { skims++; return [{ id: "1", type: "message", depth: 0, text: "msg" }]; } },
     SolstoneCaptureGate: Gate,
     SolstoneHosts: globalThis.SolstoneHosts,
     SolstoneNativeBrowserConstants: globalThis.SolstoneNativeBrowserConstants,
@@ -725,22 +725,11 @@ test("the page marker says on only while the page is read", async () => {
   vm.runInNewContext(fs.readFileSync(new URL("../extension/content.js", import.meta.url), "utf-8"), sandbox);
   (windowListeners.DOMContentLoaded || docListeners.DOMContentLoaded)();
   await new Promise((r) => queueMicrotask(r));
-  assert.equal(marker, "on");
   const send = (msg) => { for (const listener of messageListeners) listener(msg, { id: "fake-runtime-id" }, () => {}); };
-  const update = (patch) => send({ kind: "leaseUpdate", ...openState, showIndicator: true, ...patch });
-
-  // The solstone app went away: nothing is read, so the marker doesn't say on.
-  update({ lease: null, hostCapture: null, capturePermitted: false });
-  assert.equal(marker, "none");
-  // The owner leaves the site out (all sites, this host excluded).
-  update({ lease: openState.lease, broadGrant: true, livePatterns: ["*://*/*"], excludedHosts: ["mail.google.com"] });
-  assert.equal(marker, "none");
-  // Pausing and resuming never paints a left-out page.
-  send({ kind: "setPaused", paused: true });
-  assert.equal(marker, "none");
+  send({ kind: "leaseUpdate", ...openState, paused: true });
   send({ kind: "setPaused", paused: false });
-  assert.equal(marker, "none");
-  // On a shared page, a pause shows paused.
-  update({ lease: null, broadGrant: false, livePatterns: ["*://mail.google.com/*"], paused: true, excludedHosts: [] });
-  assert.equal(marker, "paused");
+  send({ kind: "resnapshot" });
+  // The page is read, and nothing is ever added to it.
+  assert.ok(skims > 0);
+  assert.deepEqual(created, []);
 });

@@ -339,9 +339,9 @@ test("lifecycle: a failed save does not poison the next config operation", async
     Object.assign(mock.storageData,value);
   };
   await assert.rejects(bg.setCfg({paused:true}), /fixture storage failure/);
-  await bg.setCfg({showPageIndicator:true});
+  await bg.setCfg({pauseWithApp:false});
   assert.equal(writes,2);
-  assert.equal((await bg.getCfg()).showPageIndicator,true);
+  assert.equal((await bg.getCfg()).pauseWithApp,false);
 });
 
 test("lifecycle: a delayed tab query cannot publish superseded authority", async () => {
@@ -928,7 +928,6 @@ function contentHarness(Gate) {
         return [{ id: "1", type: "text", depth: 0, text: "Hello" }];
       },
     },
-    SolstoneIndicator: { show() {}, remove() {} },
   };
   vm.runInNewContext(fs.readFileSync(ROOT + "/extension/lib/hosts.js", "utf8"), ctx);
   vm.runInNewContext(
@@ -3048,7 +3047,7 @@ test("content: a lease renewal keeps the refusal cap", async () => {
   const renewed = Object.assign(broadPageGrant(1), {
     lease: { token: "renewed", generation: "g", freshnessMs: 10000 },
   });
-  h.msg(Object.assign({ kind: "leaseUpdate", showIndicator: false }, renewed));
+  h.msg(Object.assign({ kind: "leaseUpdate" }, renewed));
   assert.equal(h.requests.length, 2);
   h.requests[1](renewed);
   h.tick();
@@ -5153,10 +5152,10 @@ test("agreement: first run shows once, and chrome still asks when the flag is se
   flagMock.storageData.cfg = { chosenOrigins: ["https://news.com"] };
   const flagBoot = await bootStored(flagMock, { idb: flagIdb, prepare: pinRuntime(flagMock, "firefox") });
   assert.equal(flagBoot.bg.port.firstRunAnswered, true);
-  await flagBoot.bg.setCfg({ showPageIndicator: true });
+  await flagBoot.bg.setCfg({ pauseWithApp: false });
   const flagAgain = await bootStored(flagMock, { idb: flagIdb, prepare: pinRuntime(flagMock, "firefox") });
   assert.equal(flagAgain.bg.port.firstRunAnswered, true);
-  assert.equal(flagAgain.bg.port.showPageIndicator, true);
+  assert.equal(flagAgain.bg.port.pauseWithApp, false);
   assert.equal((await questionState(flagAgain)).shown, false);
 
   const chrome = createMockChrome();

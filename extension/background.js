@@ -49,7 +49,6 @@ const CONTENT_SCRIPT_FILES = [
   "lib/hosts.js",
   "adapters.js",
   "skim.js",
-  "indicator.js",
   "lib/gate.js",
   "lib/page_facts.js",
   "content.js",
@@ -57,7 +56,6 @@ const CONTENT_SCRIPT_FILES = [
 
 const DEFAULT_CFG = {
   paused: false,
-  showPageIndicator: false,
   pauseWithApp: true,
   excludedHosts: [],
   appLeftOut: [],
@@ -77,7 +75,6 @@ function formatAddIntent(intent) {
 function formatCfg(stored) {
   const res = {
     paused: !!stored.paused,
-    showPageIndicator: !!stored.showPageIndicator,
     pauseWithApp: stored.pauseWithApp !== false,
     excludedHosts: Array.isArray(stored.excludedHosts)
       ? [...new Set(stored.excludedHosts.map(H.storedExcludedHostname).filter(Boolean))].sort()
@@ -331,7 +328,6 @@ function broadcastLeaseUpdate(status = port?.getStatus(), epoch = badgeEpoch) {
     broadGrant: status.broadGrant === true,
     excludedHosts: status.excludedHosts || [],
     appLeftOut: status.appLeftOut || [],
-    showIndicator: status.showPageIndicator,
     hostCapture: status.hostCapture,
     hostDelivery: status.hostDelivery,
     hostFailure: status.hostFailure,
@@ -369,15 +365,6 @@ function broadcastPause(paused) {
     for (const tab of tabs || []) {
       if (tab.id == null) continue;
       chrome.tabs.sendMessage(tab.id, { kind: "setPaused", paused }, () => void chrome.runtime.lastError);
-    }
-  });
-}
-
-function broadcastIndicator(show) {
-  chrome.tabs.query({}, (tabs) => {
-    for (const tab of tabs || []) {
-      if (tab.id == null) continue;
-      chrome.tabs.sendMessage(tab.id, { kind: "setIndicator", show }, () => void chrome.runtime.lastError);
     }
   });
 }
@@ -664,7 +651,6 @@ async function executeBrowserRead(binding, request, authorize) {
 function clearedSafariCfg() {
   return {
     paused: true,
-    showPageIndicator: false,
     pauseWithApp: true,
     clearedNotice: true,
     siteGrant: "live",
@@ -1117,7 +1103,6 @@ async function doInit() {
   port.everConnected = everConnected;
   port.paused = safariClearedFailed ? true : cfg.paused;
   port.clearedNotice = safariClearedFailed ? true : (cfg.paused === false ? false : !!cfg.clearedNotice);
-  port.showPageIndicator = cfg.showPageIndicator;
   port.pauseWithApp = cfg.pauseWithApp !== false;
   port.excludedHosts = cfg.excludedHosts;
   port.appLeftOut = cfg.appLeftOut ? [...cfg.appLeftOut] : [];
@@ -1197,7 +1182,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       unregisterSite,
       syncSiteRegistrations,
       broadcastPause,
-      broadcastIndicator,
       refreshOpenTabs,
       executeBrowserRead,
       broadcastLeaseUpdate,

@@ -180,7 +180,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
     "step1Section", "step1HeadingRow", "step1Check", "step1Heading", "step1Body", "step1Actions", "step1ActionBtn",
     "step2Section", "step2HeadingRow", "step2Check", "step2Heading", "step2Content", "step2DisclosureBody",
     "step2PendingText", "step2Actions", "agreeDisclosureBtn", "step2Completed", "step2ReReadDetails", "step2ReadAgain", "step2ReReadBody",
-    "step3Section", "step3HeadingRow", "step3Check", "step3Heading", "step3Content", "step3Body", "welcomeShowPageIndicator", "welcomeOffersBlock", "welcomeSiteList",
+    "step3Section", "step3HeadingRow", "step3Check", "step3Heading", "step3Content", "step3Body", "welcomeOffersBlock", "welcomeSiteList",
     "statusCard", "statusLead", "statusStateChip", "statusReason", "sitesCard",
     "statusAlso", "statusActions", "sitesHeading", "siteInputLabel", "siteModeHelp",
     "modeSelected", "modeSelectedTitle", "modeSelectedCurrent", "modeSelectedBody", "modeSelectedBtn",
@@ -191,7 +191,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
     "sitesMain", "addForm", "newHost", "addBtn", "siteList", "siteDisclosure",
     "siteDisclosureTitle", "siteDisclosureWhat", "siteDisclosureUnsent", "siteDisclosureDestination",
     "siteDisclosureDestinationDetail", "siteDisclosureChrome", "siteDisclosureConfirm",
-    "siteDisclosureCancel", "indicatorCard", "showPageIndicator", "pauseWithAppCard", "pauseWithApp", "disclosureCard",
+    "siteDisclosureCancel", "pauseWithAppCard", "pauseWithApp", "disclosureCard",
     "disclosureDetails", "settingsDisclosureBody", "actionMessage", "pageFooter", "ver", "optionsMark",
   ];
   const nodes = Object.fromEntries(ids.map((id) => [id, new FakeNode(id)]));
@@ -757,8 +757,8 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   await nodes.statusActions.children[0].listeners.click();
   assert.equal(reloadCount, 1);
 
-  // 9. The welcome checkbox sits inside its own label
-  assert.match(html, /<label class="marker-label"[^>]*>\s*<input type="checkbox" id="welcomeShowPageIndicator"/);
+  // 9. Nothing in settings or the welcome offers an icon on the pages owners see
+  assert.doesNotMatch(html, /indicatorCard|ShowPageIndicator|showPageIndicator/);
 });
 
 test("settings reads the browser's grants after a failed add, through its own effects", () => {
@@ -831,14 +831,14 @@ test("options: cleared notice precedes welcome, and the share sentences use acce
     "step1Heading", "step1Check", "step1Body", "step1ActionBtn",
     "step2Heading", "step2Check", "step2Content", "step2PendingText", "agreeDisclosureBtn", "step2Completed",
     "step2DisclosureBody", "step2ReReadBody", "step3Heading", "step3Content", "step3Check", "step3Body",
-    "welcomeShowPageIndicator", "welcomeSiteList",
+    "welcomeSiteList",
     "statusCard", "statusLead", "statusStateChip", "statusReason", "statusAlso", "statusActions",
     "sitesHeading", "siteInputLabel", "siteModeHelp", "modeSelected", "modeAll", "offersBlock",
     "broadInSelectedNote", "accessPanel", "accessGranted", "accessMissing", "accessTitle", "accessBody",
     "accessSteps", "accessReturn", "accessAllow", "accessCheck", "accessChecking",
     "accessDenied", "accessDeniedTitle", "accessDeniedList", "accessDeniedHelp",
     "listHeading", "regrant", "exactOnly", "keptNote", "leftOutDetails", "leftOutSummary", "leftOutList",
-    "addForm", "newHost", "addBtn", "siteList", "showPageIndicator", "pauseWithApp", "actionMessage",
+    "addForm", "newHost", "addBtn", "siteList", "pauseWithApp", "actionMessage",
     "ver", "optionsMark", "settingsDisclosureBody", "siteDisclosure", "pauseSwitch",
   ];
   const nodes = Object.fromEntries(ids.map((id) => [id, new OptionNode(id)]));

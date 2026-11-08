@@ -16,10 +16,10 @@ class Node {
  replaceChildren(...n){this.children=n;}
  focus(){}
 }
-function harness(surface){
+function harness(surface,doc={}){
  const nodes={};const node=id=>nodes[id]??=new Node();
  let live={...base},status,disconnect,connects=0,timers=[],messages=[],hold=false,callback,holdTab=false,tabCallback,clock=1e6;
- const context=vm.createContext({window:{addEventListener(){}},URL,console,Date:class extends Date{static now(){return clock;}},setTimeout:(fn,ms)=>{fn.ms=ms;timers.push(fn);return timers.length;},clearTimeout(){},document:{getElementById:node,createElement:()=>new Node(),addEventListener(){}},chrome:{runtime:{getManifest:()=>({version:'0.2.0'}),sendMessage(m,cb){messages.push(m);if(m.cmd==='getState'){if(hold){hold=false;callback=cb;}else cb(live);}else cb({ok:true});},connect(){connects++;return {onMessage:{addListener(fn){status=fn;}},onDisconnect:{addListener(fn){disconnect=fn;}}};},openOptionsPage(){},reload(){}},tabs:{query(){if(holdTab){holdTab=false;return new Promise(r=>tabCallback=r);}return Promise.resolve([{url:origin}]);},create(){}},permissions:{request:async()=>true}}});
+ const context=vm.createContext({window:{addEventListener(){}},URL,console,Date:class extends Date{static now(){return clock;}},setTimeout:(fn,ms)=>{fn.ms=ms;timers.push(fn);return timers.length;},clearTimeout(){},document:{getElementById:node,createElement:()=>new Node(),addEventListener(){},...doc},chrome:{runtime:{getManifest:()=>({version:'0.2.0'}),sendMessage(m,cb){messages.push(m);if(m.cmd==='getState'){if(hold){hold=false;callback=cb;}else cb(live);}else cb({ok:true});},connect(){connects++;return {onMessage:{addListener(fn){status=fn;}},onDisconnect:{addListener(fn){disconnect=fn;}}};},openOptionsPage(){},reload(){}},tabs:{query(){if(holdTab){holdTab=false;return new Promise(r=>tabCallback=r);}return Promise.resolve([{url:origin}]);},create(){}},permissions:{request:async()=>true}}});
  for(const p of ['lib/copy.js','lib/about.js','lib/hosts.js','lib/status.js','lib/failures.js','lib/disclosure.js','lib/popup_view.js','lib/actions.js',surface+'.js'])vm.runInContext(fs.readFileSync(root+p,'utf8'),context,{filename:p});
  return {context,nodes,node,messages,timers,advance(ms){clock+=ms;},wake(){for(const fn of timers.splice(0))fn();},reconnect(){timers.shift()?.();},get live(){return live;},set live(v){live=v;},status(s){status({type:'status',status:s});},disconnect(){disconnect();},hold(){hold=true;},settle(s){callback(s);},holdTab(){holdTab=true;},settleTab(){tabCallback([{url:origin}]);},get connects(){return connects;},headline(){return node(surface==='popup'?'verdictHeadline':'statusStateChip').textContent;}};
 }
@@ -94,4 +94,19 @@ test("specific app holds take priority over concurrent full custody",async()=>{
  }
  const d=h.context.SolstoneStatus.derive({...base,hostCapture:"intake_off",hostFailure:"queue_full",capturePermitted:false,custody:{full:true,stale:true}});
  assert.equal(d.kind,"app-store-full");
+});
+
+// Safari focuses the popup's first keyboard stop as it opens; that focus is dropped until the owner acts.
+for (const first of ["keydown", "pointerdown"]) test(`popup drops opening focus, and keeps focus after a ${first}`,async()=>{
+ const listeners={};let blurs=0;
+ const body={};const summary={tagName:"SUMMARY",blur(){blurs++;}};
+ const h=harness("popup",{body,activeElement:summary,addEventListener(k,fn){(listeners[k]??=[]).push(fn);}});
+ await tick();
+ const doc=h.context.document;
+ assert.equal(blurs,1,"focus already there at start is dropped");
+ doc.activeElement=summary;for(const fn of listeners.focusin)fn();
+ assert.equal(blurs,2,"focus that arrives before the owner acts is dropped");
+ for(const fn of listeners[first])fn();
+ doc.activeElement=summary;for(const fn of listeners.focusin)fn();
+ assert.equal(blurs,2,"focus the owner gives stays");
 });

@@ -111,6 +111,19 @@ test("page descriptors cover add, remove, unsupported, and pause actions", () =>
   assert.deepEqual(paused.pauseAction, { id: "set-paused", label: "resume", primary: true });
 });
 
+test("while paused, resume is the only filled button in the page block", () => {
+  const page = (st, p) => View.arrange(derived(), st, p).find((section) => section.id === "page");
+  const web = { origin: "https://news.example", host: "news.example", ok: true, kind: "web" };
+  const all = { broadGrant: true, fence: null, livePatterns: ["*://*/*"] };
+  for (const overrides of [{}, all]) {
+    const on = page(state(overrides), web);
+    assert.equal(on.siteAction.primary, true);
+    const paused = page(state({ ...overrides, paused: true }), web);
+    assert.equal(paused.siteAction.primary, false);
+    assert.equal(paused.pauseAction.primary, true);
+  }
+});
+
 test("arrange preserves exact origins and exposes truncation as a separate attention row", () => {
   const first = "https://same.example";
   const second = "https://same.example:8443";

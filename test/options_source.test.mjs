@@ -513,6 +513,19 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   assert.deepEqual(lastPermissionRequest.origins, ["*://*/*"]);
   await shareClick;
 
+  // Safari's own steps carry no title: an owner who chose one at a time reads them too.
+  liveState = optionsState({
+    consentVersion: 1,
+    brand: "safari",
+    fence: null,
+    livePatterns: ["http://127.0.0.1/*"],
+  });
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.accessTitle.textContent, "");
+  assert.equal(nodes.accessBody.textContent, "only the sites Safari already allows are on. to share every site:");
+  assert.equal(nodes.accessSteps.hidden, false);
+  assert.equal(nodes.accessCheck.hidden, false);
+
   // Coming back to the page reconnects the status channel before trusting it
   const connectsBefore = statusConnects;
   let from = sentMessages.length;

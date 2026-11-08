@@ -524,8 +524,11 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   liveState = optionsState({ consentVersion: 1, brand: "safari", fence: keptFence, livePatterns: ["*://*.example.com/*"] });
   const quietOf = (st) => globalThis.SolstoneOptions.optionsModel(st).find((sec) => sec.kind === "upgrade-quiet");
   assert.equal(quietOf(liveState).action, null);
+  // Set back to only the kept sites, the browser no longer allows more, so the line doesn't say it does.
+  assert.equal(quietOf(liveState).text, "this extension takes in only the sites you added, and all of it goes into your journal.");
   liveState = optionsState({ consentVersion: 1, brand: "safari", fence: keptFence, livePatterns: ["*://*/*"] });
   assert.equal(quietOf(liveState).action.label, "share every site");
+  assert.equal(quietOf(liveState).text, "Safari allows more than your sites. this extension takes in only the sites you added, and all of it goes into your journal.");
   liveState = optionsState({ consentVersion: 1, brand: "chrome", fence: keptFence, livePatterns: ["*://*.example.com/*"] });
   assert.equal(quietOf(liveState).action.label, "share every site");
 

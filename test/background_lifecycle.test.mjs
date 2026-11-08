@@ -4332,6 +4332,36 @@ test("upgrade: popup and settings share the sites the question showed", async ()
   }
 });
 
+test("upgrade: neither answer is preselected, and a held owner is never told every site is on", async () => {
+  const texts = (cache) => {
+    const out = [];
+    const walk = (el) => {
+      if (!el) return;
+      if (typeof el.textContent === "string" && el.textContent) out.push(el.textContent);
+      for (const child of el.children || []) walk(child);
+    };
+    for (const root of cache.values()) walk(root);
+    return out.join("\n");
+  };
+  for (const files of [POPUP_UI, OPTIONS_UI]) {
+    const booted = await bootFence(["https://bank.com"], ["*://*.bank.com/*", "*://*/*"]);
+    const { bg } = booted;
+    assert.ok(bg.port.fence);
+    bg.port.connectionGeneration = 1;
+    bg.port.handshake = "closed";
+    bg.port.consentVersion = 1;
+    const ui = openShareUi(booted, files, (message) => message.cmd === "getState");
+    await drainUi();
+    const share = findShare(ui.cache, "share-every-site");
+    const keep = findShare(ui.cache, "keep-my-sites");
+    assert.ok(share && keep);
+    assert.equal(String(share.className || "").includes("primary"), false);
+    assert.equal(share.className || "", keep.className || "");
+    const everyOn = ui.sandbox.SolstoneCopy.everySiteOnLine(bg.port.brand);
+    assert.equal(texts(ui.cache).includes(everyOn), false);
+  }
+});
+
 test("upgrade: a broad grant at the click is question_every_site", async () => {
   const booted = await bootFence(["http://bank.com"], ["*://*.bank.com/*"]);
   const shown = ["*://*.bank.com/*"];
@@ -5187,7 +5217,9 @@ test("agreement: every site live omits the one-site button", async () => {
     assert.equal(hasId(ui.cache, "firstRunOneSite"), false);
     assert.equal(hasId(ui.cache, "firstRunQuestion"), false);
     assert.equal(ui.sent.filter((message) => message.cmd === "answerFirstRun").length, 1);
-    assert.equal(hasId(ui.cache, "settingsEverySiteOn"), true);
+    // The every-site status shows once, in the access panel, not again under the list.
+    assert.equal(hasId(ui.cache, "settingsEverySiteOn"), false);
+    assert.ok(ui.document.getElementById("accessBody").textContent.includes(ui.sandbox.SolstoneCopy.everySiteOnLine(booted.bg.port.brand)));
     assert.equal(ui.document.getElementById("settingsView").hidden, false);
   }
 });
@@ -5430,7 +5462,8 @@ test("agreement: every site appearing while the question is open", async () => {
     await pending;
     await settleUi();
     assert.equal(ui.sent.filter((message) => message.cmd === "answerFirstRun").length, 1);
-    assert.equal(hasId(ui.cache, "settingsEverySiteOn"), true);
+    assert.equal(hasId(ui.cache, "settingsEverySiteOn"), false);
+    assert.ok(ui.document.getElementById("accessBody").textContent.includes(ui.sandbox.SolstoneCopy.everySiteOnLine(current.brand)));
     assert.equal(ui.document.getElementById("settingsView").hidden, false);
     assert.equal(hasId(ui.cache, "firstRunQuestion"), false);
   }

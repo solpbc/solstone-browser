@@ -5340,6 +5340,28 @@ async function pairClean(booted) {
   return port.fence;
 }
 
+test("agreement: a first-run note shows in the welcome, and the disclosure reads what it takes in", async () => {
+  const mock = createMockChrome();
+  setGrants(mock, []);
+  const booted = await bootStored(mock, { prepare: pinRuntime(mock, "firefox") });
+  assert.equal(booted.bg.port.agreementRules, "firefox");
+  answerable(booted.bg.port);
+  const ui = await openOptions(booted, { gesture: { onRequest: () => false } });
+  const welcome = ui.document.getElementById("welcomeView");
+  assert.equal(welcome.hidden, false);
+  assert.equal(ui.document.getElementById("disclosureSummary").textContent, "what it takes in");
+  const every = findIds(ui.cache, "firstRunEverySite")[0];
+  const click = every.listeners.click();
+  assert.deepEqual(Array.from(ui.requests[0].origins), ["*://*/*"]);
+  await click;
+  await settleUi();
+  assert.equal(welcome.hidden, false);
+  const declined = findIds(ui.cache, "firstRunDeclined")[0];
+  assert.ok(declined);
+  assert.equal(declined.parentNode && declined.parentNode.id, "welcomeMessage");
+  assert.equal(Array.from(mock.grantedPermissions).includes("*://*/*"), false);
+});
+
 test("agreement: the first-run answers are equal, and an already-allowed Chrome welcome says so before the click", async () => {
   const twoState = paintable({ agreementRules: "chrome", consentVersion: 0, consentAccepted: false, livePatterns: [] });
   const twoUi = await scriptedOptions(() => twoState);

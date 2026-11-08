@@ -305,11 +305,15 @@
     const settings = $("settingsView");
     const welcome = $("welcomeView");
     if (!card || !settings || !welcome) return;
+    const summary = $("disclosureSummary");
     if (inQuestion) {
       if (card.parentNode !== welcome) welcome.append(card);
       card.hidden = false;
-    } else if (card.parentNode !== settings) {
-      settings.append(card);
+      // Nobody has read it yet on a first run.
+      if (summary) summary.textContent = "what it takes in";
+    } else {
+      if (card.parentNode !== settings) settings.append(card);
+      if (summary && !Copy.MOBILE) summary.textContent = "read it again";
     }
   }
 
@@ -1039,7 +1043,9 @@
   }
 
   function appendActionNote(id, text) {
-    const region = $("actionMessage");
+    // While the welcome shows, settings is hidden, so a note there would never be seen.
+    const welcome = $("welcomeView");
+    const region = welcome && welcome.hidden === false && $("welcomeMessage") ? $("welcomeMessage") : $("actionMessage");
     if (!region) return;
     const note = document.createElement("p");
     note.id = id;

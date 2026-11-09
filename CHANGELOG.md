@@ -6,6 +6,10 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 ## [Unreleased]
 
+### Added
+
+- when your browser allows every website, settings has a field to leave a site out by typing its address, so it stays out before you ever open it. settings also says that your browser's own settings don't show the sites you leave out.
+
 ## [0.5.10] (2026-11-07)
 
 ### Changed

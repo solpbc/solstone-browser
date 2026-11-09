@@ -187,7 +187,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
     "modeAll", "modeAllTitle", "modeAllCurrent", "modeAllBody", "modeAllBtn", "broadInSelectedNote",
     "accessPanel", "accessGranted", "accessMissing", "accessTitle", "accessBody", "accessSteps", "accessReturn",
     "accessAllow", "accessCheck", "accessChecking", "accessDenied", "accessDeniedTitle", "accessDeniedList", "accessDeniedHelp",
-    "offersBlock", "listHeading", "regrant", "regrantLine", "regrantBtn", "exactOnly", "exactOnlyLine", "exactOnlyBtn", "siteInputError", "leftOutDetails", "leftOutSummary", "leftOutList", "keptNote", "siteDisclosureLeaveOut",
+    "offersBlock", "listHeading", "regrant", "regrantLine", "regrantBtn", "exactOnly", "exactOnlyLine", "exactOnlyBtn", "siteInputError", "leftOutDetails", "leftOutSummary", "leftOutList", "leftOutNote", "keptNote", "siteDisclosureLeaveOut",
     "sitesMain", "addForm", "newHost", "addBtn", "siteList", "siteDisclosure",
     "siteDisclosureTitle", "siteDisclosureWhat", "siteDisclosureUnsent", "siteDisclosureDestination",
     "siteDisclosureDestinationDetail", "siteDisclosureChrome", "siteDisclosureConfirm",
@@ -673,6 +673,33 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
     await nodes.leftOutList.children[0].children[1].listeners.click();
     assert.equal(nodes.actionMessage.textContent, said);
   }
+
+  // With every site on, the site field leaves a typed site out, so it never has to be opened first.
+  liveState = optionsState({ consentVersion: 1, broadGrant: true, fence: null, livePatterns: ["*://*/*"], excludedHosts: [] });
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.addForm.hidden, false);
+  assert.equal(nodes.siteInputLabel.textContent, "leave out a site");
+  assert.equal(nodes.leftOutNote.hidden, false);
+  for (const [typed, host] of [["imdb.com", "imdb.com"], ["https://www.imdb.com/title/x", "imdb.com"], ["imdb.com/title/x", "imdb.com"]]) {
+    nodes.newHost.value = typed;
+    before = sentMessages.length;
+    await nodes.addForm.listeners.submit({ preventDefault() {} });
+    assert.deepEqual(sentMessages.slice(before).find((message) => message.cmd === "setLeftOut"), { cmd: "setLeftOut", host, out: true }, typed);
+    assert.equal(sentMessages.slice(before).some((message) => message.cmd === "addGrantedOrigin"), false, typed);
+    assert.equal(nodes.actionMessage.textContent, C.leftOutAnnouncement(host), typed);
+    assert.equal(nodes.newHost.value, "", typed);
+  }
+  nodes.newHost.value = "not a site";
+  before = sentMessages.length;
+  await nodes.addForm.listeners.submit({ preventDefault() {} });
+  assert.equal(sentMessages.slice(before).some((message) => message.cmd === "setLeftOut"), false);
+  assert.equal(nodes.siteInputError.hidden, false);
+  assert.equal(nodes.siteInputError.textContent, C.LEAVE_OUT_FIELD_ERROR);
+  // One site at a time, the same field adds, and the note waits for a left-out site.
+  liveState = optionsState({ consentVersion: 1, livePatterns: [], excludedHosts: [] });
+  await globalThis.SolstoneOptions.refresh();
+  assert.equal(nodes.siteInputLabel.textContent, "add a site");
+  assert.equal(nodes.leftOutNote.hidden, true);
 
   // When on-now (extras activeSites has origin)
   liveState = optionsState({

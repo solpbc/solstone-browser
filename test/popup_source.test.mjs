@@ -747,3 +747,8 @@ test("Safari's iPad popover gets a width of its own instead of shrinking to its 
   assert.match(popupSource, /SolstoneCopy\?\.PLACE === "this ipad"\) document\.documentElement\.classList\.add\("ipad"\)/);
   assert.match(html, /:root\.ipad body \{ width: 360px; \}/);
 });
+
+test("popup: declining the browser's prompt reads plain, and only a policy block is red", () => {
+  assert.match(popupSource, /showDenied: \(\) => showActionMessage\(globalThis\.SolstoneCopy\.accessCopy\(state\?\.brand\)\.declined\),/);
+  assert.match(popupSource, /showActionMessage\(blocked \|\| "permission declined\. nothing added\.", blocked \? "bad" : "ok"\)/);
+});

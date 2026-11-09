@@ -20,6 +20,7 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 ### Fixed
 
 - on ipad, the solstone extension's window in Safari is now wide enough to read, and its settings page points to the extensions button in Safari's address bar, where ipad keeps the extension.
+- if you say no when your browser asks to allow a site, the solstone extension no longer shows your answer in red, as if something went wrong.
 
 ## [0.5.9] (2026-11-05)
 

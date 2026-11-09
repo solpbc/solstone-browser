@@ -646,6 +646,7 @@ test("the options binder drives Welcome mode, disclosure agreement, and Settings
   await pending;
   permissionAnswer = true;
   assert.equal(nodes.actionMessage.textContent, C.ADD_DENIED);
+  assert.equal(nodes.actionMessage.className, "action-message", "a declined prompt is not drawn as a failure");
 
   // Removing a site says what happened to it.
   liveState = optionsState({ consentVersion: 1, livePatterns: ["*://*.mail.google.com/*"] });
@@ -1077,6 +1078,7 @@ test("options: cleared notice precedes welcome, and the share sentences use acce
   const declinedFrom = sent.length;
   await nodes.accessAllow.listeners.click();
   assert.equal(nodes.actionMessage.textContent, Copy.accessCopy(liveState.brand).declined);
+  assert.equal(nodes.actionMessage.className, "action-message", "a declined prompt is not drawn as a failure");
   assert.equal(sent.slice(declinedFrom).some((message) => message.cmd === "shareEverySite"), false);
   allowRequest = true;
 

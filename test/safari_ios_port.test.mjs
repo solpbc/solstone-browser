@@ -97,6 +97,14 @@ test("on iPhone the words name the phone and say reading continues while the app
   assert.match(phone.step3Body("safari"), /Safari's page menu/);
   const pad = copyFor({ userAgent: "Mozilla/5.0 (Macintosh)", platform: "MacIntel", maxTouchPoints: 5 });
   assert.equal(pad.PLACE, "this ipad");
+  // Safari on iPad lists no extensions in its page menu; they sit behind a button in the address bar.
+  assert.match(pad.step3Body("safari"), /the extensions button in Safari's address bar/);
+  assert.doesNotMatch(pad.step3Body("safari"), /page menu/);
+  // Settings calls the row All Websites until a site has its own row, then Other Websites.
+  for (const words of [phone, pad]) {
+    assert.match(words.safariStopLine(), /All Websites \(or Other Websites\) to Ask/);
+    assert.ok(words.accessCopy("safari").steps.some((step) => /All Websites \(or Other Websites\) to Allow/.test(step)));
+  }
 });
 
 test("a computer keeps its words unchanged", () => {

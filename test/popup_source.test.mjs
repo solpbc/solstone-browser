@@ -742,3 +742,8 @@ test("popup: cleared notice from getStatus is first, including when consent is 0
   assert.equal(nodes.pageSiteAction.hidden, true);
   assert.doesNotMatch(popupSource, /stays paused/);
 });
+
+test("Safari's iPad popover gets a width of its own instead of shrinking to its words", () => {
+  assert.match(popupSource, /SolstoneCopy\?\.PLACE === "this ipad"\) document\.documentElement\.classList\.add\("ipad"\)/);
+  assert.match(html, /:root\.ipad body \{ width: 360px; \}/);
+});

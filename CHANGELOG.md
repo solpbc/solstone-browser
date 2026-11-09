@@ -17,6 +17,10 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 - `add this site` goes straight to your browser's own prompt.
 - the solstone extension no longer offers an icon on the pages that go into your journal. your browser shows when the extension is on, and on which sites.
 
+### Fixed
+
+- on ipad, the solstone extension's window in Safari is now wide enough to read, and its settings page points to the extensions button in Safari's address bar, where ipad keeps the extension.
+
 ## [0.5.9] (2026-11-05)
 
 ### Changed

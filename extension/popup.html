@@ -130,6 +130,9 @@
         border-top: 1px solid var(--line);
       }
       .site-issue:first-child { border-top: 0; padding-top: 0; }
+      /* Name and reason always share the first column. A row without a button
+         leaves the second column empty, so the hostname gets the full width. */
+      .site-issue .h, .site-issue .w { grid-column: 1; }
       .site-issue .h { font-weight: 600; overflow-wrap: anywhere; }
       .site-issue .w { color: var(--soft); font-size: 12px; }
       .site-issue button { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
@@ -223,7 +226,6 @@
       .mobile .pact button { flex: none; }
       .mobile button { min-height: 50px; border-radius: 14px; font-size: 17px; }
       .mobile button.primary { font-weight: 600; }
-      .mobile .page-hint { display: block; margin: 10px 0 0; color: var(--soft); font-size: 15px; text-align: center; }
       .mobile .page-learn { display: block; margin-top: 0; font-size: 15px; color: var(--soft); }
       .mobile .page-learn[hidden] { display: none; }
       .mobile .page-learn summary {
@@ -302,7 +304,6 @@
           <button id="pauseAction" type="button"></button>
         </div>
         <div id="actionMessage" class="action-message" aria-live="polite"></div>
-      <p id="pageHint" class="page-hint" hidden data-i18n="browser.popup.safariasksnextchoose"></p>
         <details id="pageLearn" class="page-learn" hidden>
           <summary data-i18n="browser.popup.whattakes"></summary>
           <p id="pageLearnWhat"></p>

@@ -1586,10 +1586,6 @@ globalThis.SolstoneI18nContracts = {
     "arguments": [],
     "selector": null
   },
-  "browser.popup.safariasksnextchoose": {
-    "arguments": [],
-    "selector": null
-  },
   "browser.popup.settings": {
     "arguments": [],
     "selector": null

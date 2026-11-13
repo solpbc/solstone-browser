@@ -10,6 +10,14 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 
 - when your browser allows every website, settings has a field to leave a site out by typing its address, so it stays out before you ever open it. settings also says that your browser's own settings don't show the sites you leave out.
 
+### Changed
+
+- on iphone and ipad, the popup no longer describes the prompt Safari shows after you tap `add this site`.
+
+### Fixed
+
+- in the popup's list of sites that need attention, a site the extension couldn't start on shows its whole address across the row, instead of one letter per line.
+
 ## [0.5.10] (2026-11-07)
 
 ### Changed

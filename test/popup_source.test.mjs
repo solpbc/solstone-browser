@@ -583,7 +583,7 @@ test("popup: cleared notice from getStatus is first, including when consent is 0
     "currentPageState", "pageSiteAction", "pageSiteSecondary", "pauseAction", "siteCount", "siteCountText",
     "disclosure", "disclosureTitle", "disclosureWhat", "disclosureUnsent", "disclosureDestination",
     "disclosureDestinationDetail", "disclosureChrome", "disclosureConfirm", "disclosureCancel",
-    "popupMain", "popupFooter", "allSitesLink", "settingsLink", "headerMark", "pageLearn", "pageHint",
+    "popupMain", "popupFooter", "allSitesLink", "settingsLink", "headerMark", "pageLearn",
     "page",
   ];
   const nodes = Object.fromEntries(ids.map((id) => [id, new NoticeNode(id)]));

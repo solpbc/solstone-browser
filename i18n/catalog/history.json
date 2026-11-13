@@ -3438,7 +3438,7 @@
       "resource": "m62726f777365722e706f7075702e73616661726961736b736e65787463686f6f7365",
       "namespace": "browser.popup",
       "owner": "browser",
-      "tombstone": false,
+      "tombstone": true,
       "replacement": null,
       "format_intent": "text",
       "arguments": [],

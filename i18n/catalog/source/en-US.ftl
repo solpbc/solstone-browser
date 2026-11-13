@@ -484,8 +484,6 @@ browser.popup.removehost = remove { $arg1 }
 
 browser.popup.removethis = remove this site
 
-browser.popup.safariasksnextchoose = Safari asks next. choose Always Allow.
-
 browser.popup.settings = settings ›
 
 browser.popup.sharing = sharing

@@ -225,7 +225,6 @@
     if (!$("pageLearn")) return;
     const adding = globalThis.SolstoneCopy.MOBILE === true && section.siteAction?.id === "add-site";
     $("pageLearn").hidden = !adding;
-    $("pageHint").hidden = !adding || section.siteAction.disabled === true;
     if (!adding) return;
     $("pageLearnWhat").textContent = globalThis.SolstoneCopy.DISCLOSURE_BODY;
     $("pageLearnUnsent").textContent = "";

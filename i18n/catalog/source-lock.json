@@ -1346,13 +1346,6 @@
       "locales": []
     },
     {
-      "id": "browser.popup.safariasksnextchoose",
-      "source": "d867d42a480020ef2ac7d4926df5420198a09105b18d84a28eb627a42ab22082",
-      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
-      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
-      "locales": []
-    },
-    {
       "id": "browser.popup.settings",
       "source": "ce522c783b88149e0de1d48cf78b76ae369eb918129158fb2bbd52326f9f92ca",
       "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",

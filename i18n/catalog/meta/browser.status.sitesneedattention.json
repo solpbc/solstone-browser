@@ -1,0 +1,27 @@
+{
+  "description": "Browser extension copy. {count} site needs attention {count} sites need attention",
+  "context": "the solstone extension, speaking to the owner, in the popup. One cardinal select. one and other are whole sentences. Translators add zero, two, few, many.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 0
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 99,
+  "source_revision": "1cb7b31be21e9a5b490f16e84eaea73bbfd5d8a6092ddcc4df81aa14d47e9203",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

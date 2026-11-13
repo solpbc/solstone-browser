@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. turn them on under sources in the solstone app's settings. this page moves on by itself.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 88,
+  "source_revision": "7c1e134a421a7ef0450bfdd5e1cbd2e4c433996d25ea04b5323a1d968c2e3c96",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. the solstone extension isn't taking in this site. your screen still goes into your jour...",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 91,
+  "source_revision": "98c2adce9417b138fab6e2efbb52249ac299d2a7a085c7a269ffeec007b117c0",
+  "risk": "routine",
+  "auto_merge": true
+}

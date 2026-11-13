@@ -1,0 +1,31 @@
+{
+  "description": "Browser extension copy. the solstone app is paused on this computer the solstone app is paused on this iphone t...",
+  "context": "the solstone extension, speaking to the owner, in the popup. Closed set: this computer, this iphone, this ipad. the device noun's gender and case are inside the branch. one enum.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "place",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 178,
+  "source_revision": "a2821228f52d761cd6c0e10d766e60392aa683298c8ac0d59fff0c1c921b897b",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "place",
+    "type": "string",
+    "enum_values": [
+      "computer",
+      "iphone",
+      "ipad"
+    ],
+    "enum_default": "computer"
+  }
+}

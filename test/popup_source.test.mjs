@@ -7,8 +7,10 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { armClick, pageGestureRequest } from "./mock_chrome.mjs";
 
+import {localizeHtmlFixture} from "./i18n_setup.mjs";
+
 const root = new URL("../", import.meta.url);
-const html = await readFile(new URL("extension/popup.html", root), "utf8");
+const html = localizeHtmlFixture(await readFile(new URL("extension/popup.html", root), "utf8"));
 const popupSource = await readFile(new URL("extension/popup.js", root), "utf8");
 const viewSource = await readFile(new URL("extension/lib/popup_view.js", root), "utf8");
 
@@ -630,7 +632,9 @@ test("popup: cleared notice from getStatus is first, including when consent is 0
   };
 
   await import("fake-indexeddb/auto");
-  const root = new URL("../", import.meta.url);
+
+
+const root = new URL("../", import.meta.url);
   for (const file of [
     "extension/native-browser/constants.js",
     "extension/native-browser/schemas.js",
@@ -749,6 +753,7 @@ test("Safari's iPad popover gets a width of its own instead of shrinking to its 
 });
 
 test("popup: declining the browser's prompt reads plain, and only a policy block is red", () => {
+  assert.equal(globalThis.SolstoneI18n.t("browser.copy.adddenied"), "permission declined. nothing added.");
   assert.match(popupSource, /showDenied: \(\) => showActionMessage\(globalThis\.SolstoneCopy\.accessCopy\(state\?\.brand\)\.declined\),/);
-  assert.match(popupSource, /showActionMessage\(blocked \|\| "permission declined\. nothing added\.", blocked \? "bad" : "ok"\)/);
+  assert.match(popupSource, /showActionMessage\(blocked \|\| t\("browser.copy.adddenied"\), blocked \? "bad" : "ok"\)/);
 });

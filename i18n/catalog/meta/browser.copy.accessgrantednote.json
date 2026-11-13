@@ -1,0 +1,30 @@
+{
+  "description": "Browser extension copy. a site set to Deny in Safari's website settings stays off. in Settings, under Apps, Saf...",
+  "context": "the solstone extension, speaking to the owner, on the settings page. One enum select. the branches are whole sentences.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "surface",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 200,
+  "source_revision": "d12057f468e530df876800bdfefe6932704f9ddb5764b460f46f96c1f8df1f15",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "surface",
+    "type": "string",
+    "enum_values": [
+      "safari-desktop",
+      "safari-mobile"
+    ],
+    "enum_default": "safari-desktop"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "description": "Browser extension copy. the solstone app on this computer needs a newer version of this extension. {browser} ha...",
+  "context": "the solstone extension, speaking to the owner, in the popup. Closed set: this computer, this iphone, this ipad. the device noun's gender and case are inside the branch. one enum. agreement: a string argument records no gender, case, noun class, or classifier. where the sentence must agree, the name's case is only in this note.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "browser",
+      "type": "string"
+    },
+    {
+      "name": "place",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 457,
+  "source_revision": "b709bb912c20d6094c8a707c27ac202c084c802d982fe0a8f89370bc9d8bf1d6",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "place",
+    "type": "string",
+    "enum_values": [
+      "computer",
+      "iphone",
+      "ipad"
+    ],
+    "enum_default": "computer"
+  }
+}

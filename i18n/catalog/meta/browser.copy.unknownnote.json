@@ -1,0 +1,30 @@
+{
+  "description": "Browser extension copy. if it's set to Deny in Safari's website settings, it isn't taken in. if it's set to Den...",
+  "context": "the solstone extension, speaking to the owner, in the popup. One enum select. the branches are whole sentences.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "surface",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 219,
+  "source_revision": "33f134171496a156e65e917c1c8ea5f9a48128298ec2900d5527d61ca48fe9f7",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "surface",
+    "type": "string",
+    "enum_values": [
+      "safari-desktop",
+      "safari-mobile"
+    ],
+    "enum_default": "safari-desktop"
+  }
+}

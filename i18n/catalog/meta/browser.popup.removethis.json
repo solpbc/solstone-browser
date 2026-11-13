@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. remove this site",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "popup"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "53c2cf87f329da3950c6cf534cdac82e26c54779c57a6998213e878ebac7446b",
+  "risk": "routine",
+  "auto_merge": true
+}

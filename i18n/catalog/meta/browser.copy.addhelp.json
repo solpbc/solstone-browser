@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. adding bank.com shares every bank.com site and page, like www.bank.com and login.bank.c...",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 150,
+  "source_revision": "85c26f940a41099e043168235c7012667b582c6258279967b2ab4df6c9e9701d",
+  "risk": "routine",
+  "auto_merge": true
+}

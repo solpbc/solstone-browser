@@ -1,0 +1,33 @@
+{
+  "description": "Browser extension copy. {count} sites, {on} on",
+  "context": "the solstone extension, speaking to the owner, in the popup. the sharing line. One cardinal select. one and other are whole sentences. Translators add zero, two, few, many. two-cardinals: two quantities. one select cannot pluralize both. split, or select on one and leave the other as a formatted number.",
+  "surfaces": [
+    "popup"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "on",
+      "type": "integer",
+      "numeric_style": "ungrouped",
+      "min": 0
+    },
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 0
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 92,
+  "source_revision": "c7f6caab56170918715136fd77678980c3fdbad68f50d862defa6ac30a5ecffe",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

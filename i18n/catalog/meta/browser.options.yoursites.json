@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. your sites",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "options"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "f4332bf7a4b281fdba327adfb7d46ac312795f9fda20dc21b4c22455e34af48a",
+  "risk": "routine",
+  "auto_merge": true
+}

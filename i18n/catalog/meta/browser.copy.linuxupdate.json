@@ -1,0 +1,35 @@
+{
+  "description": "Browser extension copy. this extension needs a newer version of the solstone app on this computer. run {cmd} to...",
+  "context": "the solstone extension, speaking to the owner, in the popup. Closed set: this computer, this iphone, this ipad. the device noun's gender and case are inside the branch. one enum. protected-argument: the command is a string argument. the profile cannot mark a string argument as a protected slot. one message per command, or leave the command untranslated by hand.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "cmd",
+      "type": "string"
+    },
+    {
+      "name": "place",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 343,
+  "source_revision": "8e98f980cbdea75eb0b17517a6a6ea95e4dd936f536dc930f293109a4fc725b4",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "place",
+    "type": "string",
+    "enum_values": [
+      "computer",
+      "iphone",
+      "ipad"
+    ],
+    "enum_default": "computer"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. the solstone app leaves it out too.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 35,
+  "source_revision": "c166f7819e4716c2ac6634cf76ea95cca331319e29cba41c893af4c14b58a0f1",
+  "risk": "routine",
+  "auto_merge": true
+}

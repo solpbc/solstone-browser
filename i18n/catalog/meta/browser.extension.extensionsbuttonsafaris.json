@@ -1,0 +1,16 @@
+{
+  "description": "Owner-facing text added since the 11-03 census.",
+  "context": "the solstone extension, speaking to the owner. found at HEAD, not in the 11-03 census.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 45,
+  "source_revision": "e0f4ee3eab7dfe3fdc7612479e69480129d27ecb328d9c2030e188cfee53e4c4",
+  "risk": "routine",
+  "auto_merge": true
+}

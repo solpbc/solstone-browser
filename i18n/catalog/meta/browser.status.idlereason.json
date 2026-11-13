@@ -1,0 +1,30 @@
+{
+  "description": "Browser extension copy. none of your sites are open right now. none of the websites you share are open right now.",
+  "context": "the solstone extension, speaking to the owner, in the popup. One enum select. the branches are whole sentences.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "mode",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 127,
+  "source_revision": "88b3ae4a0a82b4b85fb20d30216fd5f0296bce0b2faffbd79ca44d1f668d013d",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "mode",
+    "type": "string",
+    "enum_values": [
+      "selected",
+      "all"
+    ],
+    "enum_default": "selected"
+  }
+}

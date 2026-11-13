@@ -81,6 +81,7 @@ test("a desktop Safari keeps the dispatch port", () => {
 
 function copyFor(navigator) {
   const context = vm.createContext({ navigator });
+  for (const resource of ["catalog", "contracts", "index"]) vm.runInContext(readFileSync(new URL(`../extension/i18n/${resource}.js`, import.meta.url), "utf8"), context);
   vm.runInContext(readFileSync(new URL("../extension/lib/copy.js", import.meta.url), "utf8"), context);
   return context.SolstoneCopy;
 }
@@ -89,7 +90,6 @@ test("on iPhone the words name the phone and say reading continues while the app
   const phone = copyFor({ userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X)", platform: "iPhone" });
   assert.equal(phone.PLACE, "this iphone");
   assert.match(phone.DISCLOSURE_BODY, /solstone app on this iphone\./);
-  assert.equal(phone.MOBILE_DISCLOSURE_EDITS.length, 3);
   assert.doesNotMatch(phone.DISCLOSURE_BODY, /this computer|unless you turn that off/);
   assert.match(phone.DISCLOSURE_BODY, /takes in nothing from private browsing/);
   assert.doesNotMatch(phone.DISCLOSURE_BODY, /pausing (Safari in )?the solstone app/);

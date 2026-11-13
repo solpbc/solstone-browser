@@ -1,0 +1,21 @@
+{
+  "description": "Existing extension English: browser.copy.isnolongerleftout",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 128,
+  "source_revision": "5bdfec3836779386efeac970264fc7f8e4c75172c35357bff4a45fdd9779224a",
+  "risk": "routine",
+  "auto_merge": true
+}

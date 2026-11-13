@@ -1,0 +1,21 @@
+{
+  "description": "Existing extension English: browser.copy.sharingexcluded",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 128,
+  "source_revision": "9fbed104371788bc0d4e47a57674443cb3e9d176b8d5327b9b80c0138429d81d",
+  "risk": "routine",
+  "auto_merge": true
+}

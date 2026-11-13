@@ -1,0 +1,33 @@
+{
+  "description": "Browser extension copy. something went wrong turning on every site in Firefox. something went wrong turning on ...",
+  "context": "the solstone extension, speaking to the owner, in the popup and on the settings page. proper name of the browser, or the phrase your browser. article, gender, and possessive are written inside each branch. one enum.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "browser",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 353,
+  "source_revision": "4f3e6fc3600372b4712bc1a4e20e314d10944b3288506b3fb1b45af29c62105c",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "browser",
+    "type": "string",
+    "enum_values": [
+      "firefox",
+      "edge",
+      "chrome",
+      "safari",
+      "other"
+    ],
+    "enum_default": "other"
+  }
+}

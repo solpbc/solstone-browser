@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. can't add a site right now. the status above says why.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 54,
+  "source_revision": "9fca0095db55dfdfc7819868ef9e25fc04d9c28df99ba13f426055b26b2e9cfb",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,27 @@
+{
+  "description": "Browser extension copy. {count} sites, all paused",
+  "context": "the solstone extension, speaking to the owner, in the popup. the sharing line, every row paused. One cardinal select. one and other are whole sentences. Translators add zero, two, few, many.",
+  "surfaces": [
+    "popup"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 0
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 92,
+  "source_revision": "7731157f30706ff9298a334750315d0365528b6b7277530936e766fe626c4369",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

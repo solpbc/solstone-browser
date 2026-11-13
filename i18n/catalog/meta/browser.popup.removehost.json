@@ -1,0 +1,21 @@
+{
+  "description": "Browser extension copy. remove {arg1}",
+  "context": "the solstone extension, speaking to the owner, in the popup. agreement: a string argument records no gender, case, noun class, or classifier. where the sentence must agree, the name's case is only in this note.",
+  "surfaces": [
+    "popup"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "arg1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "5251e5bf5da510242e9453e7cbb1d3551f7b9aa8144dcdd3b73cb1d39b898229",
+  "risk": "routine",
+  "auto_merge": true
+}

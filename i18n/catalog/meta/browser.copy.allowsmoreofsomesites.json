@@ -1,0 +1,25 @@
+{
+  "description": "Existing extension English: browser.copy.allowsmoreofsomesites",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    },
+    {
+      "name": "value2",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 560,
+  "source_revision": "a6ccf406cf4d1ff1adc253457db8149f4cba3b8885c94bcfa5c9d01ee001270e",
+  "risk": "consent",
+  "auto_merge": false
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. this site is left out. stop leaving it out first.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 49,
+  "source_revision": "1de3343212e3f880ce2915002595f21b011313b8c527820ff5a56481c9e9c2a5",
+  "risk": "routine",
+  "auto_merge": true
+}

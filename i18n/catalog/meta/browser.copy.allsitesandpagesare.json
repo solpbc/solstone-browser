@@ -1,0 +1,21 @@
+{
+  "description": "Existing extension English: browser.copy.allsitesandpagesare",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 128,
+  "source_revision": "64c7957a2581fa33606f6a748d2ec5da95d6bc50c086cc8150bdb3020cdca952",
+  "risk": "routine",
+  "auto_merge": true
+}

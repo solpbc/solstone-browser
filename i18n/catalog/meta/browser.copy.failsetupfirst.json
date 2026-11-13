@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. finish setting up first.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "d5f025a488a4d597912326a13e245e61fa6fab14e0e9da3a9c6975bb71952897",
+  "risk": "routine",
+  "auto_merge": true
+}

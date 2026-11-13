@@ -1,0 +1,18 @@
+{
+  "description": "Existing visible label",
+  "context": "An extension action label; not its machine-readable action id.",
+  "surfaces": [
+    "options",
+    "status",
+    "popup"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "b0beef56826fdf19252c4f66ead70b2e70bebb77aface0378799d96180aa2da4",
+  "risk": "routine",
+  "auto_merge": true
+}

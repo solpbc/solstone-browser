@@ -1,0 +1,30 @@
+{
+  "description": "Browser extension copy. this extension takes in nothing from private browsing. this extension takes in nothing ...",
+  "context": "the solstone extension, speaking to the owner, in the popup. One enum select. the branches are whole sentences.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "surface",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 152,
+  "source_revision": "e80487e932490fb35fd1a491f3b734864f6cf2a8773fd326885d5723ddfdb07a",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "surface",
+    "type": "string",
+    "enum_values": [
+      "desktop",
+      "mobile"
+    ],
+    "enum_default": "desktop"
+  }
+}

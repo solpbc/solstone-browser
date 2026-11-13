@@ -1,0 +1,21 @@
+{
+  "description": "Existing extension English: browser.status.stopleavinghostout",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 128,
+  "source_revision": "25b859a14e945313c6c67800b40429fb9278b23077afc43d4287a77af85bf35c",
+  "risk": "routine",
+  "auto_merge": true
+}

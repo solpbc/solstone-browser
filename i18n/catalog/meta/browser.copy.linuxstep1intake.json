@@ -1,0 +1,21 @@
+{
+  "description": "Browser extension copy. turn them on with {cmd}.",
+  "context": "the solstone extension, speaking to the owner, on the settings page. protected-argument: the command is a string argument. the profile cannot mark a string argument as a protected slot. one message per command, or leave the command untranslated by hand.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "cmd",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 27,
+  "source_revision": "792cd8f03e05f131de78586dca758efdb279b9eaf0be6679c97055bd6e9572a0",
+  "risk": "routine",
+  "auto_merge": true
+}

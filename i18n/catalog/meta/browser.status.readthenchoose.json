@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. read what the solstone extension takes in, then choose your first site.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 71,
+  "source_revision": "8849204f329ad03746ae622f4abab66f02731f1fee998329cdbda89033336a99",
+  "risk": "routine",
+  "auto_merge": true
+}

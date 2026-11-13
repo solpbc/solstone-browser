@@ -1,0 +1,33 @@
+{
+  "description": "Browser extension copy. Firefox's permissions changed while saving. try again. Edge's permissions changed while...",
+  "context": "the solstone extension, speaking to the owner, on the settings page. proper name of the browser, or the phrase your browser. article, gender, and possessive are written inside each branch. one enum.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "browser",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 353,
+  "source_revision": "a75434bd6df0fbde4010b3090f7fd98392123bd7dc35c7085215467802b0839b",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "browser",
+    "type": "string",
+    "enum_values": [
+      "firefox",
+      "edge",
+      "chrome",
+      "safari",
+      "other"
+    ],
+    "enum_default": "other"
+  }
+}

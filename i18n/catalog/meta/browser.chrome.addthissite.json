@@ -1,0 +1,17 @@
+{
+  "description": "Browser extension copy. add this site",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "options",
+    "popup"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "752f421ebdcf21e28b814d9a1ef090810dd96b530debb3156f79d30d4a050bf1",
+  "risk": "routine",
+  "auto_merge": true
+}

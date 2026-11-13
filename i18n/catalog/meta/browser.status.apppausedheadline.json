@@ -1,0 +1,30 @@
+{
+  "description": "Browser extension copy. the solstone app is paused Safari is paused in the solstone app",
+  "context": "the solstone extension, speaking to the owner, in the popup. One enum select. the branches are whole sentences.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "surface",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 106,
+  "source_revision": "8d9741c1e840aa7baba5a695be0e00b162ca22deb65139541b9620db1b3be4e0",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "surface",
+    "type": "string",
+    "enum_values": [
+      "desktop",
+      "mobile"
+    ],
+    "enum_default": "desktop"
+  }
+}

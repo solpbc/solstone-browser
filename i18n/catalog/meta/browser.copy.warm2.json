@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. the solstone app takes in what you share with it, and all of it goes into your journal.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 87,
+  "source_revision": "3cad74fd1f0dee4b9f1b2429a347722fff8e231a2721a20ecd42b34484c7ce09",
+  "risk": "routine",
+  "auto_merge": true
+}

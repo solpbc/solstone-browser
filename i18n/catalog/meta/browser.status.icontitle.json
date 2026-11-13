@@ -1,0 +1,21 @@
+{
+  "description": "Browser extension copy. {headline}",
+  "context": "the solstone extension, speaking to the owner, in the toolbar tooltip. fragment: two messages joined in English. split. do not interpolate one message inside another. the headline and the subtitle are already messages. the subtitle is not an argument of this message.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "headline",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "d289dbf4c64b467b8ca96aa116b3a43a0085e092afd29cefe1aa5733cf7da295",
+  "risk": "routine",
+  "auto_merge": true
+}

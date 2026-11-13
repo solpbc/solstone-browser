@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. included",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "b26a7d30850fc1e95cf00554a9706d656221f3f5e18d521d8c243ae985508186",
+  "risk": "routine",
+  "auto_merge": true
+}

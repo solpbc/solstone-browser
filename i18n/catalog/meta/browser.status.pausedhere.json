@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. paused in this browser",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "6d1f22842afaf2a98c808c0796a2ba0fdc087c2c57ffe260899e97c40b4f53e3",
+  "risk": "routine",
+  "auto_merge": true
+}

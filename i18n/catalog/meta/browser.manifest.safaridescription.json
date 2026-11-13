@@ -1,0 +1,19 @@
+{
+  "description": "Safari manifest description",
+  "context": "Shorter description required by the Safari package.",
+  "surfaces": [
+    "options",
+    "status",
+    "popup"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "0265a5fc02db607a6bdfe9832a45281192bf7ad57519768f868e1a1bd4fc562c",
+  "risk": "routine",
+  "auto_merge": true,
+  "webextension": true
+}

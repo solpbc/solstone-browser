@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. what you shared from this browser is waiting for the solstone app to accept it. new pag...",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 127,
+  "source_revision": "64455f18ef4f95fb8c7083e7bc52bdec6280313499b6da12b0a0e804df0e4e3c",
+  "risk": "routine",
+  "auto_merge": true
+}

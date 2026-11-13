@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. can't reach the solstone app",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 28,
+  "source_revision": "874c0a58c5b772c0b635ceebed85010b671bd0416cc3d3b00fe915bc54d650ab",
+  "risk": "routine",
+  "auto_merge": true
+}

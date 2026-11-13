@@ -1,0 +1,33 @@
+{
+  "description": "Browser extension copy. Firefox will ask you to allow it. Edge will ask you to allow it. Chrome will ask you to...",
+  "context": "the solstone extension, speaking to the owner, on the settings page. the menu clause is its own enum. mobile: open a site you want to share, open solstone from Safari's page menu, and choose add this site. desktop: open a site you want to share, open solstone from your browser's toolbar or extensions menu, and choose add this site. proper name of the browser, or the phrase your browser. article, gender, and possessive are written inside each branch. one enum. enum-and-enum: two choices each want a select. the profile allows one. split.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "browser",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 248,
+  "source_revision": "2567b77fa28d2835992ce41aff2d49724c033b3feccec5b4e60d6a2dfeb96d7c",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "browser",
+    "type": "string",
+    "enum_values": [
+      "firefox",
+      "edge",
+      "chrome",
+      "safari",
+      "other"
+    ],
+    "enum_default": "other"
+  }
+}

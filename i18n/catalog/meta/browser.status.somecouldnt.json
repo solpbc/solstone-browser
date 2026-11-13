@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. some pages couldn't be kept",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 27,
+  "source_revision": "dc38c659fb59d145ecb57787f118fc6554199700d94492664e4ddb3c58a24c11",
+  "risk": "routine",
+  "auto_merge": true
+}

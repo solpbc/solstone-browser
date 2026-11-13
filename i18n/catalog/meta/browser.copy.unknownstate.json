@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. this extension can't reach this page",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 36,
+  "source_revision": "b653911d1a72ae73338166fafadd2608b658efbaa4bde8560c07787c4e9ed172",
+  "risk": "routine",
+  "auto_merge": true
+}

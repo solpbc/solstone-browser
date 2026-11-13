@@ -1,0 +1,17 @@
+{
+  "description": "Browser extension copy. mail.google.com",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "options",
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "40d4e1939c257f91549305dd967ff0d7817ad4d2f5e12778a6d73264a52b8d4a",
+  "risk": "routine",
+  "auto_merge": true
+}

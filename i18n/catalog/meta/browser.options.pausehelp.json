@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. on: when the solstone app on this computer pauses, so does this extension. off: when yo...",
+  "context": "found as html text. there is no code conditional. it always says this computer, including on a phone. on and off are explained in one paragraph. the place-enum used everywhere else should replace the baked noun. not a ternary in the code, so it is not classed as one.",
+  "surfaces": [
+    "options"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 200,
+  "source_revision": "1f97ef70fbf2f23fd73eba56748f09accae2e69b309e4c5be194a8559a1c8a5e",
+  "risk": "routine",
+  "auto_merge": true
+}

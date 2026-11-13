@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. browser pages are off in the solstone app",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 41,
+  "source_revision": "0aa41d892a52eabe34b7b856eea40991c909ae3fb1fe9969caa9e4b35513e328",
+  "risk": "routine",
+  "auto_merge": true
+}

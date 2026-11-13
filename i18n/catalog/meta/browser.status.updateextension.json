@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. update the solstone extension",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "c5f762a7ecdea6b75ae5087e9c41db521f3ce79f0b8abe722e3b29d76defb5d1",
+  "risk": "routine",
+  "auto_merge": true
+}

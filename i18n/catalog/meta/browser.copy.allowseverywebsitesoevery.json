@@ -1,0 +1,21 @@
+{
+  "description": "Existing extension English: browser.copy.allowseverywebsitesoevery",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 162,
+  "source_revision": "c1b45c52be9352bd2d23c082b22083d3bb1225699f1e6a20e4f4bdd4197b4def",
+  "risk": "routine",
+  "auto_merge": true
+}

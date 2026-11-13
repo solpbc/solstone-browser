@@ -17,6 +17,7 @@ This runs the development checks and writes the unpacked development build to `d
 ## Source tree
 
 - `extension/`: background controller, page scripts, toolbar and settings.
+- [`i18n/`](i18n/README.md): English source catalog, generated resources and regeneration instructions.
 - `extension/lib/`: authorization, native connection, durable outbox and shared logic.
 - `contracts/native-browser/`: versioned envelope schemas, generated constants, registration authority and conformance vectors.
 - `native-browser/`: JavaScript contract validation.

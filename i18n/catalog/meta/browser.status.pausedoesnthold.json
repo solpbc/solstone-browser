@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. pausing doesn't hold back what's already taken in.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 50,
+  "source_revision": "b1085c43f405f5948d330347c8b2bb58bd87d4c2cf1e2c8e5b904bbdf3229f77",
+  "risk": "routine",
+  "auto_merge": true
+}

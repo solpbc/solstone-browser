@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. sharing",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "popup"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "d767d505ea62feddb74322654be1ecfd2b51a5ee3b8e4efebee878bb1b33c92f",
+  "risk": "routine",
+  "auto_merge": true
+}

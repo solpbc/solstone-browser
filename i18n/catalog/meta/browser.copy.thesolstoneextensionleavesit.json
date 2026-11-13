@@ -1,0 +1,21 @@
+{
+  "description": "Existing extension English: browser.copy.thesolstoneextensionleavesit",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 208,
+  "source_revision": "1062c34386731a77546c47cd96d780871175f56191177e73db59a13da495b559",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,29 @@
+{
+  "description": "Browser extension copy. Safari won't ask about {arg1} while it allows {under}. to add {arg3}, set it to Allow i...",
+  "context": "the solstone extension, speaking to the owner, on the settings page. agreement: a string argument records no gender, case, noun class, or classifier. where the sentence must agree, the name's case is only in this note. Allow is the platform's own control name.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "arg1",
+      "type": "string"
+    },
+    {
+      "name": "under",
+      "type": "string"
+    },
+    {
+      "name": "arg3",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 124,
+  "source_revision": "2ce433ca07174fbc4b627627099c1b198624cc76c40c0bd8af9a165d41f04a1b",
+  "risk": "routine",
+  "auto_merge": true
+}

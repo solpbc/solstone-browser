@@ -1,0 +1,34 @@
+{
+  "description": "Browser extension copy. Firefox is denying this site Edge is denying this site Chrome is denying this site Safa...",
+  "context": "the solstone extension, speaking to the owner, in the popup and on the settings page. proper name of the browser, or the phrase your browser. article, gender, and possessive are written inside each branch. one enum.",
+  "surfaces": [
+    "extension",
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "browser",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 223,
+  "source_revision": "d5c8e183518790add2d2564c756987af3a79c900dbdc18245ee7cbfd698bd5f5",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "browser",
+    "type": "string",
+    "enum_values": [
+      "firefox",
+      "edge",
+      "chrome",
+      "safari",
+      "other"
+    ],
+    "enum_default": "other"
+  }
+}

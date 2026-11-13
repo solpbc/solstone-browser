@@ -4,15 +4,16 @@
 (function () {
   "use strict";
 
+  const t = (...args) => globalThis.SolstoneI18n.t(...args);
+
   function siteCountLine(rows) {
     rows = Array.isArray(rows) ? rows : [];
     if (rows.length === 0) return "";
-    const noun = rows.length === 1 ? "site" : "sites";
-    if (rows.every((row) => row.kind === "on-now" || row.kind === "on")) return `${rows.length} ${noun}, all on`;
-    if (rows.every((row) => row.kind === "paused" || row.kind === "paused-by-browser")) return `${rows.length} ${noun}, all paused`;
+    if (rows.every((row) => row.kind === "on-now" || row.kind === "on")) return t("browser.popup.sitecountallon", {count:rows.length});
+    if (rows.every((row) => row.kind === "paused" || row.kind === "paused-by-browser")) return t("browser.popup.sitecountallpaused", {count:rows.length});
     const on = rows.filter((row) => row.kind === "on-now" || row.kind === "on").length;
-    if (on > 0) return `${rows.length} ${noun}, ${on} on`;
-    return `${rows.length} ${noun}`;
+    if (on > 0) return t("browser.popup.sitecountmixed", {count:rows.length,on});
+    return t("browser.popup.sitecountonly", {count:rows.length});
   }
 
   function arrange(derived, state, page, extras) {
@@ -48,7 +49,7 @@
         ? H.displayOrigin(entry) : entry;
       const row = globalThis.SolstoneStatus
         ? globalThis.SolstoneStatus.siteRow(entry, state, extras)
-        : { kind: "added-idle", label: "added", action: null };
+        : { kind: "added-idle", label: t("browser.popup.added"), action: null };
       return { host, entry, origin: entry, kind: row.kind, label: row.label, action: row.action };
     });
 
@@ -72,9 +73,9 @@
       try { host = new URL(origin).hostname; } catch (_e) {}
       attentionRows.push({
         host, entry: origin, origin, kind: "truncated",
-        label: Copy?.TRUNCATION_ATTENTION || "part of what you shared on this site was too long to keep",
+        label: Copy?.TRUNCATION_ATTENTION || t("browser.copy.truncation"),
         count: notice.count,
-        action: { id: "dismiss-truncation", label: "dismiss", origin, bound: notice.newestId },
+        action: { id: "dismiss-truncation", label: t("browser.chrome.dismiss"), origin, bound: notice.newestId },
       });
     }
     for (const row of siteRows) {
@@ -137,15 +138,15 @@
       pageNote = pageWords.unknownNote;
       siteAction = null;
     } else if (!page.ok) {
-      pageState = "this page can't be added";
-      siteAction = { id: "add-site", label: "add this site", disabled: true, primary: true };
+      pageState = t("browser.popup.cantadd");
+      siteAction = { id: "add-site", label: t("browser.chrome.addthissite"), disabled: true, primary: true };
     } else if (isEffectivelyLeftOut) {
-      pageState = "left out";
+      pageState = t("browser.popup.leftout");
       pageNoteKey = Copy?.popupNoteKey ? Copy.popupNoteKey(state, page, "left-out") : "";
       const rawLeftOutNote = pageNoteKey && Copy ? Copy[pageNoteKey] : "";
       pageNote = typeof rawLeftOutNote === "function" ? rawLeftOutNote(state.brand) : (rawLeftOutNote || "");
       const site = coveringExcludedSite;
-      const includeLabel = site === H.siteHostname(page.host) ? "stop leaving this site out" : `stop leaving ${site} out`;
+      const includeLabel = site === H.siteHostname(page.host) ? t("browser.popup.stopleavingsiteout") : t("browser.popup.stopleavinghostout", {value1: String(site)});
       const appCovers = (state.appLeftOut || []).some((s2) => H.hostCovers(s2, page.host));
       if ((appCovers || !isLocalLeftOut) && !state.leftOutCapable) {
         siteAction = null;
@@ -158,16 +159,16 @@
       pageState = row.label;
       if (row.kind === "denied-by-browser" && pageWords) pageNote = pageWords.deniedNote;
       else if (pageWords && (state.broadGranted === true || state.broadGrant === true)) pageNote = pageWords.leaveOutNote(site);
-      siteAction = { id: "exclude-site", site, label: "leave this site out", disabled: false, primary: true };
+      siteAction = { id: "exclude-site", site, label: t("browser.popup.leaveoutthis"), disabled: false, primary: true };
     } else if (!isPageAllowed) {
-      pageState = "not added";
+      pageState = t("browser.popup.notadded");
       pageNoteKey = Copy?.popupNoteKey ? Copy.popupNoteKey(state, page, "not-added") : "";
       const rawNotAddedNote = pageNoteKey && Copy ? Copy[pageNoteKey] : "";
       pageNote = typeof rawNotAddedNote === "function" ? rawNotAddedNote(state.brand) : (rawNotAddedNote || "");
       const canAdd = state.addSiteEligible === true && state.consentAccepted === true;
-      siteAction = { id: "add-site", label: "add this site", disabled: !canAdd, primary: true };
+      siteAction = { id: "add-site", label: t("browser.chrome.addthissite"), disabled: !canAdd, primary: true };
       if (pageKind === "web" && page.ok && Copy?.MOBILE !== true) {
-        siteSecondary = { id: "leave-out", label: "leave this site out" };
+        siteSecondary = { id: "leave-out", label: t("browser.popup.leaveoutthis") };
       }
     } else {
       const pageRow = siteRows.find((r) => r.origin === pageSite) || (globalThis.SolstoneStatus
@@ -175,14 +176,14 @@
         : { label: "" });
       pageState = pageRow.label;
       const siteName = H?.displayOrigin ? H.displayOrigin(pageSite) : pageSite;
-      siteAction = { id: "remove-site", origin: pageSite, label: pageSite === page.origin ? "remove this site" : `remove ${siteName}`, disabled: false, primary: false };
+      siteAction = { id: "remove-site", origin: pageSite, label: pageSite === page.origin ? t("browser.popup.removethis") : t("browser.popup.removehost", { arg1: siteName }), disabled: false, primary: false };
     }
 
     // While paused, resume is the one filled button.
     if (state.paused && siteAction) siteAction.primary = false;
 
     if (state.permissionsUnavailable === true && siteAction?.id === "add-site") {
-      if (pageState === "not added") {
+      if (!isPageAllowed && page.ok && !isEffectivelyLeftOut && !isEverySite) {
         pageState = Copy.actionFailure("permissions_unavailable", state.brand);
       }
       siteAction = null;
@@ -233,7 +234,7 @@
               },
               {
                 id: q.keepId || "keep-my-sites",
-                label: q.keepLabel || "keep my sites",
+                label: q.keepLabel || t("browser.options.keepmysites"),
                 primary: false,
               },
             ],
@@ -244,7 +245,7 @@
             },
             secondaryAction: {
               id: q.keepId || "keep-my-sites",
-              label: q.keepLabel || "keep my sites",
+              label: q.keepLabel || t("browser.options.keepmysites"),
               primary: false,
             },
           });
@@ -273,7 +274,7 @@
     sections.push({
       id: "page",
       kind: pageKind,
-      host: pageKind === "web" || pageKind === "private" ? page.host || "this page" : "this page",
+      host: pageKind === "web" || pageKind === "private" ? page.host || t("browser.popup.thispage") : t("browser.popup.thispage"),
       state: pageState,
       note: pageNote,
       pageNoteKey,
@@ -281,7 +282,7 @@
       siteSecondary,
       pauseAction: (Copy?.MOBILE === true && !state.paused) || (!isEverySite && siteCount === 0 && !state.paused) ? null : {
         id: "set-paused",
-        label: state.paused ? "resume" : "pause all",
+        label: state.paused ? t("browser.popup.pauseall", { phase: "paused" }) : t("browser.popup.pauseall", { phase: "running" }),
         primary: !!state.paused,
       },
     });

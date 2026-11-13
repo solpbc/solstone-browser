@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. something went wrong on this site",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 33,
+  "source_revision": "508fe5d8af78c1c1cbeac477bb685c92bc90ba63f343c1c9e4f0dd8652b050ec",
+  "risk": "routine",
+  "auto_merge": true
+}

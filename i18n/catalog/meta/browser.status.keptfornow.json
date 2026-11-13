@@ -1,0 +1,31 @@
+{
+  "description": "Browser extension copy. kept on this computer for now kept on this iphone for now kept on this ipad for now",
+  "context": "the solstone extension, speaking to the owner, in the toolbar tooltip. Closed set: this computer, this iphone, this ipad. the device noun's gender and case are inside the branch. one enum.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "place",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 136,
+  "source_revision": "efcc5eb969006cfbfbca7e68e6eab0c38d16e4899474c74bdbbe1816028237ce",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "place",
+    "type": "string",
+    "enum_values": [
+      "computer",
+      "iphone",
+      "ipad"
+    ],
+    "enum_default": "computer"
+  }
+}

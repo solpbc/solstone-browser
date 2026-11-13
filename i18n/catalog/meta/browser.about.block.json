@@ -1,0 +1,37 @@
+{
+  "description": "Browser extension copy. solstone extension {version} \u00b7 {os} {os_version} \u00b7 {arch} {journal}",
+  "context": "the solstone extension, speaking to the owner, in the popup. do not concatenate. the age clause is browser.about.minutes-ago, hours-ago, or days-ago, or just now. journal unknown branches on an id (EAL-079). a string argument that is itself a sentence is the fragment.",
+  "surfaces": [
+    "about"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "version",
+      "type": "string"
+    },
+    {
+      "name": "os",
+      "type": "string"
+    },
+    {
+      "name": "os_version",
+      "type": "string"
+    },
+    {
+      "name": "arch",
+      "type": "string"
+    },
+    {
+      "name": "journal",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 86,
+  "source_revision": "2141bfc8191e926ea3dd31197f37e5fc24a0d5c2d1ba38939e2c50dd4a080afe",
+  "risk": "routine",
+  "auto_merge": true
+}

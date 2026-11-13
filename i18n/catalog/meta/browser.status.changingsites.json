@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. changing your sites",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "554674d0e6665481fb0050ed81331e0a6a5d47fd621de7929d67a5447b7d8398",
+  "risk": "routine",
+  "auto_merge": true
+}

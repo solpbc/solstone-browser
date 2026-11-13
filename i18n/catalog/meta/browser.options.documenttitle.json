@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. solstone settings",
+  "context": "found as the settings document title.",
+  "surfaces": [
+    "options"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "cddf7f242ca5257b7c276f78c1c634bf2128de7d78c9cc77b875e5d418d81ea2",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. kept out of your journal, Firefox windows on your screen and activity included. kept ou...",
+  "context": "the solstone extension, speaking to the owner, in the popup. proper name of the browser, or the phrase your browser. article, gender, and possessive are written inside each branch. one enum.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 478,
+  "source_revision": "33ce2c8607fe0e5f3b0015f0d69a01bd6d03b7e853d2b72cbb20bd2bcb16b30c",
+  "risk": "routine",
+  "auto_merge": true
+}

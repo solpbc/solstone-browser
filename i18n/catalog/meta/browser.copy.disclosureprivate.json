@@ -1,0 +1,30 @@
+{
+  "description": "Private-window sentence. Mobile says private browsing.",
+  "context": "split from the disclosure. the solstone extension, speaking to the owner, on the agreement.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "surface",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 313,
+  "source_revision": "9a6fb7f909545714dc9afac590832dd4acb047c039d7ef5e518543e53f4a1a6b",
+  "risk": "consent",
+  "auto_merge": false,
+  "selector": {
+    "name": "surface",
+    "type": "string",
+    "enum_values": [
+      "desktop",
+      "mobile"
+    ],
+    "enum_default": "desktop"
+  }
+}

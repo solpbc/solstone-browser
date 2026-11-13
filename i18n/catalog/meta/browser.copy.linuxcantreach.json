@@ -1,0 +1,38 @@
+{
+  "description": "Browser extension copy. start the solstone app on this computer. if it's already running, solstone-linux doctor...",
+  "context": "the solstone extension, speaking to the owner, in the popup. Closed set: this computer, this iphone, this ipad. the device noun's gender and case are inside the branch. one enum.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "place",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 337,
+  "source_revision": "f138eaef08ccf34760feda8537f605abb1528d54300cfe5eb1331973aa8dd093",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "doctor",
+      "kind": "command",
+      "value": "solstone-linux doctor"
+    }
+  ],
+  "selector": {
+    "name": "place",
+    "type": "string",
+    "enum_values": [
+      "computer",
+      "iphone",
+      "ipad"
+    ],
+    "enum_default": "computer"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "description": "Existing extension English: browser.about.lastseen",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 128,
+  "source_revision": "d3141f6c13323c8bdb91bfbce46fa3cce9243680081d91c61828ba69ba655df5",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "space",
+      "kind": "whitespace",
+      "value": " "
+    }
+  ]
+}

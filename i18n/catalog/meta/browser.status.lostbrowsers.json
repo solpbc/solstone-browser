@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. part of what you shared from your browsers couldn't be kept, so it won't go into your j...",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 128,
+  "source_revision": "41cbdf5ea6f8175abacdfbd3bbdaf796f61b257e246af620bae0cbe0efd5eba3",
+  "risk": "routine",
+  "auto_merge": true
+}

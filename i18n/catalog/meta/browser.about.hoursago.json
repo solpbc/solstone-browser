@@ -1,0 +1,27 @@
+{
+  "description": "Browser extension copy. {count} hour ago {count} hours ago",
+  "context": "the solstone extension, speaking to the owner, in the popup. the about block. One cardinal select. one and other are whole sentences. Translators add zero, two, few, many.",
+  "surfaces": [
+    "about"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 0
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 76,
+  "source_revision": "ed50096e026570cbc02021774a03043b07402a3967706a6a60a5fb692f82b7fe",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

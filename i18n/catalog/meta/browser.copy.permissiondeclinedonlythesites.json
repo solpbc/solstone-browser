@@ -1,0 +1,25 @@
+{
+  "description": "Existing extension English: browser.copy.permissiondeclinedonlythesites",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    },
+    {
+      "name": "value2",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 304,
+  "source_revision": "ca047e6378f5b680157691731b172aa0cd65ffafb7ee0bfed7e7fd59991fb19d",
+  "risk": "routine",
+  "auto_merge": true
+}

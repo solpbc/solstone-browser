@@ -1,0 +1,33 @@
+{
+  "description": "Browser extension copy. Firefox doesn't let this extension take in these sites: Edge doesn't let this extension...",
+  "context": "the solstone extension, speaking to the owner, on the settings page. Safari is its own sentence. The other branches fill the browser name. proper name of the browser, or the phrase your browser. article, gender, and possessive are written inside each branch. one enum.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "browser",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 359,
+  "source_revision": "dc5731e9120d25584f7d1706500d4352d9e36dd0af93eac07c5aa9ac63e26572",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "browser",
+    "type": "string",
+    "enum_values": [
+      "firefox",
+      "edge",
+      "chrome",
+      "safari",
+      "other"
+    ],
+    "enum_default": "other"
+  }
+}

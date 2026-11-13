@@ -1,0 +1,27 @@
+{
+  "description": "Browser extension copy. {count} site {count} sites",
+  "context": "the solstone extension, speaking to the owner, in the popup. the sharing line, a count with no second figure. One cardinal select. one and other are whole sentences. Translators add zero, two, few, many.",
+  "surfaces": [
+    "popup"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 0
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 68,
+  "source_revision": "42c8fc036ab04b2a00539b52054162a6bfcbc22868ac7ade133c0df62382d4c9",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

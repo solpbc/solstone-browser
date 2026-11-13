@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. under Extensions on the left, choose solstone.",
+  "context": "found as a js literal. a platform settings step. do not translate the control's own name. a shipping translation needs the platform's localized label, which this census does not have.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 46,
+  "source_revision": "4138fbc70ca9113d825d02fd2396c07facf8366932e202500cb70b65aa340dc3",
+  "risk": "routine",
+  "auto_merge": true
+}

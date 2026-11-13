@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. enter a website address, like mail.google.com.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 46,
+  "source_revision": "3ee16dfcc4fad35f13008a519c69e27468995e01e8a3a65e3e19e032dae035c0",
+  "risk": "routine",
+  "auto_merge": true
+}

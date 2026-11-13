@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. set For other websites to Allow.",
+  "context": "found as a js literal. a platform settings step. do not translate the control's own name. a shipping translation needs the platform's localized label, which this census does not have.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 32,
+  "source_revision": "a4c283fc0d8bee3121531456a46c93eefe0ba544fdb69efddcd05b83f390053a",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. couldn't start on this site. remove it and add it again.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 56,
+  "source_revision": "ec14612fc4a4b3caf30eec890d5d9aaf1450cffcedb965375d362f0ae1b04c37",
+  "risk": "routine",
+  "auto_merge": true
+}

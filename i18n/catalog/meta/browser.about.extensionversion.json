@@ -1,0 +1,21 @@
+{
+  "description": "Existing extension English: browser.about.extensionversion",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 128,
+  "source_revision": "7387b4ee27bdc1cf3fad3c0b70740d27bc78a7c78325e2b943985dba783f8b7d",
+  "risk": "routine",
+  "auto_merge": true
+}

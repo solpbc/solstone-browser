@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. reload this tab to begin",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "3bc5570f4474b6fc5104c39b9d780d654432fd8e853c837d5123121a6711b512",
+  "risk": "routine",
+  "auto_merge": true
+}

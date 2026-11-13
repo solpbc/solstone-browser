@@ -1,0 +1,21 @@
+{
+  "description": "Browser extension copy. something went wrong.",
+  "context": "the solstone extension, speaking to the owner, in the popup and on the settings page. the raw browser text is not a message. show a code's presentation sentence, or this one.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "raw",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "10ae6607a8b40326414b41cef471e63ea1a329ae6d32d8917ec0e05163a9325c",
+  "risk": "routine",
+  "auto_merge": true
+}

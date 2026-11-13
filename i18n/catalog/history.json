@@ -1,0 +1,4761 @@
+{
+  "history_version": 1,
+  "records": [
+    {
+      "id": "browser.about.block",
+      "resource": "m62726f777365722e61626f75742e626c6f636b",
+      "namespace": "browser.about",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "version",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "os",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "os_version",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "arch",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "journal",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.about.daysago",
+      "resource": "m62726f777365722e61626f75742e6461797361676f",
+      "namespace": "browser.about",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "browser.about.extensionversion",
+      "resource": "m62726f777365722e61626f75742e657874656e73696f6e76657273696f6e",
+      "namespace": "browser.about",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.about.hoursago",
+      "resource": "m62726f777365722e61626f75742e686f75727361676f",
+      "namespace": "browser.about",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "browser.about.journalunknown",
+      "resource": "m62726f777365722e61626f75742e6a6f75726e616c756e6b6e6f776e",
+      "namespace": "browser.about",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.about.justnow",
+      "resource": "m62726f777365722e61626f75742e6a7573746e6f77",
+      "namespace": "browser.about",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.about.lastseen",
+      "resource": "m62726f777365722e61626f75742e6c6173747365656e",
+      "namespace": "browser.about",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [
+        {
+          "name": "space",
+          "kind": "whitespace",
+          "value": " "
+        }
+      ],
+      "selector": null
+    },
+    {
+      "id": "browser.about.lines",
+      "resource": "m62726f777365722e61626f75742e6c696e6573",
+      "namespace": "browser.about",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "own",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "journal",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.about.minutesago",
+      "resource": "m62726f777365722e61626f75742e6d696e7574657361676f",
+      "namespace": "browser.about",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "browser.brand.name",
+      "resource": "m62726f777365722e6272616e642e6e616d65",
+      "namespace": "browser.brand",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.chrome.addthissite",
+      "resource": "m62726f777365722e6368726f6d652e6164647468697373697465",
+      "namespace": "browser.chrome",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.chrome.dismiss",
+      "resource": "m62726f777365722e6368726f6d652e6469736d697373",
+      "namespace": "browser.chrome",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.chrome.inyourbrowser",
+      "resource": "m62726f777365722e6368726f6d652e696e796f757262726f77736572",
+      "namespace": "browser.chrome",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.chrome.itgoesto",
+      "resource": "m62726f777365722e6368726f6d652e6974676f6573746f",
+      "namespace": "browser.chrome",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.accessdeniedhelp",
+      "resource": "m62726f777365722e636f70792e61636365737364656e69656468656c70",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "surface",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "surface",
+        "type": "string",
+        "enum_values": [
+          "safari-desktop",
+          "safari-mobile"
+        ],
+        "enum_default": "safari-desktop"
+      }
+    },
+    {
+      "id": "browser.copy.accessgrantedjoin",
+      "resource": "m62726f777365722e636f70792e6163636573736772616e7465646a6f696e",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "granted",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.accessgrantednote",
+      "resource": "m62726f777365722e636f70792e6163636573736772616e7465646e6f7465",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "surface",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "surface",
+        "type": "string",
+        "enum_values": [
+          "safari-desktop",
+          "safari-mobile"
+        ],
+        "enum_default": "safari-desktop"
+      }
+    },
+    {
+      "id": "browser.copy.addblockedbelow",
+      "resource": "m62726f777365722e636f70792e616464626c6f636b656462656c6f77",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "arg1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "under",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "arg3",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.adddenied",
+      "resource": "m62726f777365722e636f70792e61646464656e696564",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.added",
+      "resource": "m62726f777365722e636f70792e6164646564",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "scope",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "host",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "scope",
+        "type": "string",
+        "enum_values": [
+          "exact",
+          "whole"
+        ],
+        "enum_default": "exact"
+      }
+    },
+    {
+      "id": "browser.copy.addedjoined",
+      "resource": "m62726f777365722e636f70792e61646465646a6f696e6564",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "scope",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "host",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "scope",
+        "type": "string",
+        "enum_values": [
+          "exact",
+          "whole"
+        ],
+        "enum_default": "exact"
+      }
+    },
+    {
+      "id": "browser.copy.addhelp",
+      "resource": "m62726f777365722e636f70792e61646468656c70",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.addhelpjoined",
+      "resource": "m62726f777365722e636f70792e61646468656c706a6f696e6564",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "browser",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "browser",
+        "type": "string",
+        "enum_values": [
+          "firefox",
+          "edge",
+          "chrome",
+          "safari",
+          "other"
+        ],
+        "enum_default": "other"
+      }
+    },
+    {
+      "id": "browser.copy.addhelpsuffix",
+      "resource": "m62726f777365722e636f70792e61646468656c70737566666978",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "browser",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "browser",
+        "type": "string",
+        "enum_values": [
+          "firefox",
+          "edge",
+          "chrome",
+          "safari",
+          "other"
+        ],
+        "enum_default": "other"
+      }
+    },
+    {
+      "id": "browser.copy.addnotnow",
+      "resource": "m62726f777365722e636f70792e6164646e6f746e6f77",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.allowin",
+      "resource": "m62726f777365722e636f70792e616c6c6f77696e",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "browser",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "browser",
+        "type": "string",
+        "enum_values": [
+          "firefox",
+          "edge",
+          "chrome",
+          "safari",
+          "other"
+        ],
+        "enum_default": "other"
+      }
+    },
+    {
+      "id": "browser.copy.allowsallofbutthe",
+      "resource": "m62726f777365722e636f70792e616c6c6f7773616c6c6f66627574746865",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "value2",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.allowseverywebsitesoevery",
+      "resource": "m62726f777365722e636f70792e616c6c6f7773657665727977656273697465736f6576657279",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.allowsmoreofsomesites",
+      "resource": "m62726f777365722e636f70792e616c6c6f77736d6f72656f66736f6d657369746573",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "value2",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.allowsmorethanyoursites",
+      "resource": "m62726f777365722e636f70792e616c6c6f77736d6f72657468616e796f75727369746573",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "value2",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.allowsthesolstoneextensionon",
+      "resource": "m62726f777365722e636f70792e616c6c6f7773746865736f6c73746f6e65657874656e73696f6e6f6e",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.allowsthesolstoneextensionon2",
+      "resource": "m62726f777365722e636f70792e616c6c6f7773746865736f6c73746f6e65657874656e73696f6e6f6e32",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "value2",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.allsitesandpagesare",
+      "resource": "m62726f777365722e636f70792e616c6c7369746573616e647061676573617265",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.alreadyallowseverywebsiteso",
+      "resource": "m62726f777365722e636f70792e616c7265616479616c6c6f7773657665727977656273697465736f",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "value2",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.appleftoutaway",
+      "resource": "m62726f777365722e636f70792e6170706c6566746f757461776179",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.appleftoutsiteson",
+      "resource": "m62726f777365722e636f70792e6170706c6566746f757473697465736f6e",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.apponlyleftout",
+      "resource": "m62726f777365722e636f70792e6170706f6e6c796c6566746f7574",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.browsermenu",
+      "resource": "m62726f777365722e636f70792e62726f777365726d656e75",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.browsername",
+      "resource": "m62726f777365722e636f70792e62726f777365726e616d65",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "brand",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "brand",
+        "type": "string",
+        "enum_values": [
+          "firefox",
+          "edge",
+          "chrome",
+          "safari",
+          "other"
+        ],
+        "enum_default": "other"
+      }
+    },
+    {
+      "id": "browser.copy.checkagain",
+      "resource": "m62726f777365722e636f70792e636865636b616761696e",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.checking",
+      "resource": "m62726f777365722e636f70792e636865636b696e67",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "browser",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "browser",
+        "type": "string",
+        "enum_values": [
+          "firefox",
+          "edge",
+          "chrome",
+          "safari",
+          "other"
+        ],
+        "enum_default": "other"
+      }
+    },
+    {
+      "id": "browser.copy.couldntcheck",
+      "resource": "m62726f777365722e636f70792e636f756c646e74636865636b",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "browser",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "browser",
+        "type": "string",
+        "enum_values": [
+          "firefox",
+          "edge",
+          "chrome",
+          "safari",
+          "other"
+        ],
+        "enum_default": "other"
+      }
+    },
+    {
+      "id": "browser.copy.couldntstart",
+      "resource": "m62726f777365722e636f70792e636f756c646e747374617274",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.deniednote",
+      "resource": "m62726f777365722e636f70792e64656e6965646e6f7465",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "surface",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "surface",
+        "type": "string",
+        "enum_values": [
+          "safari-desktop",
+          "safari-mobile"
+        ],
+        "enum_default": "safari-desktop"
+      }
+    },
+    {
+      "id": "browser.copy.deniedtitle",
+      "resource": "m62726f777365722e636f70792e64656e6965647469746c65",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "browser",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "browser",
+        "type": "string",
+        "enum_values": [
+          "firefox",
+          "edge",
+          "chrome",
+          "safari",
+          "other"
+        ],
+        "enum_default": "other"
+      }
+    },
+    {
+      "id": "browser.copy.denyingsite",
+      "resource": "m62726f777365722e636f70792e64656e79696e6773697465",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "browser",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "browser",
+        "type": "string",
+        "enum_values": [
+          "firefox",
+          "edge",
+          "chrome",
+          "safari",
+          "other"
+        ],
+        "enum_default": "other"
+      }
+    },
+    {
+      "id": "browser.copy.desktopactivityon",
+      "resource": "m62726f777365722e636f70792e6465736b746f7061637469766974796f6e",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.desktopscreenon",
+      "resource": "m62726f777365722e636f70792e6465736b746f7073637265656e6f6e",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.disclosure",
+      "resource": "m62726f777365722e636f70792e646973636c6f73757265",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.copy.disclosurepause",
+      "resource": "m62726f777365722e636f70792e646973636c6f737572657061757365",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "surface",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "surface",
+        "type": "string",
+        "enum_values": [
+          "desktop",
+          "mobile"
+        ],
+        "enum_default": "desktop"
+      }
+    },
+    {
+      "id": "browser.copy.disclosureprivate",
+      "resource": "m62726f777365722e636f70792e646973636c6f7375726570726976617465",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "surface",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "surface",
+        "type": "string",
+        "enum_values": [
+          "desktop",
+          "mobile"
+        ],
+        "enum_default": "desktop"
+      }
+    },
+    {
+      "id": "browser.copy.disclosurerest",
+      "resource": "m62726f777365722e636f70792e646973636c6f7375726572657374",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [
+        {
+          "name": "blank",
+          "kind": "whitespace",
+          "value": "\n\n"
+        }
+      ],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.everysiteleftout",
+      "resource": "m62726f777365722e636f70792e6576657279736974656c6566746f7574",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.extensionleftout",
+      "resource": "m62726f777365722e636f70792e657874656e73696f6e6c6566746f7574",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.failadd",
+      "resource": "m62726f777365722e636f70792e6661696c616464",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.failedbody",
+      "resource": "m62726f777365722e636f70792e6661696c6564626f6479",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "browser",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "browser",
+        "type": "string",
+        "enum_values": [
+          "firefox",
+          "edge",
+          "chrome",
+          "safari",
+          "other"
+        ],
+        "enum_default": "other"
+      }
+    },
+    {
+      "id": "browser.copy.failgeneric",
+      "resource": "m62726f777365722e636f70792e6661696c67656e65726963",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.failleftout",
+      "resource": "m62726f777365722e636f70792e6661696c6c6566746f7574",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.failpage",
+      "resource": "m62726f777365722e636f70792e6661696c70616765",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.failpageretry",
+      "resource": "m62726f777365722e636f70792e6661696c706167657265747279",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.failrestartsite",
+      "resource": "m62726f777365722e636f70792e6661696c7265737461727473697465",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.failsave",
+      "resource": "m62726f777365722e636f70792e6661696c73617665",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.failsetupfirst",
+      "resource": "m62726f777365722e636f70792e6661696c73657475706669727374",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.failsite",
+      "resource": "m62726f777365722e636f70792e6661696c73697465",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.failsitefull",
+      "resource": "m62726f777365722e636f70792e6661696c7369746566756c6c",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.fielderror",
+      "resource": "m62726f777365722e636f70792e6669656c646572726f72",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.hostalready",
+      "resource": "m62726f777365722e636f70792e686f7374616c7265616479",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "host",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.hostremoved",
+      "resource": "m62726f777365722e636f70792e686f737472656d6f766564",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "host",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.isleftoutstopleaving",
+      "resource": "m62726f777365722e636f70792e69736c6566746f757473746f706c656176696e67",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.isnolongerleftout",
+      "resource": "m62726f777365722e636f70792e69736e6f6c6f6e6765726c6566746f7574",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.isntallowingeverywebsite",
+      "resource": "m62726f777365722e636f70792e69736e74616c6c6f77696e67657665727977656273697465",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.leaveouthelp",
+      "resource": "m62726f777365722e636f70792e6c656176656f757468656c70",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.leaveoutnote",
+      "resource": "m62726f777365722e636f70792e6c656176656f75746e6f7465",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "scope",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "host",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "scope",
+        "type": "string",
+        "enum_values": [
+          "exact",
+          "whole"
+        ],
+        "enum_default": "exact"
+      }
+    },
+    {
+      "id": "browser.copy.leftoutannouncement",
+      "resource": "m62726f777365722e636f70792e6c6566746f7574616e6e6f756e63656d656e74",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "scope",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "host",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "scope",
+        "type": "string",
+        "enum_values": [
+          "exact",
+          "whole"
+        ],
+        "enum_default": "exact"
+      }
+    },
+    {
+      "id": "browser.copy.leftoutsummary",
+      "resource": "m62726f777365722e636f70792e6c6566746f757473756d6d617279",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "browser.copy.linuxcantreach",
+      "resource": "m62726f777365722e636f70792e6c696e757863616e747265616368",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [
+        {
+          "name": "doctor",
+          "kind": "command",
+          "value": "solstone-linux doctor"
+        }
+      ],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.copy.linuxintakeoff",
+      "resource": "m62726f777365722e636f70792e6c696e7578696e74616b656f6666",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "cmd",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.linuxstep1intake",
+      "resource": "m62726f777365722e636f70792e6c696e75787374657031696e74616b65",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "cmd",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.linuxupdate",
+      "resource": "m62726f777365722e636f70792e6c696e7578757064617465",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "cmd",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.copy.nowallowseverywebsiteevery",
+      "resource": "m62726f777365722e636f70792e6e6f77616c6c6f77736576657279776562736974656576657279",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.onlythesitesalreadyallows",
+      "resource": "m62726f777365722e636f70792e6f6e6c797468657369746573616c7265616479616c6c6f7773",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.permissiondeclinedonlythesites",
+      "resource": "m62726f777365722e636f70792e7065726d697373696f6e6465636c696e65646f6e6c797468657369746573",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "value2",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.permissionschanged",
+      "resource": "m62726f777365722e636f70792e7065726d697373696f6e736368616e676564",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "browser",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "browser",
+        "type": "string",
+        "enum_values": [
+          "firefox",
+          "edge",
+          "chrome",
+          "safari",
+          "other"
+        ],
+        "enum_default": "other"
+      }
+    },
+    {
+      "id": "browser.copy.privatenote",
+      "resource": "m62726f777365722e636f70792e707269766174656e6f7465",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "surface",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "surface",
+        "type": "string",
+        "enum_values": [
+          "desktop",
+          "mobile"
+        ],
+        "enum_default": "desktop"
+      }
+    },
+    {
+      "id": "browser.copy.privatestate",
+      "resource": "m62726f777365722e636f70792e707269766174657374617465",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "surface",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "surface",
+        "type": "string",
+        "enum_values": [
+          "desktop",
+          "mobile"
+        ],
+        "enum_default": "desktop"
+      }
+    },
+    {
+      "id": "browser.copy.restricted",
+      "resource": "m62726f777365722e636f70792e72657374726963746564",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "browser",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "browser",
+        "type": "string",
+        "enum_values": [
+          "firefox",
+          "edge",
+          "chrome",
+          "safari",
+          "other"
+        ],
+        "enum_default": "other"
+      }
+    },
+    {
+      "id": "browser.copy.returnnote",
+      "resource": "m62726f777365722e636f70792e72657475726e6e6f7465",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.sharegoesin",
+      "resource": "m62726f777365722e636f70792e7368617265676f6573696e",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "arg1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.sharegoesinnow",
+      "resource": "m62726f777365722e636f70792e7368617265676f6573696e6e6f77",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "arg1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.sharingallcount",
+      "resource": "m62726f777365722e636f70792e73686172696e67616c6c636f756e74",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "browser.copy.sharingevery",
+      "resource": "m62726f777365722e636f70792e73686172696e676576657279",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.sharingexcluded",
+      "resource": "m62726f777365722e636f70792e73686172696e676578636c75646564",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.sheettitle",
+      "resource": "m62726f777365722e636f70792e73686565747469746c65",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "scope",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "host",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "scope",
+        "type": "string",
+        "enum_values": [
+          "exact",
+          "whole"
+        ],
+        "enum_default": "exact"
+      }
+    },
+    {
+      "id": "browser.copy.sownsettingsdont",
+      "resource": "m62726f777365722e636f70792e736f776e73657474696e6773646f6e74",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.step1cantreach",
+      "resource": "m62726f777365722e636f70792e737465703163616e747265616368",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [
+        {
+          "name": "site",
+          "kind": "url",
+          "value": "solstone.app"
+        }
+      ],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.copy.step1intakeoff",
+      "resource": "m62726f777365722e636f70792e7374657031696e74616b656f6666",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.step1notpaired",
+      "resource": "m62726f777365722e636f70792e73746570316e6f74706169726564",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.copy.step1openapp",
+      "resource": "m62726f777365722e636f70792e73746570316f70656e617070",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.copy.step2pending",
+      "resource": "m62726f777365722e636f70792e737465703270656e64696e67",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.step3body",
+      "resource": "m62726f777365722e636f70792e7374657033626f6479",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "browser",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "browser",
+        "type": "string",
+        "enum_values": [
+          "firefox",
+          "edge",
+          "chrome",
+          "safari",
+          "other"
+        ],
+        "enum_default": "other"
+      }
+    },
+    {
+      "id": "browser.copy.stepextensionsleft",
+      "resource": "m62726f777365722e636f70792e73746570657874656e73696f6e736c656674",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.stepforother",
+      "resource": "m62726f777365722e636f70792e73746570666f726f74686572",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.stepotherwebsites",
+      "resource": "m62726f777365722e636f70792e737465706f746865727765627369746573",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.stepsafariwebsites",
+      "resource": "m62726f777365722e636f70792e737465707361666172697765627369746573",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.stepsettingsapps",
+      "resource": "m62726f777365722e636f70792e7374657073657474696e677361707073",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.stillallowseverywebsite",
+      "resource": "m62726f777365722e636f70792e7374696c6c616c6c6f7773657665727977656273697465",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.stillisntallowingevery",
+      "resource": "m62726f777365722e636f70792e7374696c6c69736e74616c6c6f77696e676576657279",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.thesolstoneextensionleavesit",
+      "resource": "m62726f777365722e636f70792e746865736f6c73746f6e65657874656e73696f6e6c65617665736974",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.truncation",
+      "resource": "m62726f777365722e636f70792e7472756e636174696f6e",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.tryagain",
+      "resource": "m62726f777365722e636f70792e747279616761696e",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.unknownnote",
+      "resource": "m62726f777365722e636f70792e756e6b6e6f776e6e6f7465",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "surface",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "surface",
+        "type": "string",
+        "enum_values": [
+          "safari-desktop",
+          "safari-mobile"
+        ],
+        "enum_default": "safari-desktop"
+      }
+    },
+    {
+      "id": "browser.copy.unknownstate",
+      "resource": "m62726f777365722e636f70792e756e6b6e6f776e7374617465",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.warm1",
+      "resource": "m62726f777365722e636f70792e7761726d31",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.warm2",
+      "resource": "m62726f777365722e636f70792e7761726d32",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.warm3",
+      "resource": "m62726f777365722e636f70792e7761726d33",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.addingsitecoversevery",
+      "resource": "m62726f777365722e657874656e73696f6e2e616464696e6773697465636f766572736576657279",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.clearedextensionsstorage",
+      "resource": "m62726f777365722e657874656e73696f6e2e636c6561726564657874656e73696f6e7373746f72616765",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.clearedextensionsstorage2",
+      "resource": "m62726f777365722e657874656e73696f6e2e636c6561726564657874656e73696f6e7373746f7261676532",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.enterwebsiteaddresslike",
+      "resource": "m62726f777365722e657874656e73696f6e2e656e74657277656273697465616464726573736c696b65",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.everysiteoffexcept",
+      "resource": "m62726f777365722e657874656e73696f6e2e6576657279736974656f6666657863657074",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.everysiteoffincluding",
+      "resource": "m62726f777365722e657874656e73696f6e2e6576657279736974656f6666696e636c7564696e67",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.everywebsiteincludingones",
+      "resource": "m62726f777365722e657874656e73696f6e2e657665727977656273697465696e636c7564696e676f6e6573",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.extensionsbuttonsafaris",
+      "resource": "m62726f777365722e657874656e73696f6e2e657874656e73696f6e73627574746f6e73616661726973",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.extensiontakesnothingfrom",
+      "resource": "m62726f777365722e657874656e73696f6e2e657874656e73696f6e74616b65736e6f7468696e6766726f6d",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.extensiontakesonlysites",
+      "resource": "m62726f777365722e657874656e73696f6e2e657874656e73696f6e74616b65736f6e6c797369746573",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.onlysitesallowopen",
+      "resource": "m62726f777365722e657874656e73696f6e2e6f6e6c797369746573616c6c6f776f70656e",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.onlysitessafarialready",
+      "resource": "m62726f777365722e657874656e73696f6e2e6f6e6c797369746573736166617269616c7265616479",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.safarispagemenu",
+      "resource": "m62726f777365722e657874656e73696f6e2e73616661726973706167656d656e75",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.safaristillisnt",
+      "resource": "m62726f777365722e657874656e73696f6e2e7361666172697374696c6c69736e74",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.safaristillisnt2",
+      "resource": "m62726f777365722e657874656e73696f6e2e7361666172697374696c6c69736e7432",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.setallwebsitesother",
+      "resource": "m62726f777365722e657874656e73696f6e2e736574616c6c77656273697465736f74686572",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.shareall",
+      "resource": "m62726f777365722e657874656e73696f6e2e7368617265616c6c",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.sharethemtoo",
+      "resource": "m62726f777365722e657874656e73696f6e2e73686172657468656d746f6f",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.sharingeverysiteincludes",
+      "resource": "m62726f777365722e657874656e73696f6e2e73686172696e67657665727973697465696e636c75646573",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.sitesetdenythere",
+      "resource": "m62726f777365722e657874656e73696f6e2e7369746573657464656e797468657265",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.solstoneappneedsaccess",
+      "resource": "m62726f777365722e657874656e73696f6e2e736f6c73746f6e656170706e65656473616363657373",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.solstoneextensionleavesout",
+      "resource": "m62726f777365722e657874656e73696f6e2e736f6c73746f6e65657874656e73696f6e6c65617665736f7574",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.stopsharingeverysite",
+      "resource": "m62726f777365722e657874656e73696f6e2e73746f7073686172696e67657665727973697465",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.stopsharingeverysite2",
+      "resource": "m62726f777365722e657874656e73696f6e2e73746f7073686172696e6765766572797369746532",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.extension.stopsharingeverysite3",
+      "resource": "m62726f777365722e657874656e73696f6e2e73746f7073686172696e6765766572797369746533",
+      "namespace": "browser.extension",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.failure.raw",
+      "resource": "m62726f777365722e6661696c7572652e726177",
+      "namespace": "browser.failure",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "raw",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.labels.onnow",
+      "resource": "m62726f777365722e6c6162656c732e6f6e6e6f77",
+      "namespace": "browser.labels",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.labels.opensettings",
+      "resource": "m62726f777365722e6c6162656c732e6f70656e73657474696e6773",
+      "namespace": "browser.labels",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.labels.updatenow",
+      "resource": "m62726f777365722e6c6162656c732e7570646174656e6f77",
+      "namespace": "browser.labels",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.manifest.description",
+      "resource": "m62726f777365722e6d616e69666573742e6465736372697074696f6e",
+      "namespace": "browser.manifest",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.manifest.safaridescription",
+      "resource": "m62726f777365722e6d616e69666573742e7361666172696465736372697074696f6e",
+      "namespace": "browser.manifest",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.addasite",
+      "resource": "m62726f777365722e6f7074696f6e732e6164646173697465",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.addsitesoneat",
+      "resource": "m62726f777365722e6f7074696f6e732e61646473697465736f6e656174",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.agreeaddsitesone",
+      "resource": "m62726f777365722e6f7074696f6e732e616772656561646473697465736f6e65",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.agreegoon",
+      "resource": "m62726f777365722e6f7074696f6e732e6167726565676f6f6e",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.agreeshareeverysite",
+      "resource": "m62726f777365722e6f7074696f6e732e61677265657368617265657665727973697465",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.choosefirst",
+      "resource": "m62726f777365722e6f7074696f6e732e63686f6f73656669727374",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.documenttitle",
+      "resource": "m62726f777365722e6f7074696f6e732e646f63756d656e747469746c65",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.keepmysites",
+      "resource": "m62726f777365722e6f7074696f6e732e6b6565706d797369746573",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.leaveout",
+      "resource": "m62726f777365722e6f7074696f6e732e6c656176656f7574",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.leaveoutasite",
+      "resource": "m62726f777365722e6f7074696f6e732e6c656176656f75746173697465",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.leaveoutplaceholder",
+      "resource": "m62726f777365722e6f7074696f6e732e6c656176656f7574706c616365686f6c646572",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.lookingforapp",
+      "resource": "m62726f777365722e6f7074696f6e732e6c6f6f6b696e67666f72617070",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.options.mobileplaceholder",
+      "resource": "m62726f777365722e6f7074696f6e732e6d6f62696c65706c616365686f6c646572",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.pause",
+      "resource": "m62726f777365722e6f7074696f6e732e7061757365",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.pauseheading",
+      "resource": "m62726f777365722e6f7074696f6e732e706175736568656164696e67",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.pausehelp",
+      "resource": "m62726f777365722e6f7074696f6e732e706175736568656c70",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.pauselabel",
+      "resource": "m62726f777365722e6f7074696f6e732e70617573656c6162656c",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.placeholder",
+      "resource": "m62726f777365722e6f7074696f6e732e706c616365686f6c646572",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.readagain",
+      "resource": "m62726f777365722e6f7074696f6e732e72656164616761696e",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.remove",
+      "resource": "m62726f777365722e6f7074696f6e732e72656d6f7665",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.shareeverysite",
+      "resource": "m62726f777365722e6f7074696f6e732e7368617265657665727973697465",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.siterowaria",
+      "resource": "m62726f777365722e6f7074696f6e732e73697465726f7761726961",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "host",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "action",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "action",
+        "type": "string",
+        "enum_values": [
+          "remove",
+          "include"
+        ],
+        "enum_default": "remove"
+      }
+    },
+    {
+      "id": "browser.options.stopleavingout",
+      "resource": "m62726f777365722e6f7074696f6e732e73746f706c656176696e676f7574",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.takesin",
+      "resource": "m62726f777365722e6f7074696f6e732e74616b6573696e",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.version",
+      "resource": "m62726f777365722e6f7074696f6e732e76657273696f6e",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "version",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.whatyoushare",
+      "resource": "m62726f777365722e6f7074696f6e732e77686174796f757368617265",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.whichsitesdowant",
+      "resource": "m62726f777365722e6f7074696f6e732e77686963687369746573646f77616e74",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.options.yoursites",
+      "resource": "m62726f777365722e6f7074696f6e732e796f75727369746573",
+      "namespace": "browser.options",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.page.markerstate",
+      "resource": "m62726f777365722e706167652e6d61726b65727374617465",
+      "namespace": "browser.page",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "phase",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "phase",
+        "type": "string",
+        "enum_values": [
+          "on",
+          "paused"
+        ],
+        "enum_default": "on"
+      }
+    },
+    {
+      "id": "browser.popup.about",
+      "resource": "m62726f777365722e706f7075702e61626f7574",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.added",
+      "resource": "m62726f777365722e706f7075702e6164646564",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.addedidle",
+      "resource": "m62726f777365722e706f7075702e616464656469646c65",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.attentionheading",
+      "resource": "m62726f777365722e706f7075702e617474656e74696f6e68656164696e67",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.cantadd",
+      "resource": "m62726f777365722e706f7075702e63616e74616464",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.copybutton",
+      "resource": "m62726f777365722e706f7075702e636f7079627574746f6e",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "phase",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "phase",
+        "type": "string",
+        "enum_values": [
+          "copy",
+          "copied"
+        ],
+        "enum_default": "copy"
+      }
+    },
+    {
+      "id": "browser.popup.copyfailed",
+      "resource": "m62726f777365722e706f7075702e636f70796661696c6564",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.included",
+      "resource": "m62726f777365722e706f7075702e696e636c75646564",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.leaveoutthis",
+      "resource": "m62726f777365722e706f7075702e6c656176656f757474686973",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.leftout",
+      "resource": "m62726f777365722e706f7075702e6c6566746f7574",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.manage",
+      "resource": "m62726f777365722e706f7075702e6d616e616765",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.notadded",
+      "resource": "m62726f777365722e706f7075702e6e6f746164646564",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.nottakenin",
+      "resource": "m62726f777365722e706f7075702e6e6f7474616b656e696e",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.pauseall",
+      "resource": "m62726f777365722e706f7075702e7061757365616c6c",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "phase",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "phase",
+        "type": "string",
+        "enum_values": [
+          "running",
+          "paused"
+        ],
+        "enum_default": "running"
+      }
+    },
+    {
+      "id": "browser.popup.reloadtab",
+      "resource": "m62726f777365722e706f7075702e72656c6f6164746162",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.removehost",
+      "resource": "m62726f777365722e706f7075702e72656d6f7665686f7374",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "arg1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.removethis",
+      "resource": "m62726f777365722e706f7075702e72656d6f766574686973",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.safariasksnextchoose",
+      "resource": "m62726f777365722e706f7075702e73616661726961736b736e65787463686f6f7365",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.settings",
+      "resource": "m62726f777365722e706f7075702e73657474696e6773",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.sharing",
+      "resource": "m62726f777365722e706f7075702e73686172696e67",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.sitecountallon",
+      "resource": "m62726f777365722e706f7075702e73697465636f756e74616c6c6f6e",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "browser.popup.sitecountallpaused",
+      "resource": "m62726f777365722e706f7075702e73697465636f756e74616c6c706175736564",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "browser.popup.sitecountmixed",
+      "resource": "m62726f777365722e706f7075702e73697465636f756e746d69786564",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "on",
+          "type": "integer",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        },
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "browser.popup.sitecountonly",
+      "resource": "m62726f777365722e706f7075702e73697465636f756e746f6e6c79",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "browser.popup.stopleavinghostout",
+      "resource": "m62726f777365722e706f7075702e73746f706c656176696e67686f73746f7574",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.stopleavingsiteout",
+      "resource": "m62726f777365722e706f7075702e73746f706c656176696e67736974656f7574",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.thispage",
+      "resource": "m62726f777365722e706f7075702e7468697370616765",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.popup.whattakes",
+      "resource": "m62726f777365722e706f7075702e7768617474616b6573",
+      "namespace": "browser.popup",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.apppausedheadline",
+      "resource": "m62726f777365722e7374617475732e617070706175736564686561646c696e65",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "surface",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "surface",
+        "type": "string",
+        "enum_values": [
+          "desktop",
+          "mobile"
+        ],
+        "enum_default": "desktop"
+      }
+    },
+    {
+      "id": "browser.status.apppausednote",
+      "resource": "m62726f777365722e7374617475732e6170707061757365646e6f7465",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.status.apppausedreason",
+      "resource": "m62726f777365722e7374617475732e617070706175736564726561736f6e",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "surface",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "surface",
+        "type": "string",
+        "enum_values": [
+          "desktop",
+          "mobile"
+        ],
+        "enum_default": "desktop"
+      }
+    },
+    {
+      "id": "browser.status.cantreach",
+      "resource": "m62726f777365722e7374617475732e63616e747265616368",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.cantreachanswering",
+      "resource": "m62726f777365722e7374617475732e63616e747265616368616e73776572696e67",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.status.cantreachgetapp",
+      "resource": "m62726f777365722e7374617475732e63616e747265616368676574617070",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [
+        {
+          "name": "site",
+          "kind": "url",
+          "value": "solstone.app"
+        }
+      ],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.status.cantreachreopen",
+      "resource": "m62726f777365722e7374617475732e63616e74726561636872656f70656e",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.status.changingsites",
+      "resource": "m62726f777365722e7374617475732e6368616e67696e677369746573",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.connecting",
+      "resource": "m62726f777365722e7374617475732e636f6e6e656374696e67",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.finishsetup",
+      "resource": "m62726f777365722e7374617475732e66696e6973687365747570",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.foundsolstoneapp",
+      "resource": "m62726f777365722e7374617475732e666f756e64736f6c73746f6e65617070",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.foundsolstoneapps",
+      "resource": "m62726f777365722e7374617475732e666f756e64736f6c73746f6e6561707073",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.getapp",
+      "resource": "m62726f777365722e7374617475732e676574617070",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.icontitle",
+      "resource": "m62726f777365722e7374617475732e69636f6e7469746c65",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "headline",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.idlereason",
+      "resource": "m62726f777365722e7374617475732e69646c65726561736f6e",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "mode",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "mode",
+        "type": "string",
+        "enum_values": [
+          "selected",
+          "all"
+        ],
+        "enum_default": "selected"
+      }
+    },
+    {
+      "id": "browser.status.intakeheld",
+      "resource": "m62726f777365722e7374617475732e696e74616b6568656c64",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.status.keptfornow",
+      "resource": "m62726f777365722e7374617475732e6b657074666f726e6f77",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.status.keptfornowreason",
+      "resource": "m62726f777365722e7374617475732e6b657074666f726e6f77726561736f6e",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.status.keptwaiting",
+      "resource": "m62726f777365722e7374617475732e6b65707477616974696e67",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.status.lastpages",
+      "resource": "m62726f777365722e7374617475732e6c6173747061676573",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.lostbrowsers",
+      "resource": "m62726f777365722e7374617475732e6c6f737462726f7773657273",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.lostthis",
+      "resource": "m62726f777365722e7374617475732e6c6f737474686973",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.noroom",
+      "resource": "m62726f777365722e7374617475732e6e6f726f6f6d",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.nosites",
+      "resource": "m62726f777365722e7374617475732e6e6f7369746573",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.nothingfrombrowser",
+      "resource": "m62726f777365722e7374617475732e6e6f7468696e6766726f6d62726f77736572",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.nothingnew",
+      "resource": "m62726f777365722e7374617475732e6e6f7468696e676e6577",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.nothingrightnow",
+      "resource": "m62726f777365722e7374617475732e6e6f7468696e6772696768746e6f77",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.nothingwaiting",
+      "resource": "m62726f777365722e7374617475732e6e6f7468696e6777616974696e67",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.notpaired",
+      "resource": "m62726f777365722e7374617475732e6e6f74706169726564",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.status.notpairedheadline",
+      "resource": "m62726f777365722e7374617475732e6e6f74706169726564686561646c696e65",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.notreaching",
+      "resource": "m62726f777365722e7374617475732e6e6f747265616368696e67",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.nowordyet",
+      "resource": "m62726f777365722e7374617475732e6e6f776f7264796574",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.openandadd",
+      "resource": "m62726f777365722e7374617475732e6f70656e616e64616464",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.pagesoff",
+      "resource": "m62726f777365722e7374617475732e70616765736f6666",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.pausedhere",
+      "resource": "m62726f777365722e7374617475732e70617573656468657265",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.pausedoesnthold",
+      "resource": "m62726f777365722e7374617475732e7061757365646f65736e74686f6c64",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.pressure",
+      "resource": "m62726f777365722e7374617475732e7072657373757265",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.reaching",
+      "resource": "m62726f777365722e7374617475732e7265616368696e67",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.readthenchoose",
+      "resource": "m62726f777365722e7374617475732e726561647468656e63686f6f7365",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.sitesneedattention",
+      "resource": "m62726f777365722e7374617475732e73697465736e656564617474656e74696f6e",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "browser.status.somecouldnt",
+      "resource": "m62726f777365722e7374617475732e736f6d65636f756c646e74",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.stopleavinghostout",
+      "resource": "m62726f777365722e7374617475732e73746f706c656176696e67686f73746f7574",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.storefull",
+      "resource": "m62726f777365722e7374617475732e73746f726566756c6c",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.status.turnpageson",
+      "resource": "m62726f777365722e7374617475732e7475726e70616765736f6e",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.unavailable",
+      "resource": "m62726f777365722e7374617475732e756e617661696c61626c65",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.unavailablereason",
+      "resource": "m62726f777365722e7374617475732e756e617661696c61626c65726561736f6e",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.untilanswers",
+      "resource": "m62726f777365722e7374617475732e756e74696c616e7377657273",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.untilpaired",
+      "resource": "m62726f777365722e7374617475732e756e74696c706169726564",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.untilroom",
+      "resource": "m62726f777365722e7374617475732e756e74696c726f6f6d",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.untilsaved",
+      "resource": "m62726f777365722e7374617475732e756e74696c7361766564",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.untilupdated",
+      "resource": "m62726f777365722e7374617475732e756e74696c75706461746564",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.untilyouadd",
+      "resource": "m62726f777365722e7374617475732e756e74696c796f75616464",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.untilyoudo",
+      "resource": "m62726f777365722e7374617475732e756e74696c796f75646f",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.updateapp",
+      "resource": "m62726f777365722e7374617475732e757064617465617070",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.status.updateappheadline",
+      "resource": "m62726f777365722e7374617475732e757064617465617070686561646c696e65",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.updatechecking",
+      "resource": "m62726f777365722e7374617475732e757064617465636865636b696e67",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "browser",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.status.updateextension",
+      "resource": "m62726f777365722e7374617475732e757064617465657874656e73696f6e",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.updatefirefoxmanual",
+      "resource": "m62726f777365722e7374617475732e75706461746566697265666f786d616e75616c",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.status.updatepending",
+      "resource": "m62726f777365722e7374617475732e75706461746570656e64696e67",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "browser",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.status.updateready",
+      "resource": "m62726f777365722e7374617475732e7570646174657265616479",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.status.updatesafarimanual",
+      "resource": "m62726f777365722e7374617475732e7570646174657361666172696d616e75616c",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.status.waitedweek",
+      "resource": "m62726f777365722e7374617475732e7761697465647765656b",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "enum",
+      "arguments": [
+        {
+          "name": "place",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "place",
+        "type": "string",
+        "enum_values": [
+          "computer",
+          "iphone",
+          "ipad"
+        ],
+        "enum_default": "computer"
+      }
+    },
+    {
+      "id": "browser.status.waitedweekheadline",
+      "resource": "m62726f777365722e7374617475732e7761697465647765656b686561646c696e65",
+      "namespace": "browser.status",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    }
+  ]
+}

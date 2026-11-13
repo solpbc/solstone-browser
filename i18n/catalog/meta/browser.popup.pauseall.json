@@ -1,0 +1,31 @@
+{
+  "description": "Browser extension copy. pause all resume",
+  "context": "the solstone extension, speaking to the owner, in the popup. One enum select. the branches are whole sentences.",
+  "surfaces": [
+    "popup",
+    "options"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "phase",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 57,
+  "source_revision": "5c419c2a430ce628983b7792f23c91fdae64aa2ef6dd95fb2f7d082f6c7e8e8f",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "phase",
+    "type": "string",
+    "enum_values": [
+      "running",
+      "paused"
+    ],
+    "enum_default": "running"
+  }
+}

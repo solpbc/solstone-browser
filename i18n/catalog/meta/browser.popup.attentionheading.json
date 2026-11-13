@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. sites that need attention",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "popup"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 25,
+  "source_revision": "49726d291e0b72da077861486824f200dc9f2079017b790e70ae539140657e53",
+  "risk": "routine",
+  "auto_merge": true
+}

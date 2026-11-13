@@ -1,0 +1,17 @@
+{
+  "description": "Browser extension copy. on sites you allow, the solstone extension takes in page text, addresses and rough layo...",
+  "context": "found as the manifest description. a static webextension message.",
+  "surfaces": [
+    "manifest"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 128,
+  "source_revision": "d4530fe9ad25b5b71fd73f71b99835dea56e036c445c307a86acbe770a401ab1",
+  "risk": "routine",
+  "auto_merge": true,
+  "webextension": true
+}

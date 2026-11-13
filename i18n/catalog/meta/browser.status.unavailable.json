@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. status unavailable",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "079b0d8eec10537ef5dc4d860f4dd410380efc55b89c1f7a3b17fd0b6c59435e",
+  "risk": "routine",
+  "auto_merge": true
+}

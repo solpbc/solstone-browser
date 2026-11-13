@@ -1,0 +1,21 @@
+{
+  "description": "Existing extension English: browser.copy.isntallowingeverywebsite",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 128,
+  "source_revision": "586ccd36fab669777f6a757d1aa8b24d1e12dc31e22c7a4a78e3dea577855905",
+  "risk": "routine",
+  "auto_merge": true
+}

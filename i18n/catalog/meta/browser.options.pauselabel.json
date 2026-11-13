@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. pause this extension when the solstone app pauses",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "options"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 49,
+  "source_revision": "9df3108aa049ae0079f638da989a5ef7fcc2d436dcad6d56e2948f50baf5d902",
+  "risk": "routine",
+  "auto_merge": true
+}

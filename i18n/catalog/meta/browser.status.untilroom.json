@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. nothing new is taken in until there's room",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 42,
+  "source_revision": "1cf512731df83deb5f27435bf722c4e2a398a1fd4894480e5711a8a8e7d40068",
+  "risk": "routine",
+  "auto_merge": true
+}

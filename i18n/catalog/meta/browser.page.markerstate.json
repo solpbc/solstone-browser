@@ -1,0 +1,30 @@
+{
+  "description": "Browser extension copy. on paused",
+  "context": "the solstone extension, speaking to the owner, on the page marker. also reused as a status word. One enum select. the branches are whole sentences.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "phase",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 45,
+  "source_revision": "b0f76f2a22e1dcbc0c1b0b6f165e512515cd3e237cac386b37d28c77c0c2b3ea",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "phase",
+    "type": "string",
+    "enum_values": [
+      "on",
+      "paused"
+    ],
+    "enum_default": "on"
+  }
+}

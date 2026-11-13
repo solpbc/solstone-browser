@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. turn browser pages back on under sources in the solstone app's settings.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 72,
+  "source_revision": "a45df2ae9663a3e3a55d48a5fd1ced1d04560990e0ab48d23ed474fe952c3e44",
+  "risk": "routine",
+  "auto_merge": true
+}

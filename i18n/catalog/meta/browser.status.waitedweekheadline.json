@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. some pages have waited more than a week",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 39,
+  "source_revision": "da38226738820e8035ce45f69cbb70032ce8c1e67b5ca5ba4400c709465ed0b8",
+  "risk": "routine",
+  "auto_merge": true
+}

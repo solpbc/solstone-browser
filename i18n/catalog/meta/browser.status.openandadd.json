@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. open a site you want to share and choose add this site.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 55,
+  "source_revision": "fbde0ab436685603d67b9d20aa5655252e04a86596a53a4c9b29a8ed8d918f7a",
+  "risk": "routine",
+  "auto_merge": true
+}

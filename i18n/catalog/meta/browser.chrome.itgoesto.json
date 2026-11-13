@@ -1,0 +1,17 @@
+{
+  "description": "Browser extension copy. it goes to",
+  "context": "found as html text and as the sheet destination label, including the disclosure.js fallback.",
+  "surfaces": [
+    "popup",
+    "options"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "c6984905d4c757c51f087c1d4775143c79b75c86c9f4d4b80045f87d5578718d",
+  "risk": "routine",
+  "auto_merge": true
+}

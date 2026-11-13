@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. journal unknown",
+  "context": "the solstone extension, speaking to the owner, in the popup. This wording is also compared by decode(). Branch on an id. The owner's sentence can change without breaking the branch.",
+  "surfaces": [
+    "about"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "caaa00b4547d0856d52aa3735107d7f3ff6fef60404cd3b854f94e014fc2cb30",
+  "risk": "routine",
+  "auto_merge": true
+}

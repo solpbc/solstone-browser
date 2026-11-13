@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. this page checks again when you come back to it.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 48,
+  "source_revision": "c15d75620b9acc3c72751fd2df43191e1cd8c1e6e1282281335da1bd0fdad58a",
+  "risk": "routine",
+  "auto_merge": true
+}

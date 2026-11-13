@@ -22,6 +22,7 @@ const View = globalThis.SolstonePopupView;
 
 function copyFor(navigator) {
   const context = vm.createContext({ navigator });
+  for (const resource of ["catalog", "contracts", "index"]) vm.runInContext(fs.readFileSync(new URL(`../extension/i18n/${resource}.js`, import.meta.url), "utf8"), context);
   vm.runInContext(fs.readFileSync(new URL("../extension/lib/copy.js", import.meta.url), "utf8"), context);
   return context.SolstoneCopy;
 }

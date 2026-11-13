@@ -1,0 +1,17 @@
+{
+  "description": "Browser extension copy. in your browser",
+  "context": "found as html text and as a js literal on the settings header.",
+  "surfaces": [
+    "popup",
+    "options"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "90f9f2824b9abb9effc7e4821a902496a721c6851d4c2cde5eec30104b872ddb",
+  "risk": "routine",
+  "auto_merge": true
+}

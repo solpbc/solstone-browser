@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. the solstone extension can't show its status right now.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 55,
+  "source_revision": "c6b68387bc6b06c3fa6f04cbaffd38c8fead0a05806167cb7317d6bb2460ee76",
+  "risk": "routine",
+  "auto_merge": true
+}

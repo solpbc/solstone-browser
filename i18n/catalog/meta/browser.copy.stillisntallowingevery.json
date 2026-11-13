@@ -1,0 +1,21 @@
+{
+  "description": "Existing extension English: browser.copy.stillisntallowingevery",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 128,
+  "source_revision": "c94e431d673c078636af3b6fe192a10e95dda21fef9c634a0e491897ca870fef",
+  "risk": "routine",
+  "auto_merge": true
+}

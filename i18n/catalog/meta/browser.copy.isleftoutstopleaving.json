@@ -1,0 +1,21 @@
+{
+  "description": "Existing extension English: browser.copy.isleftoutstopleaving",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 128,
+  "source_revision": "a3f57c02d30f34c11d71bb0463aad9864796ae4f1f9952a19d253d22d87a3be8",
+  "risk": "routine",
+  "auto_merge": true
+}

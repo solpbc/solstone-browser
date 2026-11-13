@@ -274,7 +274,7 @@ function assertRequiredArchiveFiles(root, filesSet, label) {
 // Developer ID extension outside the App Store.
 // App Store Connect refuses a Safari web extension whose description is over 112
 // characters. Chrome's store shows the source manifest's longer description.
-const SAFARI_DESCRIPTION = "on sites you allow, it takes in page text, addresses and rough layout, and all of it goes into your journal.";
+const SAFARI_DESCRIPTION = "__MSG_m62726f777365722e6d616e69666573742e7361666172696465736372697074696f6e__";
 
 export function safariManifest(sourceManifest) {
   const manifest = structuredClone(sourceManifest);

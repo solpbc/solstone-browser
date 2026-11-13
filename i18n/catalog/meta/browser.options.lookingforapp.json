@@ -1,0 +1,31 @@
+{
+  "description": "Browser extension copy. looking for the solstone app on this computer\u2026 looking for the solstone app on this iph...",
+  "context": "the solstone extension, speaking to the owner, on the settings page. Closed set: this computer, this iphone, this ipad. the device noun's gender and case are inside the branch. one enum.",
+  "surfaces": [
+    "options"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "place",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 187,
+  "source_revision": "daa732655fd9939f0e061da23041745b2b86ccde07afda2125b5506882dfd9a0",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "place",
+    "type": "string",
+    "enum_values": [
+      "computer",
+      "iphone",
+      "ipad"
+    ],
+    "enum_default": "computer"
+  }
+}

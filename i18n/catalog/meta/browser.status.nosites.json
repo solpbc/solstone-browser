@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. no sites yet",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "7aeb5ed9bd0aa23ebfe1d6589771a9b385abb8db8f70dc21e155c432991dda3b",
+  "risk": "routine",
+  "auto_merge": true
+}

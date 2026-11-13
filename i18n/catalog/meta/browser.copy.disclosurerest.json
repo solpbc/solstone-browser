@@ -1,0 +1,23 @@
+{
+  "description": "Disclosure paragraphs that do not vary by device.",
+  "context": "split from the disclosure. the same paragraphs on every device: what is taken in, and the analytics sentence.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1102,
+  "source_revision": "6f5f422b20b879756fc6fefe02fb9286cb34aaaf9620cc99690a793371db165b",
+  "risk": "consent",
+  "auto_merge": false,
+  "protected_slots": [
+    {
+      "name": "blank",
+      "kind": "whitespace",
+      "value": "\n\n"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. the solstone app isn't paired yet",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 33,
+  "source_revision": "8fbc65e3e0d3f499012b57b255df84b66f35d9de711c1aa6f8ec4dd638160238",
+  "risk": "account",
+  "auto_merge": true
+}

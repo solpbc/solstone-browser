@@ -1,0 +1,34 @@
+{
+  "description": "Browser extension copy. remove {host} include {host} again",
+  "context": "the solstone extension, speaking to the owner, on the settings page. the accessible name of the site row button. prefer the verb alone. the host is already the row label. One enum select. the branches are whole sentences. agreement: a string argument records no gender, case, noun class, or classifier. where the sentence must agree, the name's case is only in this note.",
+  "surfaces": [
+    "options"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "host",
+      "type": "string"
+    },
+    {
+      "name": "action",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 82,
+  "source_revision": "cb56c350d06cd19d6c730def3c49e71a2529bc8d1d680235df5935c5e1b58f44",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "action",
+    "type": "string",
+    "enum_values": [
+      "remove",
+      "include"
+    ],
+    "enum_default": "remove"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. in Settings, open Apps, then Safari, then Extensions, then solstone.",
+  "context": "found as a js literal. a platform settings step. do not translate the control's own name. a shipping translation needs the platform's localized label, which this census does not have.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 68,
+  "source_revision": "b4de98d151a24cf4647c142250166ffbf852ac438aecbb868569a9c74657a224",
+  "risk": "routine",
+  "auto_merge": true
+}

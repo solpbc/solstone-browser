@@ -1,0 +1,33 @@
+{
+  "description": "Browser extension copy. a site you allow in Firefox's own settings is on too. a site you allow in Edge's own se...",
+  "context": "the solstone extension, speaking to the owner, on the settings page. show browser.copy.add-help first. proper name of the browser, or the phrase your browser. article, gender, and possessive are written inside each branch. one enum. fragment: two messages joined in English. split. do not interpolate one message inside another.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "browser",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 348,
+  "source_revision": "2ad0677ae34e299e207d418e95fcac43f4d5a8d525244e65040f41cdeeee015f",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "browser",
+    "type": "string",
+    "enum_values": [
+      "firefox",
+      "edge",
+      "chrome",
+      "safari",
+      "other"
+    ],
+    "enum_default": "other"
+  }
+}

@@ -4191,6 +4191,7 @@ function openShareUi(booted, files, forward, pageUrl = "https://example.com/", n
   const replies = [];
   const requests = [];
   const { document, cache } = uiDocument();
+  document.querySelectorAll = () => [];
   const accessPanel = document.getElementById("accessPanel");
   const accessAllow = document.getElementById("accessAllow");
   accessPanel.append(accessAllow);
@@ -4283,11 +4284,11 @@ function openShareUi(booted, files, forward, pageUrl = "https://example.com/", n
 }
 
 const POPUP_UI = [
-  "lib/copy.js", "lib/about.js", "lib/hosts.js", "lib/status.js", "lib/failures.js",
+  "i18n/catalog.js", "i18n/contracts.js", "i18n/index.js", "lib/copy.js", "lib/about.js", "lib/hosts.js", "lib/status.js", "lib/failures.js",
   "lib/disclosure.js", "lib/popup_view.js", "lib/actions.js", "popup.js",
 ];
 const OPTIONS_UI = [
-  "lib/copy.js", "lib/hosts.js", "lib/status.js", "lib/failures.js",
+  "i18n/catalog.js", "i18n/contracts.js", "i18n/index.js", "lib/copy.js", "lib/hosts.js", "lib/status.js", "lib/failures.js",
   "lib/disclosure.js", "lib/popup_view.js", "lib/actions.js", "options.js",
 ];
 

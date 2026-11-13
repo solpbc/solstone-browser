@@ -1,0 +1,17 @@
+{
+  "description": "Existing extension menu or example address",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "options",
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "50c4001c04bf6ea0b3101a1d17c6d6f8cd5d809446a3db8a77f8d82dd6aa3f76",
+  "risk": "routine",
+  "auto_merge": true
+}

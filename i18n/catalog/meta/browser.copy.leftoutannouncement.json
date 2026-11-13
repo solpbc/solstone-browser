@@ -1,0 +1,34 @@
+{
+  "description": "Browser extension copy. {host} left out. other sites shown inside its pages are still shared. all {host} sites ...",
+  "context": "the solstone extension, speaking to the owner, on the settings page. One enum select. the branches are whole sentences. agreement: a string argument records no gender, case, noun class, or classifier. where the sentence must agree, the name's case is only in this note.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "scope",
+      "type": "string"
+    },
+    {
+      "name": "host",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 198,
+  "source_revision": "c5a08bf76fd3d86b1cebfd71c7107c6759874c406a01ecf27ca2124bde991b73",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "scope",
+    "type": "string",
+    "enum_values": [
+      "exact",
+      "whole"
+    ],
+    "enum_default": "exact"
+  }
+}

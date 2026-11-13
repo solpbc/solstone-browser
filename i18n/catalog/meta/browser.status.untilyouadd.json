@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. nothing is taken in until you add a site",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 40,
+  "source_revision": "eed330c13e2d8910ad904eddd32de1dc9d73e4ba841f41705eda1c32e190512d",
+  "risk": "routine",
+  "auto_merge": true
+}

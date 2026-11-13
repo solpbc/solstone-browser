@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. not added",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "popup"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "93a4cb5c255b81049274ed81f17b1a2442dd1c8db0f3e6b8a2b3ae657ea92cd2",
+  "risk": "routine",
+  "auto_merge": true
+}

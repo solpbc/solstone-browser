@@ -1,0 +1,21 @@
+{
+  "description": "Browser extension copy. {host} is already on your list.",
+  "context": "the solstone extension, speaking to the owner, on the settings page. agreement: a string argument records no gender, case, noun class, or classifier. where the sentence must agree, the name's case is only in this note.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "host",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 34,
+  "source_revision": "8b6a369198862f184912c7a759cf737612e0a420df9b026d427bd48d16b40ad5",
+  "risk": "routine",
+  "auto_merge": true
+}

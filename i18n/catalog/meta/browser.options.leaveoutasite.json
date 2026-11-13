@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. leave out a site",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "options"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "7b8bc83a9138a71c46a6fa8d48b04cedcf490bfed2115960dc5cf2d06a0f1c6b",
+  "risk": "routine",
+  "auto_merge": true
+}

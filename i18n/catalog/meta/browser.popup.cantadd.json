@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. this page can't be added",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "popup"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "8d6d7e8a3f660a83e67f10227a093be6ed57a7edc09728a72213ece85c0668ec",
+  "risk": "routine",
+  "auto_merge": true
+}

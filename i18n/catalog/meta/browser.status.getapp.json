@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. get the solstone app",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "11e91ec195cfa9648deaf9b7e6e9777f2c342c5abd7389d020850c2dbd887709",
+  "risk": "routine",
+  "auto_merge": true
+}

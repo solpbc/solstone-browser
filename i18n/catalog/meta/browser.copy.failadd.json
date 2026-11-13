@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. couldn't add the site. try again.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 33,
+  "source_revision": "2f149ddb8a706b1b457d684d8e80189942958d497fe9e4a2e52ad5f99c05cdf8",
+  "risk": "routine",
+  "auto_merge": true
+}

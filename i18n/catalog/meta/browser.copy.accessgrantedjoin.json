@@ -1,0 +1,21 @@
+{
+  "description": "Browser extension copy. {granted}",
+  "context": "the solstone extension, speaking to the owner, on the settings page. fragment: two messages joined in English. split. do not interpolate one message inside another. browser.copy.access-granted and browser.copy.access-granted-note are the two messages.",
+  "surfaces": [
+    "options"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "granted",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "a38ce1ecc9e5d4d116efd8a557b8cf2228833b45b98957468a6eee6976ce0a23",
+  "risk": "routine",
+  "auto_merge": true
+}

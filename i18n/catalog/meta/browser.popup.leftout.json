@@ -1,0 +1,17 @@
+{
+  "description": "Browser extension copy. left out",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status",
+    "popup"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "edc1ebab89f4f14ab192bf3219eb43426b6c92a7d652fb4ae74284e4eeb836d0",
+  "risk": "routine",
+  "auto_merge": true
+}

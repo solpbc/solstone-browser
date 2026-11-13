@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. nothing waiting to go into your journal",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 39,
+  "source_revision": "273252711d5cd07f0ae5b184ec7acdb1a0d691e0f3ba06887990b0bad06b9ea7",
+  "risk": "routine",
+  "auto_merge": true
+}

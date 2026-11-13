@@ -1,0 +1,21 @@
+{
+  "description": "Browser extension copy. v{version}",
+  "context": "found as a js template. the v is a version mark, not a sentence.",
+  "surfaces": [
+    "options"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "version",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "a42ccdc983c6fcc87d05eefd32bdb8786b07e4be65496b9e93a359a912c701d0",
+  "risk": "routine",
+  "auto_merge": true
+}

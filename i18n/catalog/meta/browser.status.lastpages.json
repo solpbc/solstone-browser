@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. the last pages reached your journal",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 35,
+  "source_revision": "1329d41150c8d0e5ec49e4abdef2aab122c54a0d20663cd6c9695ca27870c0d4",
+  "risk": "routine",
+  "auto_merge": true
+}

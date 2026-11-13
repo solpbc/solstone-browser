@@ -1,0 +1,27 @@
+{
+  "description": "Browser extension copy. {count} site left out {count} sites left out",
+  "context": "the solstone extension, speaking to the owner, on the settings page. under the all-sites heading, which is its own message. One cardinal select. one and other are whole sentences. Translators add zero, two, few, many. fragment: two messages joined in English. split. do not interpolate one message inside another.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 0
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 86,
+  "source_revision": "0123033f291d0770d6a0c77e1e205070f7d8deb2764ad9195b4192c0732b0c1d",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

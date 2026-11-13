@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. no room for more from this site right now",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 41,
+  "source_revision": "c07a7ca3d1e208bbeb5ed74063f911a5bc07b385a9ff13b9d22554c666c1becb",
+  "risk": "routine",
+  "auto_merge": true
+}

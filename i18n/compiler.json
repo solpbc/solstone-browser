@@ -1,0 +1,14 @@
+{
+  "repository": "git@github.com:solpbc/solstone-journal.git",
+  "revision": "84b2175b96d1cdb5175fa4e6fa881363074f0374",
+  "registry_sha256": "bf55665763c4ba061afccf547735be4c1c3881a1c2fc96eaf7bc0e09349ca628",
+  "targets": [
+    "classic",
+    "webextension"
+  ],
+  "channel": "production",
+  "bundle": "browser",
+  "locales": [
+    "en-US"
+  ]
+}

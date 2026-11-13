@@ -1,0 +1,25 @@
+{
+  "description": "Existing extension English: browser.copy.alreadyallowseverywebsiteso",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    },
+    {
+      "name": "value2",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 290,
+  "source_revision": "0edb89dc722f72e19d2c03db162c32f24cc6ab3253038bd0206e10bef8c7b1a7",
+  "risk": "consent",
+  "auto_merge": false
+}

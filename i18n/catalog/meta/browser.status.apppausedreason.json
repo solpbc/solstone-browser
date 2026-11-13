@@ -1,0 +1,30 @@
+{
+  "description": "Browser extension copy. pausing doesn't hold back what's already taken in. resume from the solstone app. pausin...",
+  "context": "the solstone extension, speaking to the owner, in the popup. One enum select. the branches are whole sentences.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "surface",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 209,
+  "source_revision": "4853979ca9edbf77d902cdb5c05fa20ddcb30ec1aa7d18905ccaeac385dafc4a",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "surface",
+    "type": "string",
+    "enum_values": [
+      "desktop",
+      "mobile"
+    ],
+    "enum_default": "desktop"
+  }
+}

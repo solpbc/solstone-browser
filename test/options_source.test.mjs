@@ -7,8 +7,10 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { armClick, pageGestureRequest } from "./mock_chrome.mjs";
 
+import {localizeHtmlFixture} from "./i18n_setup.mjs";
+
 const root = new URL("../", import.meta.url);
-const html = await readFile(new URL("extension/options.html", root), "utf8");
+const html = localizeHtmlFixture(await readFile(new URL("extension/options.html", root), "utf8"));
 const optionsSource = await readFile(new URL("extension/options.js", root), "utf8");
 const backgroundSource = await readFile(new URL("extension/background.js", root), "utf8");
 
@@ -18,7 +20,7 @@ test("options HTML fixes the region, heading, and layout contract", () => {
   assert.ok(positions.every((position) => position >= 0));
   assert.deepEqual(positions, positions.slice().sort((a, b) => a - b));
   assert.match(html, /<title>solstone settings<\/title>/);
-  assert.match(html, /<h1 id="pageTitle">[\s\S]*?solstone\s*<span class="desc" id="pageSubTitle">in your browser<\/span>[\s\S]*?<\/h1>/);
+  assert.match(html, /<h1 id="pageTitle">[\s\S]*?solstone<\/span>\s*<span class="desc" id="pageSubTitle">in your browser<\/span>[\s\S]*?<\/h1>/);
 });
 
 test("options consumes shared derivations and removes every retired selector", () => {
@@ -957,7 +959,9 @@ test("options: cleared notice precedes welcome, and the share sentences use acce
   };
 
   await import("fake-indexeddb/auto");
-  const root = new URL("../", import.meta.url);
+
+
+const root = new URL("../", import.meta.url);
   for (const file of [
     "extension/lib/copy.js",
     "extension/lib/hosts.js",

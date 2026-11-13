@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. this page",
+  "context": "found as the popup heading and as the host fallback when the page has no host.",
+  "surfaces": [
+    "popup"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "48e1c8a41a8e3721729fd243617d0588d18e2c555c3f7884c7877bcf0117cc39",
+  "risk": "routine",
+  "auto_merge": true
+}

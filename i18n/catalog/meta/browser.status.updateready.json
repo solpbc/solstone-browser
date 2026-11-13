@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. the update is ready.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "56606e69cf43aa0369f4fcc2a6a0d3c7c2eb93f5a13d818800313e98505dddc7",
+  "risk": "routine",
+  "auto_merge": true
+}

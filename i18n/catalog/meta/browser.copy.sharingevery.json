@@ -1,0 +1,16 @@
+{
+  "description": "Existing extension English: browser.copy.sharingevery",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 128,
+  "source_revision": "a9c1fe3a725fe3092ed977bb7af08c801c85acfee5f0dd72153ef5a44999223f",
+  "risk": "routine",
+  "auto_merge": true
+}

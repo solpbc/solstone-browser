@@ -1,0 +1,17 @@
+{
+  "description": "Browser extension copy. part of what you shared on this site was too long to keep",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension",
+    "popup"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 57,
+  "source_revision": "2fff77dd42ae867b52304ceb4e35c4b29e32886d9f847e2fca3cc0dddd0bae10",
+  "risk": "routine",
+  "auto_merge": true
+}

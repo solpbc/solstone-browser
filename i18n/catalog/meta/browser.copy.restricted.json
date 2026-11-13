@@ -1,0 +1,33 @@
+{
+  "description": "Browser extension copy. Firefox doesn't let extensions work on this page Edge doesn't let extensions work on th...",
+  "context": "the solstone extension, speaking to the owner, in the popup and on the settings page. proper name of the browser, or the phrase your browser. article, gender, and possessive are written inside each branch. one enum.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "browser",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 323,
+  "source_revision": "cfa524c8c9707956ea70533fbdfc4e934bf6d0d08f00851bae0b0e1050ca7d45",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "browser",
+    "type": "string",
+    "enum_values": [
+      "firefox",
+      "edge",
+      "chrome",
+      "safari",
+      "other"
+    ],
+    "enum_default": "other"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "description": "Pause sentence. Mobile drops the sentence about pausing the app.",
+  "context": "split from the disclosure. the solstone extension, speaking to the owner, on the agreement.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "surface",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 503,
+  "source_revision": "de685b68191abff10e036c006388fb85c746fed771185c9904e8e4aa6b157c9c",
+  "risk": "consent",
+  "auto_merge": false,
+  "selector": {
+    "name": "surface",
+    "type": "string",
+    "enum_values": [
+      "desktop",
+      "mobile"
+    ],
+    "enum_default": "desktop"
+  }
+}

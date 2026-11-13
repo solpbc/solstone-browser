@@ -1,0 +1,21 @@
+{
+  "description": "Existing extension English: browser.copy.sownsettingsdont",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 188,
+  "source_revision": "db222ff68bb4e709e48216e54047dea0a820577474b9b4f79a50bd0db445b89b",
+  "risk": "routine",
+  "auto_merge": true
+}

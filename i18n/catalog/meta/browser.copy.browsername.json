@@ -1,0 +1,33 @@
+{
+  "description": "Existing extension English: browser.copy.browsername",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "brand",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 232,
+  "source_revision": "78a08d741ed2a0d65f41c09911427df8ae662103690ba641ebfaaaf91b8d2781",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "brand",
+    "type": "string",
+    "enum_values": [
+      "firefox",
+      "edge",
+      "chrome",
+      "safari",
+      "other"
+    ],
+    "enum_default": "other"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. your journal is always private, only yours.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 43,
+  "source_revision": "4bf0c70d1505e1f0f130b95842c3cab7b27d1db88f3fbb1d29a641728b4a1b0c",
+  "risk": "routine",
+  "auto_merge": true
+}

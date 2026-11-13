@@ -1,0 +1,25 @@
+{
+  "description": "Existing extension English: browser.about.lines",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "own",
+      "type": "string"
+    },
+    {
+      "name": "journal",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 128,
+  "source_revision": "93fee0310b4e81280b61c4b101b94204bfd487eb03b1ca0edd16a94991fd70fc",
+  "risk": "routine",
+  "auto_merge": true
+}

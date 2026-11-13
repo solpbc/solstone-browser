@@ -1,0 +1,21 @@
+{
+  "description": "Existing extension English: browser.copy.onlythesitesalreadyallows",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 128,
+  "source_revision": "f1ede9293b29de199b4619db034da432a4ff14c700f60f81d87e59829fde8ae8",
+  "risk": "routine",
+  "auto_merge": true
+}

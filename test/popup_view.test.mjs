@@ -530,7 +530,7 @@ test("a left-out page covered by the app names the app, not the screen, when nei
 test("on a phone the popup is one site, one action and one row: the rest needs the owner or lives in settings", () => {
   const load = (navigator) => {
     const context = vm.createContext({ navigator, URL });
-    for (const file of ["copy.js", "hosts.js", "status.js", "popup_view.js"]) {
+    for (const file of ["../i18n/catalog.js", "../i18n/contracts.js", "../i18n/index.js", "copy.js", "hosts.js", "status.js", "popup_view.js"]) {
       vm.runInContext(readFileSync(new URL(`../extension/lib/${file}`, import.meta.url), "utf8"), context);
     }
     return context.SolstonePopupView;

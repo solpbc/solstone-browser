@@ -35,17 +35,10 @@ test("consentAccepted is true for stored 1 and 2 and false for 0 and 3", () => {
   assert.equal(accepted(3), false);
 });
 
-test("each mobile disclosure edit changes its input", () => {
-  const edits = C.MOBILE_DISCLOSURE_EDITS;
-  assert.equal(edits.length, 3);
-  let text = C.DESKTOP_DISCLOSURE;
-  for (const edit of edits) {
-    assert.equal(edit.length, 2);
-    assert.notEqual(edit[0], edit[1]);
-    const next = text.replace(edit[0], edit[1]);
-    assert.notEqual(next, text);
-    text = next;
-  }
+test("the desktop disclosure keeps the where, private-window and pause paragraphs separated", () => {
+  assert.ok(C.DISCLOSURE_BODY.includes("\n\nwhere it goes:"));
+  assert.ok(C.DISCLOSURE_BODY.includes("\n\nthe solstone extension takes in nothing from private windows"));
+  assert.ok(C.DISCLOSURE_BODY.includes("\n\npause any time"));
 });
 
 test("leave-out copy says other sites shown inside a left-out page are still shared", () => {

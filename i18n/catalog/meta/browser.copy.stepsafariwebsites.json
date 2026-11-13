@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. in Safari, choose Safari \u203a Settings, then Websites.",
+  "context": "found as a js literal. a platform settings step. do not translate the control's own name. a shipping translation needs the platform's localized label, which this census does not have.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 51,
+  "source_revision": "c3c122dd7b3aee242c2711e41e6753fd566761b70857621c5ab15d7aec420140",
+  "risk": "routine",
+  "auto_merge": true
+}

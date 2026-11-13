@@ -1,0 +1,21 @@
+{
+  "description": "Browser extension copy. {arg1} what you share there now goes into your journal.",
+  "context": "found as the optional second sentence of an added announcement.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "arg1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 58,
+  "source_revision": "13d519e13640281fddd4314d8338faad918c43f250835e20585b3317375ada98",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,18 @@
+{
+  "description": "Browser extension copy. dismiss",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "options",
+    "status",
+    "popup"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "9dbaf882187a75810fa21e17d2e888e82f540e910cf17ef6b8524ba577ad9149",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. you'll agree to this once the step above is done.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 49,
+  "source_revision": "77b6f72b5c36b7fec412bff9bc52bba46872ab2067a94c57917ed54da017aaf8",
+  "risk": "consent",
+  "auto_merge": false
+}

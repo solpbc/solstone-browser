@@ -1,0 +1,30 @@
+{
+  "description": "Browser extension copy. to include one, set it to Allow in Safari's website settings for solstone. to include o...",
+  "context": "the solstone extension, speaking to the owner, on the settings page. One enum select. the branches are whole sentences.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "surface",
+      "type": "string"
+    }
+  ],
+  "format_intent": "enum",
+  "max_length": 218,
+  "source_revision": "8a7b86459f6ca16f6117c4ea38845f3f89bd94b65e7cced94139fb1749a29f38",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "surface",
+    "type": "string",
+    "enum_values": [
+      "safari-desktop",
+      "safari-mobile"
+    ],
+    "enum_default": "safari-desktop"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. choose your first site",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "options"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "ba4c2977dd7b0ecffc69dd0982e93c14cfc64ae5c1c7dc5e8cb4d4b6fc44b92e",
+  "risk": "routine",
+  "auto_merge": true
+}

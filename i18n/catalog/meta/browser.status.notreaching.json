@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. not reaching your journal",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 25,
+  "source_revision": "cadcaf5dc5c2758d07eec3cf67eb372c0c0ce7518b73e8187db0271350adcd20",
+  "risk": "routine",
+  "auto_merge": true
+}

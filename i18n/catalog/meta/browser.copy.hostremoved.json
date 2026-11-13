@@ -1,0 +1,21 @@
+{
+  "description": "Browser extension copy. {host} removed. nothing new comes from it; what's already in your journal stays there.",
+  "context": "the solstone extension, speaking to the owner, on the settings page. agreement: a string argument records no gender, case, noun class, or classifier. where the sentence must agree, the name's case is only in this note.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "host",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 89,
+  "source_revision": "9e65e7df883dca603510f55dbe5f144fbd9d489821cc3d210a793c5c33cc4c15",
+  "risk": "routine",
+  "auto_merge": true
+}

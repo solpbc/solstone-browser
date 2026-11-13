@@ -1,0 +1,21 @@
+{
+  "description": "Existing extension English: browser.copy.allowsthesolstoneextensionon",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 484,
+  "source_revision": "1f210741175e486c1f4fabbcd951c82485c14932e63d2d376285df43dfc0e1a6",
+  "risk": "consent",
+  "auto_merge": false
+}

@@ -1,0 +1,17 @@
+{
+  "description": "Browser extension copy. permission declined. nothing added.",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "popup",
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 35,
+  "source_revision": "a572861c97022f8b8f25a50a3643f07b4df0b76aede9e6b1944ee875af8dc4d7",
+  "risk": "routine",
+  "auto_merge": true
+}

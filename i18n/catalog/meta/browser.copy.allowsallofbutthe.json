@@ -1,0 +1,25 @@
+{
+  "description": "Existing extension English: browser.copy.allowsallofbutthe",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    },
+    {
+      "name": "value2",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 494,
+  "source_revision": "9abda4f36639aaaf65514a0de08ed25fa6f1a0de155796db4b8a164d2ae392ad",
+  "risk": "consent",
+  "auto_merge": false
+}

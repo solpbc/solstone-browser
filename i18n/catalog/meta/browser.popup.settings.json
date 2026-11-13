@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. settings \u203a",
+  "context": "found as html text. the chevron stays part of the label.",
+  "surfaces": [
+    "popup"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "ce522c783b88149e0de1d48cf78b76ae369eb918129158fb2bbd52326f9f92ca",
+  "risk": "routine",
+  "auto_merge": true
+}

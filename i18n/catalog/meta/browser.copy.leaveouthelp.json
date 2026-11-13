@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. leaving out bank.com leaves out all bank.com sites and pages, like www.bank.com and log...",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 209,
+  "source_revision": "0b6950c0a38ea52b272cf4ee95198ef5712f1878c7a7ba0f3f387f23cd6e3a45",
+  "risk": "routine",
+  "auto_merge": true
+}

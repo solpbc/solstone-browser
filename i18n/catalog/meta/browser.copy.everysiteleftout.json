@@ -1,0 +1,21 @@
+{
+  "description": "Existing extension English: browser.copy.everysiteleftout",
+  "context": "Preserves the current extension output. Runtime arguments are passed through as declared.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 128,
+  "source_revision": "18efcd3582847f6fc28ab440fd31d56715a7de7486076051ff45780ff06f5ff2",
+  "risk": "routine",
+  "auto_merge": true
+}

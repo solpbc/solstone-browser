@@ -1,0 +1,16 @@
+{
+  "description": "Browser extension copy. nothing new is taken in",
+  "context": "found as a quoted literal or html text.",
+  "surfaces": [
+    "status"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "fc4bc30960128c6e2a6fd2793ae6d6f123eb405e2c9ea04b7028c58599ec5409",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -375,6 +375,17 @@ test("secondary leave-out, include rules, and note keys in popup arrange", () =>
   const pLeftAppIncapable = page(leftOutAppIncapable, { origin: "https://example.com", host: "example.com", ok: true, kind: "web" });
   assert.equal(pLeftAppIncapable.siteAction, null);
 
+  // 5b. A Mac app without Accessibility: no leave-out, and the reason joins the page note
+  const blocked = state({ siteMode: "selected", chosenOrigins: [], leftOutCapable: true, desktop: { screen: true, activity: true, sites: "needs_access" } });
+  const pBlocked = page(blocked, { origin: "https://example.com", host: "example.com", ok: true, kind: "web" });
+  assert.equal(pBlocked.siteSecondary, null);
+  assert.ok(pBlocked.note.includes(globalThis.SolstoneCopy.LEAVE_OUT_NEEDS_ACCESS));
+  assert.ok(pBlocked.note.includes(globalThis.SolstoneCopy.desktopScreenOn));
+  const everyBlocked = state({ livePatterns: ["<all_urls>"], leftOutCapable: true, desktop: { screen: true, activity: true, sites: "needs_access" } });
+  const pEveryBlocked = page(everyBlocked, { origin: "https://example.com", host: "example.com", ok: true, kind: "web" });
+  assert.equal(pEveryBlocked.siteAction, null);
+  assert.equal(pEveryBlocked.note, globalThis.SolstoneCopy.LEAVE_OUT_NEEDS_ACCESS);
+
   // 6. Note keys: desktop notes appear on page Note for not-added page
   const withDesktop = state({
     siteMode: "selected",
@@ -521,7 +532,8 @@ test("a left-out page covered by the app names the app, not the screen, when nei
   const base = { appLeftOut: ["bank.com"], excludedHosts: [] };
   assert.equal(C.popupNoteKey(Object.assign({}, base, { desktop: { screen: false, activity: false, sites: "needs_access" } }), page, "left-out"), "appLeftOutAppAway");
   assert.equal(C.popupNoteKey(Object.assign({}, base, { desktop: { screen: true, activity: false, sites: "needs_access" } }), page, "left-out"), "appLeftOutNeedsAccess");
-  assert.equal(C.popupNoteKey(Object.assign({}, base, { appLeftOut: ["bank.com"], desktop: { screen: true, activity: true, sites: "needs_access" } }), page, "not-added"), "desktopNeedsAccess");
+  assert.equal(C.popupNoteKey(Object.assign({}, base, { appLeftOut: ["bank.com"], desktop: { screen: true, activity: true, sites: "needs_access" } }), page, "not-added"), "desktopScreenOn");
+  assert.equal(C.popupNoteKey(Object.assign({}, base, { desktop: { screen: true, activity: true, sites: "unreadable" } }), page, "left-out"), "appLeftOutUnreadable");
   assert.equal(C.popupNoteKey(Object.assign({}, base, { appLeftOut: [], desktop: { screen: true, activity: true, sites: "needs_access" } }), page, "not-added"), "desktopScreenOn");
   assert.equal(C.popupNoteKey(Object.assign({}, base, { desktop: { screen: true, activity: true, sites: "on" } }), page, "not-added"), "desktopScreenOn");
   assert.equal(C.popupNoteKey(Object.assign({}, base, { desktop: { screen: true, activity: true, sites: "on" } }), page, "left-out"), "appLeftOutSitesOn");
@@ -694,4 +706,15 @@ test("agreement page: addSite cancels when consent is not accepted", async () =>
   assert.equal(result.cancelled, true);
   assert.equal(result.ineligible, true);
   assert.equal(calls.includes("request"), false);
+});
+
+test("on a Mac whose app lacks Accessibility, the popup offers no leave-out, and does once the app can keep a site out", () => {
+  const C = globalThis.SolstoneCopy;
+  const blocked = { leftOutCapable: true, desktop: { screen: true, activity: true, sites: "needs_access" } };
+  assert.equal(C.leaveOutNeedsAccess(blocked), true);
+  assert.equal(C.leaveOutNeedsAccess({ ...blocked, desktop: { ...blocked.desktop, sites: "on" } }), false);
+  assert.equal(C.leaveOutNeedsAccess({ ...blocked, desktop: { ...blocked.desktop, sites: "not_checked" } }), false);
+  // No app holding the list (another platform, or the app away): the extension's own leave-out stays.
+  assert.equal(C.leaveOutNeedsAccess({ ...blocked, leftOutCapable: false }), false);
+  assert.equal(C.leaveOutNeedsAccess({ leftOutCapable: true, desktop: null }), false);
 });

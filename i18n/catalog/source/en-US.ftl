@@ -366,9 +366,7 @@ browser.extension.sharingeverysiteincludes = sharing every site includes message
 
 browser.extension.sitesetdenythere = a site set to Deny there stays off.
 
-browser.extension.solstoneappneedsaccess = the solstone app needs access before it shares sites on this computer.
-
-browser.extension.solstoneextensionleavesout = the solstone extension leaves it out. the solstone app needs Accessibility to keep it off your screen and out of activity.
+browser.extension.solstoneextensionleavesout = the solstone extension leaves it out. the solstone app can't leave websites out until it has Accessibility.
 
 browser.extension.stopsharingeverysite = stop sharing every site
 
@@ -741,6 +739,10 @@ browser.copy.sownsettingsdont = { $value1 }'s own settings don't show the sites 
 browser.copy.isleftoutstopleaving = { $value1 } is left out. stop leaving it out first.
 
 browser.copy.thesolstoneextensionleavesit = the solstone extension leaves it out. the solstone app doesn't check { $value1 } windows on your screen.
+
+browser.copy.appleftoutunreadable = the solstone extension leaves it out. the solstone app can't read { $value1 }'s page addresses right now, so { $value1 } stays out of what the app takes in from your screen until it can read them.
+
+browser.copy.leaveoutneedsaccess = to leave sites out, allow Accessibility in the solstone app's settings.
 
 browser.copy.allsitesandpagesare = all { $value1 } sites and pages are no longer left out.
 

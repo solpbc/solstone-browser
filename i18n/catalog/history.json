@@ -810,6 +810,26 @@
       "selector": null
     },
     {
+      "id": "browser.copy.appleftoutunreadable",
+      "resource": "m62726f777365722e636f70792e6170706c6566746f7574756e7265616461626c65",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "value1",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
       "id": "browser.copy.apponlyleftout",
       "resource": "m62726f777365722e636f70792e6170706f6e6c796c6566746f7574",
       "namespace": "browser.copy",
@@ -1465,6 +1485,18 @@
     {
       "id": "browser.copy.leaveouthelp",
       "resource": "m62726f777365722e636f70792e6c656176656f757468656c70",
+      "namespace": "browser.copy",
+      "owner": "browser",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "browser.copy.leaveoutneedsaccess",
+      "resource": "m62726f777365722e636f70792e6c656176656f75746e65656473616363657373",
       "namespace": "browser.copy",
       "owner": "browser",
       "tombstone": false,
@@ -2642,7 +2674,7 @@
       "resource": "m62726f777365722e657874656e73696f6e2e736f6c73746f6e656170706e65656473616363657373",
       "namespace": "browser.extension",
       "owner": "browser",
-      "tombstone": false,
+      "tombstone": true,
       "replacement": null,
       "format_intent": "text",
       "arguments": [],

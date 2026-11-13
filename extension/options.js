@@ -897,7 +897,13 @@
       $("siteModeHelp").hidden = everySite && state?.permissionsUnavailable !== true;
     }
     fieldLeavesOut = everySite;
-    if ($("addForm")) $("addForm").hidden = false;
+    // The field leaves sites out, which on a Mac needs the app's Accessibility; say so instead.
+    const leaveOutBlocked = fieldLeavesOut && Copy.leaveOutNeedsAccess(state);
+    if (leaveOutBlocked && $("siteModeHelp")) {
+      $("siteModeHelp").textContent = Copy.LEAVE_OUT_NEEDS_ACCESS;
+      $("siteModeHelp").hidden = false;
+    }
+    if ($("addForm")) $("addForm").hidden = leaveOutBlocked;
     if ($("siteInputLabel")) $("siteInputLabel").textContent = fieldLeavesOut ? t("browser.options.leaveoutasite") : t("browser.options.addasite");
     if ($("addBtn")) $("addBtn").textContent = fieldLeavesOut ? t("browser.options.leaveout") : t("browser.chrome.addthissite");
     if ($("newHost")) $("newHost").placeholder = fieldLeavesOut ? t("browser.options.leaveoutplaceholder") : (Copy.MOBILE ? t("browser.options.mobileplaceholder") : t("browser.options.placeholder"));
@@ -951,7 +957,9 @@
             hostSpan.textContent = host;
             row.append(hostSpan);
 
-            if (isLocal || state?.leftOutCapable) {
+            // Including a site the app's list also covers has to reach the app, or it stays out.
+            const appCovers = appEx.some((entry) => H.hostCovers(entry, host));
+            if (state?.leftOutCapable || (isLocal && !appCovers)) {
               const btn = document.createElement("button");
               btn.type = "button";
               btn.textContent = t("browser.options.stopleavingout");

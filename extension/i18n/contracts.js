@@ -402,6 +402,15 @@ globalThis.SolstoneI18nContracts = {
     "arguments": [],
     "selector": null
   },
+  "browser.copy.appleftoutunreadable": {
+    "arguments": [
+      {
+        "name": "value1",
+        "type": "string"
+      }
+    ],
+    "selector": null
+  },
   "browser.copy.apponlyleftout": {
     "arguments": [],
     "selector": null
@@ -722,6 +731,10 @@ globalThis.SolstoneI18nContracts = {
     "selector": null
   },
   "browser.copy.leaveouthelp": {
+    "arguments": [],
+    "selector": null
+  },
+  "browser.copy.leaveoutneedsaccess": {
     "arguments": [],
     "selector": null
   },
@@ -1270,10 +1283,6 @@ globalThis.SolstoneI18nContracts = {
     "selector": null
   },
   "browser.extension.sitesetdenythere": {
-    "arguments": [],
-    "selector": null
-  },
-  "browser.extension.solstoneappneedsaccess": {
     "arguments": [],
     "selector": null
   },

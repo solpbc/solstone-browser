@@ -1,0 +1,16 @@
+{
+  "description": "Why the extension offers no leave-out on a Mac where the solstone app lacks Accessibility.",
+  "context": "The solstone extension popup and settings, in place of the leave-out control.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 90,
+  "source_revision": "c9966b921d1f8946619139edc400d132219a830dad9a1a94484c8e26e9b95866",
+  "risk": "routine",
+  "auto_merge": true
+}

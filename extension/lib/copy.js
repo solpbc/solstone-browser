@@ -174,7 +174,16 @@
   }
   const appLeftOutAppAway = t("browser.copy.appleftoutaway");
   const extensionLeftOut = t("browser.copy.extensionleftout");
-  const desktopNeedsAccess = t("browser.extension.solstoneappneedsaccess");
+  function appLeftOutUnreadable(brand) {
+    return t("browser.copy.appleftoutunreadable", {value1: String(browserName(brand))});
+  }
+  const LEAVE_OUT_NEEDS_ACCESS = t("browser.copy.leaveoutneedsaccess");
+
+  // On a Mac the app holds the website list, and without Accessibility it can't keep a site
+  // out, so the extension offers no leave-out there either.
+  function leaveOutNeedsAccess(status) {
+    return !!(status && status.leftOutCapable === true && status.desktop && status.desktop.sites === "needs_access");
+  }
 
   function popupNoteKey(status, page, kind) {
     status = status || {};
@@ -187,8 +196,6 @@
     const desktop = status.desktop;
 
     if (kind === "not-added") {
-      const appHasList = Array.isArray(status.appLeftOut) && status.appLeftOut.length > 0;
-      if (desktop?.screen === true && desktop?.sites === "needs_access" && appHasList) return "desktopNeedsAccess";
       if (desktop?.screen === true) return "desktopScreenOn";
       if (desktop?.screen !== true && desktop?.activity === true) return "desktopActivityOn";
       return "";
@@ -202,6 +209,7 @@
         if (!desktop || (desktop.screen !== true && desktop.activity !== true)) return "appLeftOutAppAway";
         if (desktop.sites === "on") return "appLeftOutSitesOn";
         if (desktop.sites === "needs_access") return "appLeftOutNeedsAccess";
+        if (desktop.sites === "unreadable") return "appLeftOutUnreadable";
         return "appLeftOutNotChecked";
       }
       return "extensionLeftOut";
@@ -430,7 +438,9 @@
     desktopActivityOn,
     appLeftOutSitesOn,
     appLeftOutNeedsAccess,
-    desktopNeedsAccess,
+    appLeftOutUnreadable,
+    LEAVE_OUT_NEEDS_ACCESS,
+    leaveOutNeedsAccess,
     appLeftOutNotChecked,
     appLeftOutAppAway,
     extensionLeftOut,

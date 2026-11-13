@@ -1359,6 +1359,44 @@
     {
       "bundle": "browser",
       "call_contract": {
+        "arguments": [
+          {
+            "name": "value1",
+            "type": "string",
+            "value": "sample"
+          }
+        ],
+        "bundle": "browser",
+        "entry": "render(locale, dotted_id, named_args)",
+        "enum_argument": null,
+        "format_passes": 1,
+        "gettext_lookup_key": "browser.copy.appleftoutunreadable\u0004m62726f777365722e636f70792e6170706c6566746f7574756e7265616461626c65",
+        "gettext_plural_key": "m62726f777365722e636f70792e6170706c6566746f7574756e7265616461626c65_plural",
+        "gettext_unsigned_quantity": null,
+        "locale": "en-US",
+        "message_id": "browser.copy.appleftoutunreadable",
+        "resource_key": "m62726f777365722e636f70792e6170706c6566746f7574756e7265616461626c65",
+        "signed_quantity": null
+      },
+      "cardinal": "en",
+      "expectation_kind": "native-reader-required",
+      "expected": null,
+      "folder": null,
+      "inputs": {
+        "value1": "sample"
+      },
+      "locale": "en-US",
+      "logical_expected": "the solstone extension leaves it out. the solstone app can't read ⁨sample⁩'s page addresses right now, so ⁨sample⁩ stays out of what the app takes in from your screen until it can read them.",
+      "message_id": "browser.copy.appleftoutunreadable",
+      "own_reader": "fluent-js",
+      "own_reader_call": "render(\"en-US\", \"browser.copy.appleftoutunreadable\", [[\"value1\", \"sample\"]])",
+      "platform_reader": "pending",
+      "resource_key": "m62726f777365722e636f70792e6170706c6566746f7574756e7265616461626c65",
+      "target": "classic"
+    },
+    {
+      "bundle": "browser",
+      "call_contract": {
         "arguments": [],
         "bundle": "browser",
         "entry": "render(locale, dotted_id, named_args)",
@@ -2562,6 +2600,36 @@
       "own_reader_call": "render(\"en-US\", \"browser.copy.leaveouthelp\", [])",
       "platform_reader": "pending",
       "resource_key": "m62726f777365722e636f70792e6c656176656f757468656c70",
+      "target": "classic"
+    },
+    {
+      "bundle": "browser",
+      "call_contract": {
+        "arguments": [],
+        "bundle": "browser",
+        "entry": "render(locale, dotted_id, named_args)",
+        "enum_argument": null,
+        "format_passes": 1,
+        "gettext_lookup_key": "browser.copy.leaveoutneedsaccess\u0004m62726f777365722e636f70792e6c656176656f75746e65656473616363657373",
+        "gettext_plural_key": "m62726f777365722e636f70792e6c656176656f75746e65656473616363657373_plural",
+        "gettext_unsigned_quantity": null,
+        "locale": "en-US",
+        "message_id": "browser.copy.leaveoutneedsaccess",
+        "resource_key": "m62726f777365722e636f70792e6c656176656f75746e65656473616363657373",
+        "signed_quantity": null
+      },
+      "cardinal": "en",
+      "expectation_kind": "native-reader-required",
+      "expected": null,
+      "folder": null,
+      "inputs": {},
+      "locale": "en-US",
+      "logical_expected": "to leave sites out, allow Accessibility in the solstone app's settings.",
+      "message_id": "browser.copy.leaveoutneedsaccess",
+      "own_reader": "fluent-js",
+      "own_reader_call": "render(\"en-US\", \"browser.copy.leaveoutneedsaccess\", [])",
+      "platform_reader": "pending",
+      "resource_key": "m62726f777365722e636f70792e6c656176656f75746e65656473616363657373",
       "target": "classic"
     },
     {
@@ -4716,36 +4784,6 @@
         "entry": "render(locale, dotted_id, named_args)",
         "enum_argument": null,
         "format_passes": 1,
-        "gettext_lookup_key": "browser.extension.solstoneappneedsaccess\u0004m62726f777365722e657874656e73696f6e2e736f6c73746f6e656170706e65656473616363657373",
-        "gettext_plural_key": "m62726f777365722e657874656e73696f6e2e736f6c73746f6e656170706e65656473616363657373_plural",
-        "gettext_unsigned_quantity": null,
-        "locale": "en-US",
-        "message_id": "browser.extension.solstoneappneedsaccess",
-        "resource_key": "m62726f777365722e657874656e73696f6e2e736f6c73746f6e656170706e65656473616363657373",
-        "signed_quantity": null
-      },
-      "cardinal": "en",
-      "expectation_kind": "native-reader-required",
-      "expected": null,
-      "folder": null,
-      "inputs": {},
-      "locale": "en-US",
-      "logical_expected": "the solstone app needs access before it shares sites on this computer.",
-      "message_id": "browser.extension.solstoneappneedsaccess",
-      "own_reader": "fluent-js",
-      "own_reader_call": "render(\"en-US\", \"browser.extension.solstoneappneedsaccess\", [])",
-      "platform_reader": "pending",
-      "resource_key": "m62726f777365722e657874656e73696f6e2e736f6c73746f6e656170706e65656473616363657373",
-      "target": "classic"
-    },
-    {
-      "bundle": "browser",
-      "call_contract": {
-        "arguments": [],
-        "bundle": "browser",
-        "entry": "render(locale, dotted_id, named_args)",
-        "enum_argument": null,
-        "format_passes": 1,
         "gettext_lookup_key": "browser.extension.solstoneextensionleavesout\u0004m62726f777365722e657874656e73696f6e2e736f6c73746f6e65657874656e73696f6e6c65617665736f7574",
         "gettext_plural_key": "m62726f777365722e657874656e73696f6e2e736f6c73746f6e65657874656e73696f6e6c65617665736f7574_plural",
         "gettext_unsigned_quantity": null,
@@ -4760,7 +4798,7 @@
       "folder": null,
       "inputs": {},
       "locale": "en-US",
-      "logical_expected": "the solstone extension leaves it out. the solstone app needs Accessibility to keep it off your screen and out of activity.",
+      "logical_expected": "the solstone extension leaves it out. the solstone app can't leave websites out until it has Accessibility.",
       "message_id": "browser.extension.solstoneextensionleavesout",
       "own_reader": "fluent-js",
       "own_reader_call": "render(\"en-US\", \"browser.extension.solstoneextensionleavesout\", [])",

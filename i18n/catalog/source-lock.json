@@ -254,6 +254,13 @@
       "locales": []
     },
     {
+      "id": "browser.copy.appleftoutunreadable",
+      "source": "d31c416a171fd1abb66b3a57115e31d650e37a4bb161c88c84fd3ff56144968d",
+      "contract": "16ab3e60f8ba356635b67bf2e7a798b200256695e052a881f0b763fd9d98ba5e",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
       "id": "browser.copy.apponlyleftout",
       "source": "dfc24b5a8729e1e59336daa353848eadd3db48cb9d282ae0d52e0f282bc1758b",
       "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
@@ -501,6 +508,13 @@
     {
       "id": "browser.copy.leaveouthelp",
       "source": "0b6950c0a38ea52b272cf4ee95198ef5712f1878c7a7ba0f3f387f23cd6e3a45",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "browser.copy.leaveoutneedsaccess",
+      "source": "c9966b921d1f8946619139edc400d132219a830dad9a1a94484c8e26e9b95866",
       "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
       "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
       "locales": []
@@ -947,15 +961,8 @@
       "locales": []
     },
     {
-      "id": "browser.extension.solstoneappneedsaccess",
-      "source": "9123c812b77cfa6e18b6d8a82d3a54c60be76713ed15bffc4719e228c0c91676",
-      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
-      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
-      "locales": []
-    },
-    {
       "id": "browser.extension.solstoneextensionleavesout",
-      "source": "8f854f508919938c3f5d8d1954ef6d10749854a934a4e572fc91e1e292764008",
+      "source": "abcd9d8647cca851a020b7b3f598adabcc3696c75dd3ffc61a98ed6b3292a02f",
       "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
       "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
       "locales": []

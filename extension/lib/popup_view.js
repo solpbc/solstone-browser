@@ -116,6 +116,7 @@
     let pageState;
     let pageNote = "";
     let pageNoteKey = "";
+    const leaveOutBlocked = Copy?.leaveOutNeedsAccess ? Copy.leaveOutNeedsAccess(state) : false;
     let pageKind = page.kind || (page.ok ? "web" : "");
     let siteAction = null;
     let siteSecondary = null;
@@ -158,8 +159,9 @@
       const row = globalThis.SolstoneStatus.siteRow(page.origin, state, extras);
       pageState = row.label;
       if (row.kind === "denied-by-browser" && pageWords) pageNote = pageWords.deniedNote;
+      else if (leaveOutBlocked) pageNote = Copy.LEAVE_OUT_NEEDS_ACCESS;
       else if (pageWords && (state.broadGranted === true || state.broadGrant === true)) pageNote = pageWords.leaveOutNote(site);
-      siteAction = { id: "exclude-site", site, label: t("browser.popup.leaveoutthis"), disabled: false, primary: true };
+      siteAction = leaveOutBlocked ? null : { id: "exclude-site", site, label: t("browser.popup.leaveoutthis"), disabled: false, primary: true };
     } else if (!isPageAllowed) {
       pageState = t("browser.popup.notadded");
       pageNoteKey = Copy?.popupNoteKey ? Copy.popupNoteKey(state, page, "not-added") : "";
@@ -168,7 +170,8 @@
       const canAdd = state.addSiteEligible === true && state.consentAccepted === true;
       siteAction = { id: "add-site", label: t("browser.chrome.addthissite"), disabled: !canAdd, primary: true };
       if (pageKind === "web" && page.ok && Copy?.MOBILE !== true) {
-        siteSecondary = { id: "leave-out", label: t("browser.popup.leaveoutthis") };
+        if (leaveOutBlocked) pageNote = [pageNote, Copy.LEAVE_OUT_NEEDS_ACCESS].filter(Boolean).join(" ");
+        else siteSecondary = { id: "leave-out", label: t("browser.popup.leaveoutthis") };
       }
     } else {
       const pageRow = siteRows.find((r) => r.origin === pageSite) || (globalThis.SolstoneStatus
@@ -254,7 +257,8 @@
     }
 
     let siteCount = 0;
-    const excludedCount = (state.excludedHosts || []).length;
+    // One list: the extension's own entries and the app's, counted once.
+    const excludedCount = new Set([...(state.excludedHosts || []), ...(state.appLeftOut || [])]).size;
     if (state.fence) {
       siteCount = (state.fence.entries || []).length;
     } else if (isEverySite) {

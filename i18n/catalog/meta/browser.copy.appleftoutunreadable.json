@@ -1,0 +1,21 @@
+{
+  "description": "A left-out page while the solstone app can't read this browser's page addresses.",
+  "context": "The solstone extension popup, on a page the app's website list covers. value1 is the browser's name.",
+  "surfaces": [
+    "extension"
+  ],
+  "bundles": [
+    "browser"
+  ],
+  "arguments": [
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 200,
+  "source_revision": "d31c416a171fd1abb66b3a57115e31d650e37a4bb161c88c84fd3ff56144968d",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -13,10 +13,13 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 ### Changed
 
 - on iphone and ipad, the popup no longer describes the prompt Safari shows after you tap `add this site`.
+- on a mac, while the solstone app doesn't have Accessibility, the extension no longer offers to leave a site out, and the popup and settings say so where the button was.
 
 ### Fixed
 
 - in the popup's list of sites that need attention, a site the extension couldn't start on shows its whole address across the row, instead of one letter per line.
+- in settings, a site the solstone app also leaves out can only be included again while the extension is connected to the solstone app, so settings no longer says it's back in while the app still leaves it out.
+- the popup's count of sites left out includes the ones you left out in the solstone app.
 
 ## [0.5.10] (2026-11-07)
 

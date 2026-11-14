@@ -438,7 +438,8 @@ await run("cached legacy expiry cannot spin through repeated host state updates"
     assert.equal(p.sent.filter(message => message.type === "batch").length, attempt + 1);
     assert.ok(await DB.get("outbox", item.batchId));
     assert.equal(await DB.get("meta", "lossNotice"), undefined);
-    clock.now += c.retryDelayMs;
+    // Each refusal of the same batch doubles the wait.
+    clock.now += c.retryDelayMs * 2 ** attempt;
     await c.drain();
     const posts = p.sent.filter(message => message.type === "batch");
     assert.equal(posts.length, attempt + 2);

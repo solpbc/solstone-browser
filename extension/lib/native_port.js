@@ -98,6 +98,7 @@
       this.requestSnapshots = options.requestSnapshots || null;
 
       this.retryDelayMs = options.retryDelayMs || 5000;
+      this.retryMaxMs = options.retryMaxMs || 300000;
       this.inflightAckMs = options.inflightAckMs || 5000;
 
       this.captureEpoch = 0;
@@ -134,6 +135,7 @@
       this.inflightBatch = null;
       this.retryAfterState = false;
       this.retryNotBefore = 0;
+      this.retryBackoff = null;
 
       this.everConnected = false;
       // The helper answered a hello this session, even if only to say the app
@@ -753,6 +755,7 @@
 
           try {
             if (val.result === "accepted" || val.result === "duplicate") {
+              this.retryBackoff = null;
               await Outbox.removeBatch(batchId);
               if (this.opEpoch !== fence.epoch || this.livePort !== fence.port) return;
               await this.refreshStorageStatus();
@@ -777,8 +780,9 @@
                 this.lossNotice = await DB.get("meta", "lossNotice");
               }
               if (val.class === "retryable" || val.reason === "expired_unaccepted") {
-                this.retryNotBefore = this.now() + this.retryDelayMs;
-                this.schedule(() => this.drain(), this.retryDelayMs);
+                const wait = this.retryWait(batchId);
+                this.retryNotBefore = this.now() + wait;
+                this.schedule(() => this.drain(), wait);
               } else if (val.reason === "stale_generation") {
                 if (this.stateRevision === fence.stateRevision) this.retryAfterState = true;
               } else {
@@ -791,10 +795,11 @@
             if (this.inflightBatch !== operation) return;
             this.inflightBatch = null;
             this.drainOwner = false;
-            this.retryNotBefore = this.now() + this.retryDelayMs;
+            const wait = this.retryWait(batchId);
+            this.retryNotBefore = this.now() + wait;
             this.schedule(() => {
               if (this.opEpoch === fence.epoch && this.livePort === fence.port) this.drain();
-            }, this.retryDelayMs);
+            }, wait);
             this.notify();
           }
 
@@ -1066,6 +1071,16 @@
             ...(this.standingAuthority ? { standing: true } : {}) };
         }
         scheduleExpiry();
+        // A new state may be what the app needed to take a refused batch: the
+        // wait starts over, and an earlier long wait is cut short.
+        if (this.retryBackoff) {
+          this.retryBackoff = null;
+          const soon = this.now() + this.retryDelayMs;
+          if (this.retryNotBefore > soon) {
+            this.retryNotBefore = soon;
+            this.schedule(() => this.drain(), this.retryDelayMs);
+          }
+        }
         this.heldState = {
           key: renewalKey, epoch, gen, token, revision,
           extend: (at) => {
@@ -1078,6 +1093,16 @@
       }
       this.notify();
       await this.afterState(val);
+    }
+
+    // A batch the app didn't take is offered again after the retry delay,
+    // doubling each time the same batch is not taken, up to the maximum. The
+    // wait counts from when it was last offered (already waited, for one that
+    // went unanswered).
+    retryWait(batchId, waited = 0) {
+      const step = this.retryBackoff?.batchId === batchId ? Math.min(this.retryBackoff.step + 1, 20) : 0;
+      this.retryBackoff = { batchId, step };
+      return Math.max(0, Math.min(this.retryDelayMs * 2 ** step, this.retryMaxMs) - waited);
     }
 
     async afterState(val) {
@@ -1427,7 +1452,15 @@
           if (this.inflightBatch === operation && this.drainOwner === owner && !operation.receipting) {
             this.inflightBatch = null;
             this.drainOwner = false;
-            this.drain();
+            // Unanswered: offer it again, sooner the first time, as the
+            // retry wait counts from when it went out.
+            const wait = this.retryWait(operation.batchId, this.inflightAckMs);
+            if (wait > 0) {
+              this.retryNotBefore = this.now() + wait;
+              this.schedule(() => this.drain(), wait);
+            } else {
+              this.drain();
+            }
           }
         }, this.inflightAckMs);
       } catch (_err) {

@@ -289,6 +289,9 @@ function tryAppNow() {
     if (live && typeof live.refresh !== "function") return;
     const now = port.now();
     if (now - lastAppNudgeAt < 5000) return;
+    // A connection opened moments ago asked with its hello, as when a page's
+    // message is what started the background.
+    if (live && now - port.handshakeStartedAt < 5000) return;
     lastAppNudgeAt = now;
     if (live) live.refresh();
     else port.connect();

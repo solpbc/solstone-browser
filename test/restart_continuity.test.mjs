@@ -36,7 +36,7 @@ function sessionArea() {
 }
 
 // One background lifetime over a database and session storage that outlive it.
-async function boot({ idb, session, tabs }) {
+async function boot({ idb, session, tabs, iphone, wake }) {
   const mock = createMockChrome();
   if (session) mock.chrome.storage.session = session;
   if (tabs) mock.tabsList.splice(0, mock.tabsList.length, ...tabs);
@@ -46,9 +46,15 @@ async function boot({ idb, session, tabs }) {
     setTimeout: () => 1, clearTimeout: () => {}, setInterval: () => 1, clearInterval: () => {},
     chrome: mock.chrome, indexedDB: idb,
   };
+  if (iphone) {
+    sandbox.navigator = { userAgent: "Mozilla/5.0 (iPhone)", platform: "iPhone", maxTouchPoints: 5 };
+    mock.chrome.runtime.getURL = (path) => `safari-web-extension://6f4d5042-ab48-42e5-a191-38327b4ea30b/${path}`;
+    mock.chrome.runtime.sendNativeMessage = iphone;
+  }
   sandbox.globalThis = sandbox;
   sandbox.importScripts = (...paths) => { for (const path of paths) vm.runInNewContext(read(path), sandbox, { filename: path }); };
   vm.runInNewContext(read("background.js"), sandbox, { filename: "background.js" });
+  wake?.(mock);
   const port = await sandbox.SolstoneBackground.ensureInit();
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
   return { mock, sandbox, port };
@@ -182,4 +188,20 @@ test("after a background restart, a new document in the frame starts its own con
   const cursors = await life.sandbox.SolstoneDB.getAll("producer");
   assert.equal(cursors.some((cursor) => cursor.ctx === ctx), false, "the previous document's tracking goes");
   assert.equal(Object.values(session.data.frameContexts).some((entry) => entry.ctx === ctx), false);
+});
+
+test("on iPhone, a page that wakes the background asks the app once", async () => {
+  const exchanges = [];
+  const iphone = async (_host, request) => {
+    exchanges.push(request);
+    return { v: 1, c: request.c, f: [] };
+  };
+  const sender = { tab: { id: TAB }, frameId: 0, url: `${ORIGIN}/page`, origin: ORIGIN };
+  // Safari starts the unloaded background for the page's hello.
+  await boot({ idb: new IDBFactory(), iphone, wake: (mock) => {
+    mock.listeners.onMessage[0]({ kind: "hello", ...DOCUMENT }, { id: mock.chrome.runtime.id, ...sender }, () => {});
+  } });
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(exchanges.length, 1, "the hello that starts the connection is the only exchange");
+  assert.equal(JSON.parse(exchanges[0].f).type, "hello");
 });

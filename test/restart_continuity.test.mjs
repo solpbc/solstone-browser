@@ -188,6 +188,32 @@ test("after Safari's website data is cleared, an open page starts a new context 
   assert.deepEqual((await sent(life)).map((record) => [record.t, record.ctx]), [["segment_start", page.ctx]]);
 });
 
+test("a page back from the back-forward cache gets a new context, with or without a restart while it was away", async () => {
+  for (const restart of [false, true]) {
+    const session = sessionArea();
+    const idb = new IDBFactory();
+    let life = await boot({ idb, session });
+    openGate(life);
+    const first = await hello(life);
+    await skim(life, first, PAGE);
+    await delivered(life);
+    if (restart) {
+      life = await boot({ idb, session });
+      openGate(life);
+    }
+    // The page goes into the cache; its goodbye is what wakes a restarted background.
+    const bye = await life.sandbox.SolstoneRouter.route({ kind: "bye", ...DOCUMENT }, first.sender,
+      { ...first.deps, port: life.port, runtimeId: life.mock.chrome.runtime.id });
+    assert.equal(bye.ok, true, JSON.stringify(bye));
+    await new Promise((resolve) => setImmediate(resolve));
+    // Back from the cache, the same document says hello again.
+    const page = await hello(life);
+    assert.notEqual(page.ctx, first.ctx, restart ? "after a restart" : "while running");
+    assert.equal((await skim(life, page, PAGE)).enqueued, true);
+    assert.deepEqual((await sent(life)).map((record) => [record.t, record.ctx]), [["segment_start", page.ctx]]);
+  }
+});
+
 test("after a background restart, a new document in the frame starts its own context", async () => {
   const session = sessionArea();
   const { idb, ctx } = await firstLife(session);

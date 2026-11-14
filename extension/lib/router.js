@@ -810,6 +810,12 @@
       }
     } else if (!binding || binding.realmToken !== realmToken || binding.documentIdentity !== documentIdentity || binding.origin !== senderOrigin ||
         (!browserDocumentId && binding.documentKey !== documentKey)) {
+      // A document that leaves after a restart, before its hello, takes its
+      // kept context with it, as a bound one does.
+      if (msg.kind === "bye" && !binding && restoredContexts.has(fKey)) {
+        destroyBinding(tabId, frameId);
+        return { ok: true };
+      }
       return { ok: false, error: "challenge_mismatch" };
     }
 

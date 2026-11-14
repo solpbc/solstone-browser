@@ -21,6 +21,7 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 - in settings, a site the solstone app also leaves out can only be included again while the extension is connected to the solstone app, so settings no longer says it's back in while the app still leaves it out.
 - the popup's count of sites left out includes the ones you left out in the solstone app.
 - with pages open, the solstone extension uses less battery and processor time, because it no longer repeats the same work every few seconds while nothing on them changes.
+- on iphone and ipad, a page you leave open in Safari no longer goes into your journal again, or counts as another page in the solstone app, each time Safari wakes the extension.
 
 ## [0.5.10] (2026-11-07)
 

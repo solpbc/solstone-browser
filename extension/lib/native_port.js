@@ -183,6 +183,9 @@
       this.excludedGen = 0;
       this.leftOutTail = Promise.resolve();
       this.syncSiteRegistrations = options.syncSiteRegistrations || null;
+      // Called on each renewal that keeps the grant, so the browser's own
+      // site access is still looked at on the app's cadence.
+      this.onRenewal = options.onRenewal || null;
       this.ruleId = 0;
       this.outstandingRule = null;
       this.migrationQueue = [];
@@ -962,6 +965,9 @@
           (this.hostStateDeadline == null || nowMs < this.hostStateDeadline)) {
         this.heldState = held;
         held.extend(nowMs);
+        if (typeof this.onRenewal === "function") {
+          try { this.onRenewal(); } catch (_e) {}
+        }
         await this.afterState(val);
         return;
       }

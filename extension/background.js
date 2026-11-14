@@ -915,6 +915,28 @@ function beginRead() {
   return run;
 }
 
+// The app renews an unchanged grant every few seconds and pages no longer say
+// hello for it. A browser can drop a site's access with no removal event
+// (Safari), so each renewal still looks at the browser's grant, and a grant
+// that differs from the one in force is read in full.
+let renewalGrantCheck = null;
+function checkGrantOnRenewal() {
+  if (!port || renewalGrantCheck) return renewalGrantCheck;
+  renewalGrantCheck = (async () => {
+    try {
+      const perms = await chrome.permissions.getAll();
+      if (!port || !Array.isArray(perms?.origins)) return;
+      const live = perms.origins.filter((p) => !port.tombstones?.has(p));
+      if (!sameStringSet(live, port.livePatterns)) await beginRead();
+    } catch (_e) {
+      /* the next renewal or the minute's read tries again */
+    } finally {
+      renewalGrantCheck = null;
+    }
+  })();
+  return renewalGrantCheck;
+}
+
 function decideAgreementRules(safariKnown) {
   if (safariKnown === true) return Promise.resolve("safari");
   const getInfo = globalThis.browser?.runtime?.getBrowserInfo;
@@ -1115,6 +1137,7 @@ async function doInit() {
 
   port.persistCfg = setCfg;
   port.syncSiteRegistrations = syncSiteRegistrations;
+  port.onRenewal = checkGrantOnRenewal;
 
   port.livePatterns = [];
   port.tombstones = sessionTombstones;

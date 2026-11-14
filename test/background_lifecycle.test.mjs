@@ -5963,3 +5963,50 @@ test("lifecycle: a repeated grant doesn't cut short the delivery of the one befo
   assert.equal(late.length, 1, "a tab found by the first update still hears it");
   assert.equal(late[0].msg.capturePermitted, false);
 });
+
+test("lifecycle: a site access dropped with no removal event stops admission at the next renewal", async () => {
+  const { mock, bg, sandbox } = await startWorker({ siteGrant: "live", fence: null });
+  const p = bg.port;
+  mock.grantedPermissions.clear();
+  mock.grantedPermissions.add("*://example.com/*");
+  mock.grantedPermissions.add("*://other.example/*");
+  await bg.beginRead();
+  p.consentVersion = 1;
+  const epoch = p.opEpoch, gen = p.connectionGeneration, token = p.connectionToken;
+  p.handshake = "ready"; p.everConnected = true;
+  const state = { type: "state", capture: "permitted", delivery: "idle", freshness_ms: 15000, destination_generation: "gen-r" };
+  await p.applyCaptureMessage(state, epoch, gen, token);
+  const H = sandbox.SolstoneHosts;
+  assert.equal(H.originGranted(p, "https://example.com"), true);
+  // The browser drops the site and says nothing.
+  mock.grantedPermissions.delete("*://example.com/*");
+  const revision = p.stateRevision;
+  await p.applyCaptureMessage(state, epoch, gen, token);
+  assert.equal(p.stateRevision, revision, "an unchanged renewal");
+  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+  assert.equal(H.originGranted(p, "https://example.com"), false);
+  assert.equal(H.originGranted(p, "https://other.example"), true);
+  const sender = { id: mock.chrome.runtime.id, tab: { id: 31 }, frameId: 0, url: "https://example.com/page", origin: "https://example.com" };
+  const skim = await sandbox.SolstoneRouter.route({ kind: "skim", realmToken: "r", documentKey: "a".repeat(32) }, sender,
+    { port: p, runtimeId: mock.chrome.runtime.id });
+  assert.equal(skim.error, "origin_not_granted");
+});
+
+test("lifecycle: an unchanged renewal with an unchanged grant reads nothing more", async () => {
+  const { mock, bg } = await startWorker();
+  const p = bg.port;
+  const epoch = p.opEpoch, gen = p.connectionGeneration, token = p.connectionToken;
+  p.handshake = "ready"; p.everConnected = true;
+  const state = { type: "state", capture: "permitted", delivery: "idle", freshness_ms: 15000, destination_generation: "gen-r" };
+  await p.applyCaptureMessage(state, epoch, gen, token);
+  let saves = 0;
+  const set = mock.chrome.storage.local.set;
+  mock.chrome.storage.local.set = async (v) => { saves++; return set(v); };
+  const serial = p.readSerial;
+  for (let i = 0; i < 5; i++) {
+    await p.applyCaptureMessage(state, epoch, gen, token);
+    await new Promise((r) => setImmediate(r));
+  }
+  assert.equal(p.readSerial, serial, "no full permission read");
+  assert.equal(saves, 0);
+});

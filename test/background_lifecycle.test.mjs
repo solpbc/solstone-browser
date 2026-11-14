@@ -5873,3 +5873,21 @@ test("agreement: version 1 chrome shows the share note beside both offers", asyn
   assert.equal(odd.bg.port.getStatus().versionOneFence, true);
 });
 
+
+test("lifecycle: re-reading an unchanged grant saves nothing, and a changed one is saved", async () => {
+  const { mock, bg } = await startWorker();
+  const saved = [];
+  const original = mock.chrome.storage.local.set;
+  mock.chrome.storage.local.set = async (value) => {
+    if (Object.hasOwn(value, "grantWatch")) saved.push(value.grantWatch.patterns);
+    return original(value);
+  };
+  for (let i = 0; i < 10; i++) await bg.beginRead();
+  assert.equal(saved.length, 0);
+  mock.grantedPermissions.add("*://other.example/*");
+  await bg.beginRead();
+  assert.equal(saved.length, 1);
+  assert.ok(saved[0].includes("*://other.example/*"));
+  const stored = await mock.chrome.storage.local.get("grantWatch");
+  assert.ok(stored.grantWatch.patterns.includes("*://other.example/*"));
+});

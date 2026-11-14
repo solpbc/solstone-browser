@@ -882,9 +882,12 @@ function beginRead() {
     const grantFanout = !sameStringSet(applied, grantWatch.patterns);
     await applySnapshot(applied, tombstoneFiltered, { grantFanout, serial });
     if (!port || serial !== port.readSerial) return superseded();
-    grantWatch.patterns = [...applied];
-    await saveGrantWatch();
-    if (!port || serial !== port.readSerial) return superseded();
+    // Most reads find the grant they found last time; only a change is saved.
+    if (grantFanout) {
+      grantWatch.patterns = [...applied];
+      await saveGrantWatch();
+      if (!port || serial !== port.readSerial) return superseded();
+    }
     await reinjectOpenTabs();
     return applied;
   })();

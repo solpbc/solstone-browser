@@ -71,6 +71,7 @@ async function world() {
   let reads = 0;
   let content = null;
   const held = { renewals: false };
+  const observers = new Set();
 
   const schedule = (fn, ms) => { const t = { at: clock + Math.max(0, ms), seq: ++timerSeq, fn }; timers.push(t); return t; };
   const cancel = (t) => { const i = timers.indexOf(t); if (i >= 0) timers.splice(i, 1); };
@@ -152,7 +153,11 @@ async function world() {
       return handle;
     },
     clearInterval: (handle) => { if (handle?.timer) cancel(handle.timer); },
-    MutationObserver: class { observe() {} disconnect() {} },
+    MutationObserver: class {
+      constructor(fn) { this.fn = fn; }
+      observe() { observers.add(this); }
+      disconnect() { observers.delete(this); }
+    },
     SolstoneCaptureGate: Gate,
     SolstoneAdapters: {
       adapterForHost() { return { name: "generic" }; },
@@ -183,6 +188,10 @@ async function world() {
     port: () => ports.at(-1),
     startPage() {
       vm.runInNewContext(fs.readFileSync(new URL("extension/content.js", ROOT), "utf8"), ctx);
+    },
+    // The page's text changes once.
+    mutate() {
+      for (const o of [...observers]) o.fn([{ type: "characterData" }]);
     },
     reading() {
       return Gate.computeDecision({ ...controller.getStatus(), originGranted: true, now: clock }).open;
@@ -495,4 +504,57 @@ test("a page whose last ask finds the grant about to lapse stops asking once it 
   await w.advanceTo(granted + 90000);
   assert.equal(w.asks.filter((k) => k === "renew").length, renews);
   assert.equal(w.skims.length, 1);
+});
+
+// The app renews every 5 s throughout, as it does.
+async function runPage(w, until, onTick) {
+  const start = w.now;
+  for (let t = 100; t <= until; t += 100) {
+    await w.advanceTo(start + t);
+    if (t % 5000 === 0) await w.port().receive(frame());
+    onTick?.(t);
+  }
+}
+
+const changeReads = (w) => w.skims.filter((m) => m.reason === "change").length;
+
+test("a page whose text changes every second for a minute is read at most once every 5 s", async () => {
+  const w = await world();
+  await connected(w);
+  w.startPage();
+  await w.advanceTo(w.now + 1000);
+  assert.equal(w.skims.length, 1);
+  const before = changeReads(w);
+  await runPage(w, 60000, (t) => { if (t % 1000 === 0) w.mutate(); });
+  const reads = changeReads(w) - before;
+  assert.ok(reads >= 10 && reads <= 12, `${reads} change reads in a minute`);
+});
+
+test("a page whose text changes every 300 ms is still read, within about 5 s", async () => {
+  const w = await world();
+  await connected(w);
+  w.startPage();
+  await w.advanceTo(w.now + 1000);
+  const before = changeReads(w);
+  let firstAt = null;
+  await runPage(w, 20000, (t) => {
+    if (t % 300 === 0) w.mutate();
+    if (firstAt == null && changeReads(w) > before) firstAt = t;
+  });
+  assert.ok(firstAt != null && firstAt <= 5400, `first read at ${firstAt} ms`);
+  assert.ok(changeReads(w) - before >= 3, "and keeps being read while it keeps changing");
+});
+
+test("a quiet page is read 500 ms after a change", async () => {
+  const w = await world();
+  await connected(w);
+  w.startPage();
+  await w.advanceTo(w.now + 1000);
+  const before = changeReads(w);
+  const start = w.now;
+  w.mutate();
+  await w.advanceTo(start + 499);
+  assert.equal(changeReads(w), before);
+  await w.advanceTo(start + 500);
+  assert.equal(changeReads(w), before + 1);
 });

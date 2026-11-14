@@ -21,6 +21,11 @@
   const DOCUMENT_KEY = [...documentKeyBytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 
   const DEBOUNCE_MS = 500;
+  // A page that keeps changing is read at most once in this long, and a change
+  // waits no longer than this however often the page changes again, so a page
+  // that never goes quiet for the debounce is still read.
+  const CHANGE_READ_MIN_MS = 5000;
+  const CHANGE_READ_MAX_WAIT_MS = 5000;
   // The app renews its unchanged grant every few seconds. A reading frame asks
   // for its remaining time this long before its own lease runs out, so an
   // unchanged grant never restarts the page.
@@ -47,6 +52,8 @@
   let adapter = null;
   let observer = null;
   let debounceTimer = null;
+  let changePendingSince = null;
+  let lastChangeReadAt = null;
   let rootInterval = null;
   let idleCallbackId = null;
   let rootEl = null;
@@ -146,18 +153,31 @@
     send(msg);
   }
 
+  function changeRead() {
+    changePendingSince = null;
+    lastChangeReadAt = now();
+    doSkim("change");
+  }
+
   function scheduleSkim() {
+    // A read already waiting for an idle moment takes this change in too.
+    if (idleCallbackId != null) return;
+    const t = now();
+    if (changePendingSince == null) changePendingSince = t;
+    const settled = Math.min(t + DEBOUNCE_MS, changePendingSince + CHANGE_READ_MAX_WAIT_MS);
+    const at = lastChangeReadAt == null ? settled : Math.max(settled, lastChangeReadAt + CHANGE_READ_MIN_MS);
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
+      debounceTimer = null;
       if (typeof requestIdleCallback === "function") {
         idleCallbackId = requestIdleCallback(() => {
           idleCallbackId = null;
-          doSkim("change");
+          changeRead();
         }, { timeout: 1000 });
       } else {
-        doSkim("change");
+        changeRead();
       }
-    }, DEBOUNCE_MS);
+    }, Math.max(0, at - t));
   }
 
   function startObserving() {
@@ -206,6 +226,7 @@
     }
     clearTimeout(debounceTimer);
     debounceTimer = null;
+    changePendingSince = null;
     if (rootInterval) {
       clearInterval(rootInterval);
       rootInterval = null;

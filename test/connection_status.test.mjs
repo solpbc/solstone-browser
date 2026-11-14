@@ -213,7 +213,7 @@ test("connecting with no lease ends as can't reach after the offline timer", asy
   }
 });
 
-test("a renewal that never settles holds the surfaces only while the last state is earned", async (t) => {
+test("a state change that never settles holds the surfaces only while the last state is earned", async (t) => {
   const bg = await background();
   bg.controller.connect();
   await bg.port().receive(frame("hello_ack"));
@@ -221,15 +221,16 @@ test("a renewal that never settles holds the surfaces only while the last state 
   t.after(() => { Outbox.promoteHeldForGeneration = original; });
   Outbox.promoteHeldForGeneration = () => new Promise(() => {});
 
+  const changed = { ...frame("state"), delivery: "delivered" };
   await bg.advanceTo(12000);
-  bg.port().receive(frame("state"));
+  bg.port().receive(changed);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(bg.controller.getStatus().hostSettling, true);
   let answered = null;
   bg.controller.settledStatus().then((status) => { answered = status; });
-  // Another renewal while still settling doesn't extend the hold.
+  // Another frame while still settling doesn't extend the hold.
   await bg.advanceTo(14000);
-  bg.port().receive(frame("state"));
+  bg.port().receive(changed);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(bg.controller.getStatus().hostSettling, true);
   // The last settled frame came at 0 with a 15 s lease.

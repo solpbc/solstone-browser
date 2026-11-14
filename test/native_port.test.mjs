@@ -1755,14 +1755,14 @@ function renewalController(statusUpdates) {
   return { controller, mockPort, state };
 }
 
-test("port: a routine state renewal marks its withdrawal as settling, then settles", async () => {
+test("port: a changed state marks its withdrawal as settling, then settles", async () => {
   await resetDB();
   const statusUpdates = [];
   const { controller, mockPort, state } = renewalController(statusUpdates);
   await mockPort.receive(state("hello_ack"));
   assert.equal(controller.getStatus().hostSettling, false);
   const before = statusUpdates.length;
-  await mockPort.receive(state("state"));
+  await mockPort.receive({ ...state("state"), delivery: "delivered" });
   const renewal = statusUpdates.slice(before);
   // Every status published with authority withdrawn is marked settling, and
   // the renewal ends on a settled, permitted status.
@@ -1782,7 +1782,7 @@ test("port: a failed state transition publishes the withdrawn state as settled",
   const original = Outbox.promoteHeldForGeneration;
   Outbox.promoteHeldForGeneration = async () => { throw new Error("fixture storage failure"); };
   try {
-    await mockPort.receive(state("state"));
+    await mockPort.receive({ ...state("state"), delivery: "delivered" });
   } finally {
     Outbox.promoteHeldForGeneration = original;
   }
@@ -2165,7 +2165,7 @@ test("port: a dropped connection is never reported as settling", async () => {
   const original = Outbox.promoteHeldForGeneration;
   Outbox.promoteHeldForGeneration = () => new Promise((resolve) => { release = resolve; });
   try {
-    const pending = mockPort.receive(state("state"));
+    const pending = mockPort.receive({ ...state("state"), delivery: "delivered" });
     assert.equal(controller.getStatus().hostSettling, true);
     mockPort.disconnect();
     assert.equal(controller.getStatus().hostSettling, false);

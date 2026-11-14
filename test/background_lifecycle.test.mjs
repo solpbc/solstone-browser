@@ -1170,7 +1170,7 @@ test("lifecycle: the browser regaining focus tries the app now, a few seconds ap
   assert.equal(tries,before+1,"tries wait a few seconds apart");
 });
 
-test("lifecycle: a surface opened mid-renewal shows the settled state, not \"can't reach\"", async () => {
+test("lifecycle: a surface opened mid-transition shows the settled state, not \"can't reach\"", async () => {
   const {mock,bg,sandbox}=await startWorker(); const p=bg.port;
   const epoch=p.opEpoch,gen=p.connectionGeneration,token=p.connectionToken;
   p.handshake="ready"; p.everConnected=true;
@@ -1178,7 +1178,7 @@ test("lifecycle: a surface opened mid-renewal shows the settled state, not \"can
   await p.applyCaptureMessage(state,epoch,gen,token);
   const held=deferred(),outbox=sandbox.SolstoneNativeOutbox,original=outbox.promoteHeldForGeneration;
   outbox.promoteHeldForGeneration=()=>held.promise;
-  const renewal=p.applyCaptureMessage(state,epoch,gen,token);
+  const renewal=p.applyCaptureMessage({...state,delivery:"delivered"},epoch,gen,token);
   const id=mock.chrome.runtime.id, sender={id,url:`chrome-extension://${id}/popup.html`};
   const posted=[];
   for (const fn of mock.listeners.onConnect) fn({name:"status",sender,disconnect(){},postMessage:m=>posted.push(m),onDisconnect:{addListener(){}}});

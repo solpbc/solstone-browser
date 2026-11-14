@@ -21,6 +21,10 @@
   const DOCUMENT_KEY = [...documentKeyBytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 
   const DEBOUNCE_MS = 500;
+  // The app renews its unchanged grant every few seconds. A reading frame asks
+  // for its remaining time this long before its own lease runs out, so an
+  // unchanged grant never restarts the page.
+  const RENEW_LEAD_MS = 5000;
 
   let lease = null;
   let paused = false;
@@ -50,6 +54,7 @@
   let grantEpoch = 0;
   let grantSequence = 0;
   let leaseTimer = null;
+  let renewTimer = null;
 
   function now() {
     return typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
@@ -193,6 +198,8 @@
     clearTimeout(readTimer);
     clearTimeout(leaseTimer);
     leaseTimer = null;
+    clearTimeout(renewTimer);
+    renewTimer = null;
     if (observer) {
       observer.disconnect();
       observer = null;
@@ -244,20 +251,65 @@
       lease = null;
     }
 
+    holdGrant();
+  }
+
+  function holdGrant() {
     const decision = getDecision();
     clearTimeout(leaseTimer);
+    clearTimeout(renewTimer);
+    renewTimer = null;
     if (decision.open) {
       const grantedLease = lease;
-      if (lease.standing !== true) leaseTimer = setTimeout(() => {
-        if (lease !== grantedLease) return;
-        lease = null;
-        stopObserving();
-      }, Math.max(0, lease.receivedAt + lease.freshnessMs - now()));
+      if (lease.standing !== true) {
+        const remaining = lease.receivedAt + lease.freshnessMs - now();
+        leaseTimer = setTimeout(() => {
+          if (lease !== grantedLease) return;
+          lease = null;
+          stopObserving();
+          // The app may have renewed after the last ask; one more ask finds out.
+          renewLease(grantedLease, true);
+        }, Math.max(0, remaining));
+        const delay = remaining > 2 * RENEW_LEAD_MS ? remaining - RENEW_LEAD_MS : remaining / 2;
+        if (delay >= 250) renewTimer = setTimeout(() => renewLease(grantedLease, false), delay);
+      }
       if (!observer && !rootEl) {
-        if (refusedReadCount < 3) waitForRoot();
+        if (refusedReadCount < 3 && rootInterval === null) waitForRoot();
       } else if (!observer && rootEl) startObserving();
     } else {
       stopObserving();
+    }
+  }
+
+  // Renewing keeps the grant this frame holds and only moves its deadline,
+  // mapped from the time of asking. A different grant closes reading and asks
+  // for the new one, as a lease update does.
+  function renewLease(held, lapsed) {
+    renewTimer = null;
+    const reqTime = now();
+    const epoch = grantEpoch;
+    const sequence = ++grantSequence;
+    const heldEpoch = captureEpoch;
+    try {
+      chrome.runtime.sendMessage({ kind: "renew", realmToken: REALM_TOKEN, documentKey: DOCUMENT_KEY }, (response) => {
+        void chrome.runtime.lastError;
+        if (epoch !== grantEpoch || sequence !== grantSequence || !response || !response.ok) return;
+        const next = response.lease;
+        if (response.captureEpoch !== heldEpoch || !next || next.token !== held.token || next.generation !== held.generation) {
+          if (!lapsed) {
+            lease = null;
+            stopObserving();
+          }
+          requestGrant();
+          return;
+        }
+        const freshnessMs = Number(next.freshnessMs || 0);
+        if (now() >= reqTime + freshnessMs || (lapsed && freshnessMs <= RENEW_LEAD_MS)) return;
+        lease = { ...held, freshnessMs, receivedAt: reqTime };
+        holdGrant();
+      });
+    } catch (_e) {
+      /* worker asleep / context invalidated */
     }
   }
 

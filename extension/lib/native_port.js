@@ -191,6 +191,7 @@
       this.persistCfg = options.persistCfg || null;
       this.onLapseReservation = options.onLapseReservation || null;
       this.lastCaptureMessage = null;
+      this.heldState = null;
       this.capturePermitted = false;
       this.brand = resolveBrand();
       this.platform = options.platform || "";
@@ -206,7 +207,8 @@
         this.pressure?.active,
         this.capturePermitted,
         this.hostCapture,
-        this.lease,
+        // A renewal moves the lease's clock, not its authority.
+        this.lease ? [this.lease.token, this.lease.generation, this.lease.freshnessMs, this.lease.standing === true] : null,
         this.sitePolicyPending,
         this.livePatterns ? [...this.livePatterns].sort() : [],
         this.fence ? {
@@ -939,6 +941,24 @@
         this.migrationBlocked = true;
       }
 
+      // The app repeats its state every few seconds. A repeat of the state in
+      // force, on the same connection and before that state lapses, only moves
+      // its deadline. Any other state, or the first one after a withdrawal,
+      // withdraws authority first.
+      const renewalKey = JSON.stringify([{ ...val, type: null }, this.readsThroughAppPause(val)]);
+      const held = this.heldState;
+      this.heldState = null;
+      if (val.type === "state" && held && held.key === renewalKey && held.epoch === epoch && held.gen === gen && held.token === token &&
+          held.revision === this.stateRevision && this.settlingRevision == null && this.handshake === "ready" &&
+          this.opEpoch === epoch && this.connectionGeneration === gen && this.connectionToken === token &&
+          this.hostCapture != null && (this.capturePermitted ? this.lease != null : this.lease == null) &&
+          (this.hostStateDeadline == null || nowMs < this.hostStateDeadline)) {
+        this.heldState = held;
+        held.extend(nowMs);
+        await this.afterState(val);
+        return;
+      }
+
       // Clear the old destination before the first status or any await,
       // including a new destination with absent or malformed optional facts.
       if (val.type === "hello_ack" || this.aboutDestination !== (val.destination_generation || null)) {
@@ -1023,8 +1043,9 @@
         this.about = about;
         this.aboutDeadline = this.hostStateDeadline;
       }
-      const expire = () => {
-        if (!current()) return;
+      const expire = (deadline) => {
+        if (!current() || this.hostStateDeadline !== deadline) return;
+        this.heldState = null;
         this.lease = null;
         this.capturePermitted = false;
         this.hostCapture = null;
@@ -1033,16 +1054,33 @@
         this.custody = null;
         this.notify();
       };
+      const scheduleExpiry = () => {
+        const deadline = this.hostStateDeadline;
+        if (deadline != null) this.schedule(() => expire(deadline), deadline - this.now());
+      };
       if (this.hostStateDeadline != null && this.now() >= this.hostStateDeadline) {
-        expire();
+        expire(this.hostStateDeadline);
       } else {
         if (this.capturePermitted) {
           this.lease = { token, generation: val.destination_generation, receivedAt: nowMs, freshnessMs: val.freshness_ms,
             ...(this.standingAuthority ? { standing: true } : {}) };
         }
-        if (this.hostStateDeadline != null) this.schedule(expire, this.hostStateDeadline - this.now());
+        scheduleExpiry();
+        this.heldState = {
+          key: renewalKey, epoch, gen, token, revision,
+          extend: (at) => {
+            this.hostStateDeadline = val.freshness_ms > 0 && !this.standingAuthority ? at + val.freshness_ms : null;
+            if (about) this.aboutDeadline = this.hostStateDeadline;
+            if (this.lease && this.lease.standing !== true) this.lease = { ...this.lease, receivedAt: at };
+            scheduleExpiry();
+          },
+        };
       }
       this.notify();
+      await this.afterState(val);
+    }
+
+    async afterState(val) {
       if (typeof val.destination_generation === "string" && val.destination_generation.length > 0) {
         this.retryAfterState = false;
       }
@@ -1056,7 +1094,6 @@
         this.pumpRuleQueue();
       }
       await this.drain();
-      return;
     }
 
     commitLeftOut(patch, setCfg = this.persistCfg) {
@@ -1234,6 +1271,7 @@
 
     async reapplyLastCapture() {
       if (!this.lastCaptureMessage || this.handshake !== "ready") return;
+      this.heldState = null;
       return await this.applyCaptureMessage(this.lastCaptureMessage, this.opEpoch, this.connectionGeneration, this.connectionToken);
     }
 

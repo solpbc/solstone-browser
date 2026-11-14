@@ -765,6 +765,18 @@
         };
       }
 
+      // A bound frame asks how long the grant it holds still stands. This reads
+      // the current lease only; it changes nothing and reads no permissions.
+      case "renew": {
+        port.syncCaptureAuthority?.();
+        return {
+          ok: true,
+          captureEpoch: port.captureEpoch,
+          lease: port.lease ? { ...port.lease, freshnessMs: port.lease.standing === true ? port.lease.freshnessMs :
+            Math.max(0, Math.floor(port.lease.receivedAt + port.lease.freshnessMs - port.now())) } : null,
+        };
+      }
+
       case "read": {
         if (!H.broadLive(port.livePatterns) || !binding || !deps.executeBrowserRead ||
             !Number.isSafeInteger(msg.requestId) || !["skim", "observe", "root"].includes(msg.action)) return { ok: false, error: "invalid_read" };

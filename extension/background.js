@@ -161,6 +161,8 @@ let badgeEpoch = 0;
 let openTabsGeneration = 0;
 let badgeChain = Promise.resolve();
 let paintEpoch = 0;
+let leaseEpoch = 0;
+let leaseSent = null;
 // What the toolbar was last asked to show, so an unchanged state isn't painted again.
 let toolbarPainted = null;
 let toolbarLink = null;
@@ -208,12 +210,11 @@ const ICON_SET = (prefix) => ({
 
 async function updateBadge(status) {
   badgeEpoch++;
-  const currentBadgeEpoch = badgeEpoch;
 
   if (!status && port) status = port.getStatus();
   if (!status) return;
 
-  // A routine host state renewal withdraws authority and re-grants it a moment
+  // A state change from the app withdraws authority and re-grants it a moment
   // later. Content scripts hear the withdrawal; the owner's surfaces wait for
   // the settled state rather than flash "can't reach the solstone app".
   const settling = status.hostSettling === true;
@@ -225,7 +226,7 @@ async function updateBadge(status) {
       catch (_e) { statusPorts.delete(sp); }
     }
   }
-  broadcastLeaseUpdate(status, currentBadgeEpoch);
+  broadcastLeaseUpdate(status);
   if (settling) return;
   await paintToolbar(status);
 }
@@ -330,7 +331,7 @@ function refreshOpenTabs() {
   }
 }
 
-function broadcastLeaseUpdate(status = port?.getStatus(), epoch = badgeEpoch) {
+function broadcastLeaseUpdate(status = port?.getStatus()) {
   if (!status) return;
   const message = {
     kind: "leaseUpdate",
@@ -353,9 +354,17 @@ function broadcastLeaseUpdate(status = port?.getStatus(), epoch = badgeEpoch) {
     connectionGeneration: status.connectionGeneration || 0,
     connectionToken: status.connectionToken || null,
   };
+  // Pages act only on their grant, not on delivery facts or the lease's clock.
+  // Telling every tab the same grant again changes nothing, and an update that
+  // repeats the last one leaves that one's delivery running.
+  const grant = JSON.stringify({ ...message, hostDelivery: null, hostFailure: null, custody: null, connectionToken: null,
+    lease: message.lease ? { token: message.lease.token, generation: message.lease.generation, standing: message.lease.standing === true } : null });
+  if (grant === leaseSent) return;
+  leaseSent = grant;
+  const epoch = ++leaseEpoch;
   const sent = new Set();
   const send = (tabId) => {
-    if (tabId == null || sent.has(tabId) || epoch !== badgeEpoch) return;
+    if (tabId == null || sent.has(tabId) || epoch !== leaseEpoch) return;
     sent.add(tabId);
     try { chrome.tabs.sendMessage(tabId, message, () => void chrome.runtime.lastError); }
     catch (_e) { /* The tab may have closed. */ }
@@ -364,7 +373,7 @@ function broadcastLeaseUpdate(status = port?.getStatus(), epoch = badgeEpoch) {
   for (const tabId of leaseTabs) send(tabId);
   // Discovery supplements known recipients; it never gates their withdrawal.
   chrome.tabs.query({}, (tabs) => {
-    if (epoch !== badgeEpoch) return;
+    if (epoch !== leaseEpoch) return;
     for (const tab of tabs || []) {
       if (tab.id == null) continue;
       leaseTabs.add(tab.id);

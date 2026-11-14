@@ -5921,3 +5921,42 @@ test("lifecycle: a toolbar paint that failed is tried again on the next status",
   await bg.updateBadge({ ...closed });
   assert.equal(icons, 2);
 });
+
+test("lifecycle: tabs hear a grant once, not again for delivery facts or a moved lease clock", async () => {
+  const { mock, bg } = await startWorker();
+  let queries = 0;
+  const query = mock.chrome.tabs.query;
+  mock.chrome.tabs.query = (...args) => { queries++; return query(...args); };
+  const { permitted, closed } = states(bg);
+  await bg.updateBadge(permitted);
+  await new Promise((r) => setImmediate(r));
+  const updates = () => mock.sentTabMessages.filter((m) => m.msg.kind === "leaseUpdate").length;
+  const first = updates(), firstQueries = queries;
+  assert.ok(first > 0);
+  for (let i = 0; i < 10; i++) {
+    await bg.updateBadge({ ...permitted, hostDelivery: i % 2 ? "delivered" : "kept_locally",
+      lease: { ...permitted.lease, receivedAt: permitted.lease.receivedAt + i * 5000 } });
+  }
+  await new Promise((r) => setImmediate(r));
+  assert.equal(updates(), first, "nothing a page acts on changed");
+  assert.equal(queries, firstQueries);
+  await bg.updateBadge(closed);
+  await new Promise((r) => setImmediate(r));
+  assert.ok(updates() > first, "a withdrawal still reaches the tabs");
+  assert.equal(mock.sentTabMessages.at(-1).msg.capturePermitted, false);
+});
+
+test("lifecycle: a repeated grant doesn't cut short the delivery of the one before it", async () => {
+  const { mock, bg } = await startWorker();
+  const callbacks = [];
+  mock.chrome.tabs.query = (_q, callback) => { callbacks.push(callback); };
+  const { closed } = states(bg);
+  await bg.updateBadge(closed);
+  await bg.updateBadge({ ...closed });
+  const before = mock.sentTabMessages.length;
+  // A tab only the first update's search finds.
+  for (const callback of callbacks) callback([...(mock.tabsList || []), { id: 4242, url: "https://example.com/" }]);
+  const late = mock.sentTabMessages.slice(before).filter((m) => m.tabId === 4242);
+  assert.equal(late.length, 1, "a tab found by the first update still hears it");
+  assert.equal(late[0].msg.capturePermitted, false);
+});

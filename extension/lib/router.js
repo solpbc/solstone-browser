@@ -57,7 +57,9 @@
   // that hasn't changed sends nothing again. The browser's session storage
   // holds which context each document had; it is gone after the browser or the
   // extension restarts, and then every page starts a new context with a full
-  // snapshot. A context comes back only to a hello from the same document.
+  // snapshot. A context comes back only to a hello from the same document, and
+  // only to the install it was made under: after the extension's data is
+  // cleared, nothing links a page to what was kept before.
   const CONTEXTS_KEY = "frameContexts";
   const restoredContexts = new Map(); // key -> { ctx, origin, inst }, until its document says hello
   let contextsChain = Promise.resolve();
@@ -70,8 +72,8 @@
     const store = sessionStore();
     if (!store) return contextsChain;
     const saved = {};
-    for (const [key, entry] of restoredContexts) saved[key] = { ctx: entry.ctx, origin: entry.origin };
-    for (const [key, binding] of frameBindings) saved[key] = { ctx: binding.ctx, origin: binding.origin };
+    for (const [key, entry] of restoredContexts) saved[key] = { ctx: entry.ctx, origin: entry.origin, inst: entry.inst };
+    for (const [key, binding] of frameBindings) saved[key] = { ctx: binding.ctx, origin: binding.origin, inst: binding.inst };
     contextsChain = contextsChain.then(() => store.set({ [CONTEXTS_KEY]: saved })).catch(() => {});
     return contextsChain;
   }
@@ -94,7 +96,7 @@
     const open = new Set(tabs.map((tab) => String(tab?.id)));
     for (const [key, entry] of Object.entries(saved)) {
       if (!open.has(key.split(":")[0]) || frameBindings.has(key)) continue;
-      if (typeof entry?.ctx !== "string" || !entry.ctx || typeof entry.origin !== "string") continue;
+      if (typeof entry?.ctx !== "string" || !entry.ctx || typeof entry.origin !== "string" || entry.inst !== inst) continue;
       restoredContexts.set(key, { ctx: entry.ctx, origin: entry.origin, inst });
     }
     if (restoredContexts.size !== Object.keys(saved).length) saveContexts();

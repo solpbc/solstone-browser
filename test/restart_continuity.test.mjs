@@ -36,7 +36,7 @@ function sessionArea() {
 }
 
 // One background lifetime over a database and session storage that outlive it.
-async function boot({ idb, session, tabs, iphone, wake }) {
+async function boot({ idb, session, tabs, iphone, wake, safari }) {
   const mock = createMockChrome();
   if (session) mock.chrome.storage.session = session;
   if (tabs) mock.tabsList.splice(0, mock.tabsList.length, ...tabs);
@@ -46,6 +46,7 @@ async function boot({ idb, session, tabs, iphone, wake }) {
     setTimeout: () => 1, clearTimeout: () => {}, setInterval: () => 1, clearInterval: () => {},
     chrome: mock.chrome, indexedDB: idb,
   };
+  if (safari) mock.chrome.runtime.getURL = (path) => `safari-web-extension://6f4d5042-ab48-42e5-a191-38327b4ea30b/${path}`;
   if (iphone) {
     sandbox.navigator = { userAgent: "Mozilla/5.0 (iPhone)", platform: "iPhone", maxTouchPoints: 5 };
     mock.chrome.runtime.getURL = (path) => `safari-web-extension://6f4d5042-ab48-42e5-a191-38327b4ea30b/${path}`;
@@ -101,9 +102,9 @@ async function sent(life) {
 }
 
 // The first lifetime reads the page once and the app accepts it.
-async function firstLife(session) {
+async function firstLife(session, { safari } = {}) {
   const idb = new IDBFactory();
-  const life = await boot({ idb, session });
+  const life = await boot({ idb, session, safari });
   openGate(life);
   const page = await hello(life);
   const first = await skim(life, page, PAGE);
@@ -112,7 +113,7 @@ async function firstLife(session) {
   assert.equal(records.length, 1);
   assert.equal(records[0].t, "segment_start");
   await delivered(life);
-  return { idb, ctx: page.ctx };
+  return { idb, ctx: page.ctx, inst: life.port.inst };
 }
 
 test("after a background restart, an unchanged page sends nothing again", async () => {
@@ -171,6 +172,21 @@ for (const [label, lose] of [
     assert.deepEqual(records.map((record) => [record.t, record.ctx]), [["segment_start", page.ctx]]);
   });
 }
+
+test("after Safari's website data is cleared, an open page starts a new context with a full snapshot", async () => {
+  const session = sessionArea();
+  const { idb, ctx, inst } = await firstLife(session, { safari: true });
+
+  // The extension's own storage is gone; its database still says what it kept,
+  // so the restart clears that too and starts as a new install.
+  const life = await boot({ idb, session, safari: true });
+  assert.notEqual(life.port.inst, inst);
+  openGate(life);
+  const page = await hello(life);
+  assert.notEqual(page.ctx, ctx, "nothing links the page to what was kept before the clear");
+  assert.equal((await skim(life, page, PAGE)).enqueued, true);
+  assert.deepEqual((await sent(life)).map((record) => [record.t, record.ctx]), [["segment_start", page.ctx]]);
+});
 
 test("after a background restart, a new document in the frame starts its own context", async () => {
   const session = sessionArea();

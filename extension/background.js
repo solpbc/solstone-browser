@@ -1115,7 +1115,9 @@ async function doInit() {
   } catch (_e) {}
 
   if (!port) {
-    await DB.clear("producer");
+    // Documents still open keep what was last sent for them, so an unchanged
+    // page sends nothing after a restart. Everything else starts over.
+    await Outbox.retainCursors(inst, await Router.restoreContexts(inst));
     port = new PortController({
       inst,
       platform,

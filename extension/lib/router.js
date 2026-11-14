@@ -53,7 +53,67 @@
     return `${tabId}:${frameId || 0}`;
   }
 
+  // A document keeps its context across a restart of the background, so a page
+  // that hasn't changed sends nothing again. The browser's session storage
+  // holds which context each document had; it is gone after the browser or the
+  // extension restarts, and then every page starts a new context with a full
+  // snapshot. A context comes back only to a hello from the same document.
+  const CONTEXTS_KEY = "frameContexts";
+  const restoredContexts = new Map(); // key -> { ctx, origin, inst }, until its document says hello
+  let contextsChain = Promise.resolve();
+
+  function sessionStore() {
+    return typeof chrome !== "undefined" && chrome.storage?.session?.set ? chrome.storage.session : null;
+  }
+
+  function saveContexts() {
+    const store = sessionStore();
+    if (!store) return contextsChain;
+    const saved = {};
+    for (const [key, entry] of restoredContexts) saved[key] = { ctx: entry.ctx, origin: entry.origin };
+    for (const [key, binding] of frameBindings) saved[key] = { ctx: binding.ctx, origin: binding.origin };
+    contextsChain = contextsChain.then(() => store.set({ [CONTEXTS_KEY]: saved })).catch(() => {});
+    return contextsChain;
+  }
+
+  // Reads back the contexts of documents still in an open tab and returns them.
+  // Any failure restores nothing, which is the full-snapshot start.
+  async function restoreContexts(inst) {
+    restoredContexts.clear();
+    const store = sessionStore();
+    if (!store || !inst) return [];
+    let saved = null;
+    let tabs = null;
+    try {
+      saved = (await store.get(CONTEXTS_KEY))?.[CONTEXTS_KEY];
+      if (saved && typeof saved === "object") tabs = await chrome.tabs.query({});
+    } catch (_e) {
+      return [];
+    }
+    if (!saved || typeof saved !== "object" || !Array.isArray(tabs)) return [];
+    const open = new Set(tabs.map((tab) => String(tab?.id)));
+    for (const [key, entry] of Object.entries(saved)) {
+      if (!open.has(key.split(":")[0]) || frameBindings.has(key)) continue;
+      if (typeof entry?.ctx !== "string" || !entry.ctx || typeof entry.origin !== "string") continue;
+      restoredContexts.set(key, { ctx: entry.ctx, origin: entry.origin, inst });
+    }
+    if (restoredContexts.size !== Object.keys(saved).length) saveContexts();
+    return [...restoredContexts.values()].map((entry) => entry.ctx);
+  }
+
+  function forgetRestored(matches) {
+    let changed = false;
+    for (const [key, entry] of restoredContexts) {
+      if (!matches(key)) continue;
+      if (Outbox.pruneCursor) Outbox.pruneCursor(entry.inst, entry.ctx).catch(() => {});
+      restoredContexts.delete(key);
+      changed = true;
+    }
+    return changed;
+  }
+
   function destroyBinding(tabId, frameId) {
+    let changed = false;
     if (tabId !== undefined && frameId !== undefined) {
       const prefix = `${tabId}:${frameId}`;
       for (const key of frameBindings.keys()) {
@@ -61,20 +121,25 @@
           const b = frameBindings.get(key);
           if (b && Outbox.pruneCursor) Outbox.pruneCursor(b.inst, b.ctx).catch(() => {});
           frameBindings.delete(key);
+          changed = true;
         }
       }
+      if (forgetRestored((key) => key === prefix || key.startsWith(prefix + ":"))) changed = true;
       frameChallenges.delete(`${tabId}:${frameId}`);
     } else if (tabId !== undefined) {
       for (const [key, binding] of frameBindings) {
         if (binding.tabId === tabId) {
           if (binding && Outbox.pruneCursor) Outbox.pruneCursor(binding.inst, binding.ctx).catch(() => {});
           frameBindings.delete(key);
+          changed = true;
         }
       }
+      if (forgetRestored((key) => key.startsWith(`${tabId}:`))) changed = true;
       for (const key of frameChallenges.keys()) {
         if (key.startsWith(`${tabId}:`)) frameChallenges.delete(key);
       }
     }
+    if (changed) saveContexts();
     Outbox.checkAuthorization?.();
   }
 
@@ -729,9 +794,17 @@
             frameBindings.delete(key);
           }
         }
+        forgetRestored((key) => key !== fKey && key.startsWith(prefix));
+        // The same document after a background restart takes its context back.
+        const restored = restoredContexts.get(fKey);
+        restoredContexts.delete(fKey);
+        let ctx = null;
+        if (restored && restored.origin === senderOrigin && restored.inst === port.inst) ctx = restored.ctx;
+        else if (restored && Outbox.pruneCursor) Outbox.pruneCursor(restored.inst, restored.ctx).catch(() => {});
         binding = { tabId, frameId, realmToken, documentIdentity, documentKey,
-          origin: senderOrigin, ctx: mintCtx(), url: senderUrl, inst: port.inst };
+          origin: senderOrigin, ctx: ctx || mintCtx(), url: senderUrl, inst: port.inst };
         frameBindings.set(fKey, binding);
+        saveContexts();
       }
     } else if (!binding || binding.realmToken !== realmToken || binding.documentIdentity !== documentIdentity || binding.origin !== senderOrigin ||
         (!browserDocumentId && binding.documentKey !== documentKey)) {
@@ -1010,6 +1083,7 @@
     grantChainBusy: () => grantChainDepth > 0,
     route,
     destroyBinding,
+    restoreContexts,
     normalizeOrigin,
     isExtensionPageSender,
     frameBindings,

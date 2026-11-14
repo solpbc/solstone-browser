@@ -445,6 +445,23 @@
     });
   }
 
+  // Keeps only the change tracking of the given contexts, as a background
+  // restart does for the documents that come back. With none, it clears it.
+  async function retainCursors(inst, ctxs) {
+    const keep = new Set((ctxs || []).map((ctx) => contextKeyFor(inst, ctx)));
+    return DB.tx("producer", "readwrite", (producerStore, t) => {
+      if (keep.size === 0) { producerStore.clear(); return; }
+      const req = producerStore.getAllKeys();
+      req.onsuccess = () => {
+        try {
+          for (const key of req.result || []) if (!keep.has(key)) producerStore.delete(key);
+        } catch (err) {
+          fail(t, err);
+        }
+      };
+    });
+  }
+
   async function applyRejectedReceipt(batchId, receipt) {
     if (["stale_generation", "expired_unaccepted"].includes(receipt.reason)) {
       return { removed: 0, promotedBatchId: null };
@@ -680,6 +697,7 @@
     markSnapshotRequired,
     markAllSnapshotRequired,
     pruneCursor,
+    retainCursors,
     applyRejectedReceipt,
     promoteHeldForGeneration,
     dismissLoss,

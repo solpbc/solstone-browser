@@ -161,6 +161,8 @@ let badgeEpoch = 0;
 let openTabsGeneration = 0;
 let badgeChain = Promise.resolve();
 let paintEpoch = 0;
+// What the toolbar was last asked to show, so an unchanged state isn't painted again.
+let toolbarPainted = null;
 let toolbarLink = null;
 let toolbarWake = null;
 let lastAppNudgeAt = -Infinity;
@@ -251,16 +253,25 @@ async function paintToolbar(status) {
   const prefix = iconInfo.prefix;
   const badge = iconInfo.badge || "";
   const title = iconInfo.title || t("browser.brand.name");
+  const painting = JSON.stringify([prefix, badge, title]);
+  if (painting === toolbarPainted) return;
+  toolbarPainted = painting;
   const currentPaint = ++paintEpoch;
   badgeChain = badgeChain.catch(() => {}).then(async () => {
     if (paintEpoch !== currentPaint) return;
-    await chrome.action.setIcon({ path: ICON_SET(prefix) });
-    if (paintEpoch !== currentPaint) return;
-    await chrome.action.setBadgeText({ text: badge });
-    if (paintEpoch !== currentPaint) return;
-    if (badge) await chrome.action.setBadgeBackgroundColor({ color: "#9F2D2D" });
-    if (paintEpoch !== currentPaint) return;
-    await chrome.action.setTitle({ title });
+    try {
+      await chrome.action.setIcon({ path: ICON_SET(prefix) });
+      if (paintEpoch !== currentPaint) return;
+      await chrome.action.setBadgeText({ text: badge });
+      if (paintEpoch !== currentPaint) return;
+      if (badge) await chrome.action.setBadgeBackgroundColor({ color: "#9F2D2D" });
+      if (paintEpoch !== currentPaint) return;
+      await chrome.action.setTitle({ title });
+    } catch (err) {
+      // Not painted: the next status tries again.
+      if (toolbarPainted === painting) toolbarPainted = null;
+      throw err;
+    }
   });
   await badgeChain.catch(() => {});
 }

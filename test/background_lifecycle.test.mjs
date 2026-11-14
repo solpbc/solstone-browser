@@ -5891,3 +5891,33 @@ test("lifecycle: re-reading an unchanged grant saves nothing, and a changed one 
   const stored = await mock.chrome.storage.local.get("grantWatch");
   assert.ok(stored.grantWatch.patterns.includes("*://other.example/*"));
 });
+
+test("lifecycle: the toolbar is painted again only when what it shows changes", async () => {
+  const { mock, bg } = await startWorker();
+  const icons = [];
+  let calls = 0;
+  mock.chrome.action.setIcon = async (value) => { calls++; icons.push(value.path[16]); };
+  for (const name of ["setBadgeText", "setBadgeBackgroundColor", "setTitle"]) mock.chrome.action[name] = async () => { calls++; };
+  const { closed } = states(bg);
+  await bg.updateBadge(closed);
+  const firstPaint = calls;
+  assert.ok(firstPaint > 0);
+  for (let i = 0; i < 20; i++) await bg.updateBadge({ ...closed });
+  assert.equal(calls, firstPaint, "an unchanged state is not painted again");
+  await bg.updateBadge({ ...closed, everConnected: false });
+  assert.ok(calls > firstPaint, "a change is painted");
+  assert.notEqual(icons.at(-1), icons[0]);
+  await bg.updateBadge(closed);
+  assert.equal(icons.at(-1), icons[0], "changing back is painted too");
+});
+
+test("lifecycle: a toolbar paint that failed is tried again on the next status", async () => {
+  const { mock, bg } = await startWorker();
+  const { closed } = states(bg);
+  let fail = true, icons = 0;
+  mock.chrome.action.setIcon = async () => { icons++; if (fail) throw new Error("fixture paint failure"); };
+  await bg.updateBadge(closed);
+  fail = false;
+  await bg.updateBadge({ ...closed });
+  assert.equal(icons, 2);
+});

@@ -107,12 +107,13 @@ test("receipt deadline and revision fences exclude obsolete asynchronous complet
   const original = Outbox.promoteHeldForGeneration; const releases = [];
   Outbox.promoteHeldForGeneration = (_generation, _authorize) => new Promise(resolve => releases.push(resolve));
   try {
-    const older = f.ports[0].receive(state("state", facts, "fixture-a", 10));
+    // Each state moves the destination, so each waits on promoting held pages.
+    const older = f.ports[0].receive(state("state", facts, "fixture-b", 10));
     f.now = 111;
     releases.shift()({count: 0}); await older;
     assert.equal(f.controller.getStatus().about.journal_current, false);
     const pending = f.ports[0].receive(state("state", facts, "fixture-a"));
-    const newer = f.ports[0].receive(state("state", fixtures.valid[1], "fixture-a"));
+    const newer = f.ports[0].receive(state("state", fixtures.valid[1], "fixture-b"));
     releases[1]({count: 0}); await newer;
     releases[0]({count: 0}); await pending;
     assert.equal(f.controller.getStatus().about.journal_line, "journal unknown");

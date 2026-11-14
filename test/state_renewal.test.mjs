@@ -380,3 +380,67 @@ test("router: renew reports the bound frame's remaining lease and refuses an unb
   assert.equal(renewed.lease.token, hello.lease.token);
   assert.equal(renewed.lease.freshnessMs, 11000);
 });
+
+test("held pages are promoted once per destination, not on every state change", async () => {
+  const w = await world();
+  const promoted = [];
+  const original = Outbox.promoteHeldForGeneration;
+  Outbox.promoteHeldForGeneration = async (generation, authorize) => { promoted.push(generation); return original(generation, authorize); };
+  try {
+    await connected(w);
+    for (const delivery of ["kept_locally", "delivered", "idle", "delivered"]) {
+      await w.advanceTo(w.now + 5000);
+      await w.port().receive(frame({ delivery }));
+    }
+    assert.deepEqual(promoted, ["gen-a"]);
+    await w.port().receive(frame({ destination_generation: "gen-b" }));
+    assert.deepEqual(promoted, ["gen-a", "gen-b"]);
+    await w.port().receive(frame({ capture: "not_paired", destination_generation: null, period_id: null, freshness_ms: 0 }));
+    await w.port().receive(frame({ destination_generation: "gen-b" }));
+    assert.deepEqual(promoted, ["gen-a", "gen-b", "gen-b"], "a destination that comes back is promoted again");
+    w.port().disconnect();
+    w.controller.connect();
+    await w.port().receive(frame({ type: "hello_ack", destination_generation: "gen-b" }));
+    assert.deepEqual(promoted, ["gen-a", "gen-b", "gen-b", "gen-b"], "a new connection promotes again");
+  } finally {
+    Outbox.promoteHeldForGeneration = original;
+  }
+});
+
+test("a promotion cut short by a newer state is done again", async () => {
+  const w = await world();
+  await connected(w);
+  const promoted = [];
+  const original = Outbox.promoteHeldForGeneration;
+  let release;
+  Outbox.promoteHeldForGeneration = (generation) => { promoted.push(generation); return new Promise((resolve) => { release = resolve; }); };
+  try {
+    const first = w.port().receive(frame({ destination_generation: "gen-b" }));
+    const stalled = release;
+    const second = w.port().receive(frame({ destination_generation: "gen-b", delivery: "delivered" }));
+    stalled({ count: 0 });
+    release({ count: 0 });
+    await Promise.all([first, second]);
+    assert.deepEqual(promoted, ["gen-b", "gen-b"]);
+  } finally {
+    Outbox.promoteHeldForGeneration = original;
+  }
+});
+
+test("the minute poll looks at the store's size only while it is full", async () => {
+  const w = await world();
+  await connected(w);
+  let scans = 0;
+  const original = Outbox.getCapacityStatus;
+  Outbox.getCapacityStatus = async () => { scans++; return original(); };
+  try {
+    for (let i = 0; i < 5; i++) await w.controller.poll();
+    assert.equal(scans, 0);
+    w.controller.pressure = { active: true };
+    await w.controller.poll();
+    assert.equal(scans, 1);
+    assert.equal(w.controller.pressure.active, false, "a store with room again is noticed");
+  } finally {
+    Outbox.getCapacityStatus = original;
+  }
+});

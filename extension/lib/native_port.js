@@ -194,6 +194,7 @@
       this.onLapseReservation = options.onLapseReservation || null;
       this.lastCaptureMessage = null;
       this.heldState = null;
+      this.promotedGeneration = null;
       this.capturePermitted = false;
       this.brand = resolveBrand();
       this.platform = options.platform || "";
@@ -555,6 +556,7 @@
       this.opEpoch++;
       this.stateRevision++;
       this.hostStateDeadline = null;
+      this.promotedGeneration = null;
       this.connectionGeneration++;
       const currentEpoch = this.opEpoch;
       const currentGen = this.connectionGeneration;
@@ -1006,10 +1008,16 @@
         this.inflightBatch = null;
       }
       this.notify();
+      if (!(typeof val.destination_generation === "string" && val.destination_generation.length > 0)) this.promotedGeneration = null;
       try {
-        if (typeof val.destination_generation === "string" && val.destination_generation.length > 0) {
+        // Held pages wait for a destination. Once a connection has promoted
+        // them for this one, a state that keeps it has nothing more to promote.
+        if (typeof val.destination_generation === "string" && val.destination_generation.length > 0 &&
+            val.destination_generation !== this.promotedGeneration) {
+          this.promotedGeneration = null;
           const promoted = await Outbox.promoteHeldForGeneration(val.destination_generation, current);
           if (!current()) return;
+          this.promotedGeneration = val.destination_generation;
           if (promoted?.count) {
             await this.refreshStorageStatus();
             if (!current()) return;
@@ -1360,7 +1368,9 @@
         this.pumpMigration();
       }
 
-      await this.refreshStorageStatus();
+      // Only a full store needs looking at again to notice it has room: every
+      // write, receipt and refusal already updates the pressure it causes.
+      if (this.pressure?.active) await this.refreshStorageStatus();
       this.notify();
       if (!this.livePort) {
         this.connect();

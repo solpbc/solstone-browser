@@ -1178,7 +1178,7 @@ test("lifecycle: a surface opened mid-transition shows the settled state, not \"
   await p.applyCaptureMessage(state,epoch,gen,token);
   const held=deferred(),outbox=sandbox.SolstoneNativeOutbox,original=outbox.promoteHeldForGeneration;
   outbox.promoteHeldForGeneration=()=>held.promise;
-  const renewal=p.applyCaptureMessage({...state,delivery:"delivered"},epoch,gen,token);
+  const renewal=p.applyCaptureMessage({...state,destination_generation:"gen-renew-2"},epoch,gen,token);
   const id=mock.chrome.runtime.id, sender={id,url:`chrome-extension://${id}/popup.html`};
   const posted=[];
   for (const fn of mock.listeners.onConnect) fn({name:"status",sender,disconnect(){},postMessage:m=>posted.push(m),onDisconnect:{addListener(){}}});
@@ -3783,6 +3783,9 @@ async function bootSafariLease(clock = safariClock()) {
   const sandbox = await startSafari(mock, new IDBFactory(), clock);
   const port = sandbox.SolstoneBackground.port;
   armLease(port);
+  // Tabs hear the armed grant before counting starts.
+  port.notify();
+  await flushTick();
   const leaseUpdates = answerAndCount(mock);
   const hello = await sendSafari(mock, safariHello());
   assert.equal(hello.ok, true, JSON.stringify(hello));

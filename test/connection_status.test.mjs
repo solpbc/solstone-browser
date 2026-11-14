@@ -221,7 +221,7 @@ test("a state change that never settles holds the surfaces only while the last s
   t.after(() => { Outbox.promoteHeldForGeneration = original; });
   Outbox.promoteHeldForGeneration = () => new Promise(() => {});
 
-  const changed = { ...frame("state"), delivery: "delivered" };
+  const changed = { ...frame("state"), destination_generation: "gen-b" };
   await bg.advanceTo(12000);
   bg.port().receive(changed);
   await new Promise((resolve) => setImmediate(resolve));

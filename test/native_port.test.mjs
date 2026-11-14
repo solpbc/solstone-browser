@@ -1782,7 +1782,7 @@ test("port: a failed state transition publishes the withdrawn state as settled",
   const original = Outbox.promoteHeldForGeneration;
   Outbox.promoteHeldForGeneration = async () => { throw new Error("fixture storage failure"); };
   try {
-    await mockPort.receive({ ...state("state"), delivery: "delivered" });
+    await mockPort.receive({ ...state("state"), destination_generation: "gen-beta" });
   } finally {
     Outbox.promoteHeldForGeneration = original;
   }
@@ -2165,7 +2165,7 @@ test("port: a dropped connection is never reported as settling", async () => {
   const original = Outbox.promoteHeldForGeneration;
   Outbox.promoteHeldForGeneration = () => new Promise((resolve) => { release = resolve; });
   try {
-    const pending = mockPort.receive({ ...state("state"), delivery: "delivered" });
+    const pending = mockPort.receive({ ...state("state"), destination_generation: "gen-beta" });
     assert.equal(controller.getStatus().hostSettling, true);
     mockPort.disconnect();
     assert.equal(controller.getStatus().hostSettling, false);

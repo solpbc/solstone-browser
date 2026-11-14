@@ -304,7 +304,14 @@
           return;
         }
         const freshnessMs = Number(next.freshnessMs || 0);
-        if (now() >= reqTime + freshnessMs || (lapsed && freshnessMs <= RENEW_LEAD_MS)) return;
+        if (lapsed && freshnessMs <= RENEW_LEAD_MS) {
+          // The grant stands for a moment more. A renewal of it tells nobody,
+          // so ask again when that moment is up rather than go quiet; a lapse
+          // or a change in between closes this through a lease update.
+          if (freshnessMs > 0) renewTimer = setTimeout(() => renewLease(held, true), Math.max(250, freshnessMs));
+          return;
+        }
+        if (now() >= reqTime + freshnessMs) return;
         lease = { ...held, freshnessMs, receivedAt: reqTime };
         holdGrant();
       });

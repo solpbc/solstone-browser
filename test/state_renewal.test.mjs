@@ -70,6 +70,7 @@ async function world() {
   const asks = [];
   let reads = 0;
   let content = null;
+  const held = { renewals: false };
 
   const schedule = (fn, ms) => { const t = { at: clock + Math.max(0, ms), seq: ++timerSeq, fn }; timers.push(t); return t; };
   const cancel = (t) => { const i = timers.indexOf(t); if (i >= 0) timers.splice(i, 1); };
@@ -135,6 +136,8 @@ async function world() {
             cb?.({ ok: true });
             return;
           }
+          // A throttled page whose asks go unanswered for a while.
+          if (m.kind === "renew" && held.renewals) return;
           Router.route(m, sender, deps).then((r) => cb?.(r), () => cb?.({ ok: false }));
         },
         onMessage: { addListener(fn) { content = (m) => fn(m, { id: "ext" }, () => {}); } },
@@ -174,7 +177,7 @@ async function world() {
   };
 
   return {
-    controller, statuses, skims, asks, advanceTo,
+    controller, statuses, skims, asks, advanceTo, held,
     get reads() { return reads; },
     get now() { return clock; },
     port: () => ports.at(-1),
@@ -443,4 +446,53 @@ test("the minute poll looks at the store's size only while it is full", async ()
   } finally {
     Outbox.getCapacityStatus = original;
   }
+});
+
+test("a page whose lease ran out with the grant about to lapse asks again, and resumes when it was renewed", async () => {
+  const w = await world();
+  await connected(w);
+  const granted = w.now;
+  w.startPage();
+  await w.advanceTo(granted + 1000);
+  assert.equal(w.skims.length, 1);
+  // The app renews once early; the page's asks go unanswered until its own
+  // lease has run out with about 4 s of the app's grant left.
+  await w.advanceTo(granted + 4000);
+  await w.port().receive(frame());
+  w.held.renewals = true;
+  await w.advanceTo(granted + 14000);
+  w.held.renewals = false;
+  await w.advanceTo(granted + 15500);
+  assert.equal(w.skims.length, 1);
+  // An identical renewal tells nobody, yet the page picks the grant up.
+  await w.advanceTo(granted + 17000);
+  await w.port().receive(frame());
+  await w.advanceTo(granted + 20000);
+  assert.equal(w.skims.length, 2, "the page resumed with one fresh read");
+  const renews = w.asks.filter((k) => k === "renew").length;
+  for (let t = 22000; t <= 62000; t += 5000) {
+    await w.advanceTo(granted + t);
+    await w.port().receive(frame());
+  }
+  assert.equal(w.skims.length, 2);
+  assert.ok(w.asks.filter((k) => k === "renew").length > renews);
+});
+
+test("a page whose last ask finds the grant about to lapse stops asking once it lapses", async () => {
+  const w = await world();
+  await connected(w);
+  const granted = w.now;
+  w.startPage();
+  await w.advanceTo(granted + 1000);
+  await w.advanceTo(granted + 4000);
+  await w.port().receive(frame());
+  w.held.renewals = true;
+  await w.advanceTo(granted + 14000);
+  w.held.renewals = false;
+  // No further renewal: the app's grant lapses at 19 s.
+  await w.advanceTo(granted + 25000);
+  const renews = w.asks.filter((k) => k === "renew").length;
+  await w.advanceTo(granted + 90000);
+  assert.equal(w.asks.filter((k) => k === "renew").length, renews);
+  assert.equal(w.skims.length, 1);
 });

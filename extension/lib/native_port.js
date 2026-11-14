@@ -1405,7 +1405,19 @@
       if (this.drainOwner || !this.livePort || this.handshake !== "ready") return;
       if (!this.destinationGeneration) return;
       if (!["permitted", "paused", "intake_off"].includes(this.hostCapture)) return;
-      if (this.retryNotBefore && this.now() < this.retryNotBefore) return;
+      if (this.retryNotBefore && this.now() < this.retryNotBefore) {
+        // The wait belongs to the batch that was refused. If that batch has
+        // left the store, the next one doesn't inherit it.
+        const waiting = this.retryBackoff;
+        if (!waiting) return;
+        let stillHeld = true;
+        try { stillHeld = (await DB.get("outbox", waiting.batchId)) != null; } catch (_e) {}
+        if (stillHeld || this.retryBackoff !== waiting) return;
+        this.retryBackoff = null;
+        this.retryNotBefore = 0;
+        if (this.drainOwner || !this.livePort || this.handshake !== "ready" || !this.destinationGeneration ||
+            !["permitted", "paused", "intake_off"].includes(this.hostCapture)) return;
+      }
 
       const owner = {};
       this.drainOwner = owner;

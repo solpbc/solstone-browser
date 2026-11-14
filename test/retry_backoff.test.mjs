@@ -191,3 +191,23 @@ test("an unanswered batch is offered again at once, then with a doubling wait", 
   assert.deepEqual(times, [0, 5000, 15000, 35000, 75000, 155000]);
   for (const batch of w.port().batches()) assert.equal(batch.batch_id, item.batchId);
 });
+
+test("a batch that leaves the store while waiting leaves no wait for the next one", async () => {
+  const w = await world();
+  const first = await enqueue("first");
+  w.controller.connect();
+  await w.port().receive(state({ type: "hello_ack" }));
+  await w.port().receive(refusal(first.batchId));
+  await w.advanceTo(w.now + 5000);
+  await w.port().receive(state());
+  await w.port().receive(refusal(first.batchId));
+  // Now waiting 10 s on the first batch; it leaves the store another way.
+  await Outbox.removeBatch(first.batchId);
+  const second = await enqueue("second");
+  const start = w.now;
+  const times = w.sendTimes(start);
+  await w.advanceTo(start + 1000);
+  await w.controller.drain();
+  assert.deepEqual(times, [1000]);
+  assert.equal(w.port().batches().at(-1).batch_id, second.batchId);
+});

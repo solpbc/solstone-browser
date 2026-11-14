@@ -20,6 +20,7 @@ Notable changes to the extension. The version is `manifest.json`'s `version`;
 - in the popup's list of sites that need attention, a site the extension couldn't start on shows its whole address across the row, instead of one letter per line.
 - in settings, a site the solstone app also leaves out can only be included again while the extension is connected to the solstone app, so settings no longer says it's back in while the app still leaves it out.
 - the popup's count of sites left out includes the ones you left out in the solstone app.
+- with pages open, the solstone extension uses less battery and processor time, because it no longer repeats the same work every few seconds while nothing on them changes.
 
 ## [0.5.10] (2026-11-07)
 

@@ -37,6 +37,10 @@ The shipped runtime is plain scripts with no npm runtime dependency. `make ci` d
 
 For permission tests, use the real owner gesture and browser prompt. A fixture manifest with pregranted host access cannot prove the production grant flow. Instrument before the first page-script statement when claiming zero reads; inspecting only later mutations misses bootstrap work. Runtime egress checks must detect attempted calls even when CSP blocks the request, and must fail under a deliberate leak mutation.
 
+## English copy
+
+English copy lives in `i18n/catalog/`. A new or changed string is a catalog message with its `meta/` sidecar, regenerated with the compiler pinned in `i18n/compiler.json`, as `i18n/README.md` describes. Don't add an English literal in extension code. Four catalog messages stay plain English on purpose. `i18n/README.md` names them.
+
 ## Packaging and changes
 
 One manifest contains both browser background forms. Keep the Firefox script order aligned with the service worker imports, preserve private-window exclusion and the required data declarations, and reopen every archive to check referenced runtime files. Production and development identities select different native host names; never merge their allowlists.

@@ -37,3 +37,7 @@ existing English: `browser.copy.step3body`, `browser.copy.linuxupdate`,
 `browser.copy.linuxintakeoff` and `browser.copy.linuxstep1intake`. The first has
 independent device-menu and browser choices; the others interpolate commands
 that cannot be marked as protected runtime arguments by the current profile.
+
+## Draft locales
+
+`es-419` is registered in the pinned locale registry as a draft locale (`development` released, `production` withheld). Draft translations live in `catalog/translations/es-419.ftl` (or sharded files under `catalog/translations/es-419/`), and production builds exclude them. Unapproved legal and statutory messages stay absent from draft translation files and fall back to English in development builds. When editing English prose, run `i18n-catalog lock` to refresh `source-lock.json`, copy each changed `source` hash into its sidecar `source_revision`, and do not pass `--acknowledge es-419`: leaving the prior acknowledgment untouched marks edited draft entries stale until a translator updates them.

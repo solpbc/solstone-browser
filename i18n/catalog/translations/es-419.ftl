@@ -34,7 +34,7 @@ browser.brand.name = solstone
 
 browser.chrome.addthissite = agregar este sitio
 
-browser.chrome.dismiss = ocultar
+browser.chrome.dismiss = descartar
 
 browser.chrome.inyourbrowser = en tu navegador
 

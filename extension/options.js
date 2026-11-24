@@ -258,7 +258,7 @@
       const remove = document.createElement("button");
       remove.type = "button";
       remove.textContent = t("browser.options.remove");
-      if (typeof remove.setAttribute === "function") remove.setAttribute("aria-label", t("browser.options.siterowaria", {action:remove.textContent,host}));
+      if (typeof remove.setAttribute === "function") remove.setAttribute("aria-label", t("browser.options.siterowaria", {action:"remove",host}));
       remove.addEventListener("click", () => runSiteAction({ id: "remove-site", host: hostname, label: host, origin: entry }));
       actions.append(remove);
       row.append(copyEl, actions);

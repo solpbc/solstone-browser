@@ -6,7 +6,7 @@
 # installs locked dev dependencies for real-IDB checks.
 # The CDP skim smoke needs a real Chrome.
 
-.PHONY: install test test-idb ci format brand-sync clean smoke popup-check e2e-deps dist cws package-check set-version
+.PHONY: install test test-idb ci i18n-dev format brand-sync clean smoke popup-check e2e-deps dist cws package-check set-version
 
 # Install locked development tools. Nothing from node_modules ships in extension/.
 install:
@@ -28,6 +28,9 @@ ci:
 	npm run test:idb
 	cargo test -p native-browser-frame
 	node scripts/check-native-browser.mjs
+
+i18n-dev:
+	node scripts/i18n.mjs --channel development
 
 # No formatter configured yet.
 format:

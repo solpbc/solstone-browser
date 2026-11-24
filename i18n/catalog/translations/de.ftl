@@ -143,7 +143,7 @@ browser.copy.couldntcheck = { $browser ->
    *[other] prüfen, was dein Browser erlaubt, ist nicht gelungen. versuch es noch einmal.
 }
 
-browser.copy.couldntstart = auf deinen Websites starten ist nicht gelungen
+browser.copy.couldntstart = auf deinen Websites konnte nicht gestartet werden
 
 browser.copy.deniednote = { $surface ->
    *[safari-desktop] um sie einzubeziehen, stelle sie in den Website-Einstellungen von Safari auf Erlauben.
@@ -197,7 +197,7 @@ browser.copy.everysiteleftout = jede Website · { $value1 } ausgelassen
 
 browser.copy.extensionleftout = die solstone-Erweiterung lässt es aus.
 
-browser.copy.failadd = die Website hinzuzufügen ist nicht gelungen. versuch es noch einmal.
+browser.copy.failadd = die Website konnte nicht hinzugefügt werden. versuch es noch einmal.
 
 browser.copy.failedbody = { $browser ->
     [firefox] da ist beim Einschalten jeder Website in Firefox etwas schiefgelaufen.
@@ -215,9 +215,9 @@ browser.copy.failpage = eine Seite von dieser Website zu behalten ist nicht gelu
 
 browser.copy.failpageretry = eine Seite von dieser Website zu behalten ist nicht gelungen. die Erweiterung versucht es erneut, wenn sich die Seite ändert.
 
-browser.copy.failrestartsite = auf dieser Website starten ist nicht gelungen. entferne sie und füge sie wieder hinzu.
+browser.copy.failrestartsite = auf dieser Website konnte nicht gestartet werden. entferne sie und füge sie wieder hinzu.
 
-browser.copy.failsave = das zu speichern ist nicht gelungen. versuch es noch einmal.
+browser.copy.failsave = das konnte nicht gespeichert werden. versuch es noch einmal.
 
 browser.copy.failsetupfirst = schließ die Ersteinrichtung zuerst ab.
 
@@ -385,7 +385,7 @@ browser.copy.unknownstate = diese Erweiterung kann diese Seite nicht erreichen
 
 browser.copy.warm1 = willkommen bei solstone.
 
-browser.copy.warm2 = die solstone-App nimmt entgegen, was du mit ihr teilst, und alles davon geht in dein Journal.
+browser.copy.warm2 = die solstone-App nimmt entgegen, was du mit ihr teilst, und all das geht in dein Journal.
 
 browser.copy.warm3 = dein Journal ist immer privat, nur deins.
 
@@ -449,7 +449,7 @@ browser.manifest.description = auf Websites, die du erlaubst, nimmt die solstone
 
 browser.manifest.safaridescription = auf Websites, die du erlaubst, nimmt sie Seitentext, Adressen und grobes Layout entgegen, und alles davon geht in dein Journal.
 
-browser.options.addasite = eine Website hinzufügen
+browser.options.addasite = Website hinzufügen
 
 browser.options.addsitesoneat = Websites einzeln hinzufügen
 
@@ -532,7 +532,7 @@ browser.popup.copybutton = { $phase ->
     [copied] kopiert
 }
 
-browser.popup.copyfailed = kopieren ist nicht gelungen. markiere den Text und kopiere ihn.
+browser.popup.copyfailed = das Kopieren ist nicht gelungen. wähle den Text aus und kopiere ihn.
 
 browser.popup.included = einbezogen
 

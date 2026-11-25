@@ -385,7 +385,7 @@ browser.copy.unknownstate = ఈ ఎక్స్‌టెన్షన్ ఈ ప�
 
 browser.copy.warm1 = solstone‌కు స్వాగతం.
 
-browser.copy.warm2 = solstone యాప్ మీరు దానితో పంచుకున్నదాన్ని స్వీకరిస్తుంది, అంతా మీ జర్నల్‌లోకి వెళ్తుంది.
+browser.copy.warm2 = solstone యాప్ మీరు పంచుకున్నదాన్ని స్వీకరిస్తుంది, మరియు అంతా మీ జర్నల్‌లోకి వెళుతుంది.
 
 browser.copy.warm3 = మీ జర్నల్ ఎప్పుడూ ప్రైవేట్, మీదే.
 
@@ -395,7 +395,7 @@ browser.extension.clearedextensionsstorage = మీరు ఈ ఎక్స్‌
 
 browser.extension.clearedextensionsstorage2 = మీరు ఈ ఎక్స్‌టెన్షన్ నిల్వను తుడిచివేశారు, కాబట్టి అది పాజ్ అయి ఉంది. మీరు కొనసాగించినప్పుడు, solstone యాప్‌లో మీరు మినహాయించినది తప్ప, Safari అనుమతించే ప్రతి సైట్ మీ జర్నల్‌లోకి వెళ్తుంది.
 
-browser.extension.enterwebsiteaddresslike = వెబ్‌సైట్ చిరునామా ఇవ్వండి, bank.com లాగా.
+browser.extension.enterwebsiteaddresslike = వెబ్‌సైట్ చిరునామా ఎంటర్ చేయండి, bank.com లాగా.
 
 browser.extension.everysiteoffexcept = మీరు ఒక్కొక్కటిగా చేర్చిన సైట్‌లు తప్ప, ప్రతి సైట్ ఆఫ్‌లో ఉంది.
 

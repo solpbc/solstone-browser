@@ -446,7 +446,7 @@ browser.failure.raw = qualcosa è andato storto: { $raw }
 
 browser.labels.onnow = attivo ora
 
-browser.labels.opensettings = apri impostazioni
+browser.labels.opensettings = apri le impostazioni
 
 browser.labels.updatenow = aggiorna ora
 
